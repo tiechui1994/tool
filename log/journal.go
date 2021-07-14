@@ -3,7 +3,6 @@ package log
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -15,8 +14,20 @@ import (
 	"syscall"
 )
 
+const (
+	EMERG = iota
+	ALERT
+	CRIT
+	ERR
+	WARNING
+	NOTICE
+	INFO
+	DEBUG
+)
+
 var (
-	socket  = "/run/systemd/journal/stdout"
+	socket  = "/run/systemd/journal/socket"
+	syslog  = "/run/systemd/journal/syslog"
 	addr    = &net.UnixAddr{Name: socket, Net: "unixgram"}
 	journal = &Journal{}
 )
@@ -28,7 +39,7 @@ type Journal struct {
 }
 
 func openUnlinkTempFile() (*os.File, error) {
-	f, err := ioutil.TempFile("/dev/shm/", "tmp-journald")
+	f, err := ioutil.TempFile("/dev/shm/", "journal.XXXXX")
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +52,7 @@ func openUnlinkTempFile() (*os.File, error) {
 	return f, nil
 }
 
-func appendVariable(w io.Writer, name, value string) {
+func appendVar(w io.Writer, name, value string) {
 	if strings.ContainsRune(value, '\n') {
 		/* When the value contains a newline, we write:
 		 * - the variable name, followed by a newline
@@ -57,33 +68,22 @@ func appendVariable(w io.Writer, name, value string) {
 	}
 }
 
-func (j *Journal) writeMsg(message string) error {
-	c, err := j.journalConn1()
+func (j *Journal) writeMsg(level int, message string) error {
+	c, err := j.journalConn()
 	if err != nil {
 		return err
 	}
 
 	data := new(bytes.Buffer)
-	appendVariable(data, "PRIORITY", strconv.Itoa(int(5)))
-	appendVariable(data, "MESSAGE", message)
+	appendVar(data, "PRIORITY", strconv.Itoa(level))
+	appendVar(data, "UNIT", "tool")
+	appendVar(data, "SYSLOG_IDENTIFIER", "systemd")
+	appendVar(data, "MESSAGE", message)
 
 	_, err = io.Copy(j.conn, data)
 	if err == nil {
 		return nil
 	}
-
-	//var errno syscall.Errno
-	//switch e := err.(type) {
-	//case *net.OpError:
-	//	switch e := e.Err.(type) {
-	//	case *os.SyscallError:
-	//		errno = e.Err.(syscall.Errno)
-	//	}
-	//}
-	//
-	//if errno != syscall.EMSGSIZE && errno != syscall.ENOBUFS {
-	//	return err
-	//}
 
 	f, err := openUnlinkTempFile()
 	if err != nil {
@@ -102,48 +102,6 @@ func (j *Journal) writeMsg(message string) error {
 
 func (j *Journal) journalConn() (*net.UnixConn, error) {
 	j.once.Do(func() {
-		fd, err := syscall.Socket(syscall.AF_UNIX, syscall.SOCK_DGRAM, 0)
-		if err != nil {
-			j.connErr = err
-			return
-		}
-
-		f := os.NewFile(uintptr(fd), "UNIX Socket")
-		defer f.Close()
-
-		fc, err := net.FileConn(f)
-		if err != nil {
-			j.connErr = err
-			return
-		}
-
-		uc, ok := fc.(*net.UnixConn)
-		if !ok {
-			fc.Close()
-			j.connErr = errors.New("not a UNIX Conn")
-			return
-		}
-
-		uc.SetReadBuffer(8 * 1024 * 1024)
-		j.conn = uc
-	})
-
-	return j.conn, j.connErr
-}
-
-func (j *Journal) journalConn1() (*net.UnixConn, error) {
-	j.once.Do(func() {
-		if _, err := os.Stat(socket); err == nil {
-			conn, err := net.Dial("unix", socket)
-			if err != nil {
-				j.connErr = err
-				return
-			}
-
-			j.conn = conn.(*net.UnixConn)
-			return
-		}
-
 		bind, err := net.ResolveUnixAddr("unixgram", "")
 		if err != nil {
 			j.connErr = err
@@ -156,14 +114,14 @@ func (j *Journal) journalConn1() (*net.UnixConn, error) {
 			return
 		}
 
+		conn.SetReadBuffer(8 * 1024 * 1024)
 		j.conn = conn
 	})
 
 	return j.conn, j.connErr
 }
 
-func Log(format string, args ...interface{}) {
+func Log(level int, format string, args ...interface{}) {
 	str := fmt.Sprintf(format, args...)
-	err := journal.writeMsg(str)
-	fmt.Println(err)
+	journal.writeMsg(level, str)
 }

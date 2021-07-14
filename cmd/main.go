@@ -13,8 +13,8 @@ import (
 
 func Exec() {
 	for {
-		log.Log("%v %v", uuid.New(), time.Now().Unix())
-		time.Sleep(2*time.Second)
+		log.Log(log.CRIT, "%v %v", uuid.New(), time.Now().Unix())
+		time.Sleep(2 * time.Second)
 	}
 }
 
