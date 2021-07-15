@@ -6,12 +6,22 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"syscall"
+)
+
+type Severity int
+type Facility int
+
+const (
+	kernel Facility = 0
+	user   Facility = 1
+	system Facility = 3
 )
 
 const (
@@ -25,17 +35,31 @@ const (
 	DEBUG
 )
 
-var (
-	socket  = "/run/systemd/journal/socket"
-	syslog  = "/run/systemd/journal/syslog"
-	addr    = &net.UnixAddr{Name: socket, Net: "unixgram"}
-	journal = &Journal{}
+const (
+	LOG_SYSLOG  = "/dev/log"
+	LOG_SOCKET  = "/run/systemd/journal/socket"
 )
 
+var (
+	journal = New(LOG_SYSLOG)
+)
+
+func init() {
+	log.SetFlags(log.Ltime)
+}
+
 type Journal struct {
-	conn    *net.UnixConn
+	_type   string
+	addr    *net.UnixAddr
+	conn    net.Conn
 	connErr error
 	once    sync.Once
+}
+
+func New(_type string) *Journal {
+	j := Journal{_type: _type}
+	j.connect()
+	return &j
 }
 
 func openUnlinkTempFile() (*os.File, error) {
@@ -52,7 +76,15 @@ func openUnlinkTempFile() (*os.File, error) {
 	return f, nil
 }
 
-func appendVar(w io.Writer, name, value string) {
+func syslogVar(w io.Writer, level Severity, msg string) {
+	const space = " "
+	fmt.Fprintf(w, "<%d>", uint(level)|uint(system)<<3) // PRI
+	fmt.Fprintf(w, "%s", "tool:")                       // SYSLOG_IDENTIFIER
+	fmt.Fprintf(w, space)
+	fmt.Fprintln(w, msg+string([]byte{0})) // MSG
+}
+
+func socketVar(w io.Writer, name, value string) {
 	if strings.ContainsRune(value, '\n') {
 		/* When the value contains a newline, we write:
 		 * - the variable name, followed by a newline
@@ -68,19 +100,44 @@ func appendVar(w io.Writer, name, value string) {
 	}
 }
 
+func consoleVar(w io.Writer, level int, msg string) {
+	tags := map[int]string{
+		ALERT:   "A",
+		CRIT:    "C",
+		ERR:     "E",
+		WARNING: "W",
+		NOTICE:  "N",
+		INFO:    "I",
+		DEBUG:   "D",
+	}
+	fmt.Fprintf(w, "%v", "tool")
+	fmt.Fprintf(w, " ")
+	fmt.Fprintf(w, "[%v]", tags[level])
+	fmt.Fprintf(w, " ")
+	fmt.Fprintf(w, msg) // MSG
+}
+
 func (j *Journal) writeMsg(level int, message string) error {
-	c, err := j.journalConn()
+	c, err := j.connect()
 	if err != nil {
 		return err
 	}
 
+	conn := c.(*net.UnixConn)
 	data := new(bytes.Buffer)
-	appendVar(data, "PRIORITY", strconv.Itoa(level))
-	appendVar(data, "UNIT", "tool")
-	appendVar(data, "SYSLOG_IDENTIFIER", "systemd")
-	appendVar(data, "MESSAGE", message)
+	if j._type == LOG_SOCKET {
+		socketVar(data, "PRIORITY", strconv.Itoa(level))
+		socketVar(data, "SYSLOG_IDENTIFIER", "tool")
+		socketVar(data, "MESSAGE", message)
+	} else if j._type == LOG_SYSLOG {
+		syslogVar(data, Severity(level), message)
+	} else {
+		consoleVar(data, level, message)
+		log.Println(data.String())
+		return nil
+	}
 
-	_, err = io.Copy(j.conn, data)
+	_, err = conn.WriteToUnix(data.Bytes(), j.addr)
 	if err == nil {
 		return nil
 	}
@@ -96,11 +153,11 @@ func (j *Journal) writeMsg(level int, message string) error {
 		return err
 	}
 
-	_, err = writeMsgUnix(c, syscall.UnixRights(int(f.Fd())), addr)
+	_, err = writeMsgUnix(c.(*net.UnixConn), syscall.UnixRights(int(f.Fd())), j.addr)
 	return err
 }
 
-func (j *Journal) journalConn() (*net.UnixConn, error) {
+func (j *Journal) connect() (net.Conn, error) {
 	j.once.Do(func() {
 		bind, err := net.ResolveUnixAddr("unixgram", "")
 		if err != nil {
@@ -115,13 +172,15 @@ func (j *Journal) journalConn() (*net.UnixConn, error) {
 		}
 
 		conn.SetReadBuffer(8 * 1024 * 1024)
+		conn.SetWriteBuffer(8 * 1024 * 1024)
 		j.conn = conn
+		j.addr = &net.UnixAddr{Net: "unixgram", Name: j._type}
 	})
 
 	return j.conn, j.connErr
 }
 
-func Log(level int, format string, args ...interface{}) {
+func Log(level int, format string, args ...interface{}) error {
 	str := fmt.Sprintf(format, args...)
-	journal.writeMsg(level, str)
+	return journal.writeMsg(level, str)
 }
