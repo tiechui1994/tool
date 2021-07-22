@@ -78,6 +78,10 @@ func GET(u string, header map[string]string) (raw json.RawMessage, err error) {
 	return request("GET", u, nil, header)
 }
 
+func DELETE(u string, header map[string]string) (raw json.RawMessage, err error) {
+	return request("DELETE", u, nil, header)
+}
+
 func File(u, method string, body io.Reader, header map[string]string, path string) (err error) {
 	fd, err := os.Create(path)
 	if err != nil {

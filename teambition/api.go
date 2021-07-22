@@ -699,12 +699,48 @@ func CreateCollection(parentid, projectid, name string) error {
 	return err
 }
 
+func DeleteWork(id string) error  {
+	u := www + "/api/works/"+id
+	_, err := util.DELETE(u, header)
+
+	return err
+}
+
+func DeleteCollection(id string) error  {
+	u := www + "/api/collections/"+id
+	_, err := util.DELETE(u, header)
+
+	return err
+}
+
 func Archive(nodeid string) (err error) {
 	body := `{}`
 	u := www + "api/works/" + nodeid + "/archive"
 	_, err = util.POST(u, body, header)
 	return err
 }
+
+type ArchiveInfo struct {
+	ObjectType string `json:"boundToObjectType"`
+	Created    string `json:"created"`
+	Title      string `json:"subTitle"`
+	ProjectId  string `json:"_projectId"`
+	ID         string `json:"_boundToObjectId"`
+}
+
+func GetArchives(orgid, _type string) (list []ArchiveInfo, err error) {
+	ts := time.Now().UnixNano() / 1e6
+	u := www + "/api/projects/" + orgid + fmt.Sprintf("/archives?objectType=%v&count=100&page=1&_=%v", _type, ts)
+	data, err := util.GET(u, header)
+	if err != nil {
+		return list, err
+	}
+
+	err = json.Unmarshal(data, &list)
+	return list, err
+}
+
+
 
 func FindProjectDir(dir, orgid string) (collection Collection, err error) {
 	dir = strings.TrimSpace(dir)
