@@ -117,7 +117,7 @@ var (
 	cookies = "TEAMBITION_SESSIONID=xxx;TEAMBITION_SESSIONID.sig=xxx;TB_ACCESS_TOKEN=xxx"
 )
 
-//===================================== login  =====================================
+//=====================================  login  =====================================
 func Login(clientid, pubkey, token, email, phone, pwd string) (access string, err error) {
 	key, _ := base64.StdEncoding.DecodeString(pubkey)
 	oeap := New(HASH_SHA1, string(key), "")
@@ -166,8 +166,6 @@ func Login(clientid, pubkey, token, email, phone, pwd string) (access string, er
 			return access, err
 		}
 	}
-
-	util.CookieSync <- struct{}{}
 
 	return result.Token, nil
 }
@@ -243,7 +241,7 @@ func LoginParams() (clientid, token, publickey string, err error) {
 	return clientid, token, publickey, errors.New("api change update")
 }
 
-//===================================== user  =====================================
+//=====================================  user  =====================================
 type Role struct {
 	ID             string   `json:"_id"`
 	OrganizationId string   `json:"_organizationId"`
@@ -361,7 +359,7 @@ func Batches() (me MeConfig, err error) {
 	return result.Result.Me, err
 }
 
-//===================================== project  =====================================
+//=====================================  project  =====================================
 type UploadInfo struct {
 	FileKey      string `json:"fileKey"`
 	FileName     string `json:"fileName"`
@@ -587,7 +585,7 @@ const (
 )
 
 type Collection struct {
-	ID              string `json:"_id"`
+	Nodeid          string `json:"_id"`
 	Pinyin          string `json:"pinyin"`
 	Title           string `json:"title"`
 	ParentId        string `json:"_parentId"`
@@ -599,7 +597,7 @@ type Collection struct {
 }
 
 type Work struct {
-	ID          string `json:"_id"`
+	Nodeid      string `json:"_id"`
 	FileKey     string `json:"fileKey"`
 	FileName    string `json:"fileName"`
 	FileSize    int    `json:"fileSize"`
@@ -610,10 +608,10 @@ type Work struct {
 	Updated     string `json:"updated"`
 }
 
-func Collections(rootcollid, projectid string) (list []Collection, err error) {
+func Collections(nodeid, projectid string) (list []Collection, err error) {
 	ts := time.Now().UnixNano() / 1e6
 	u := www + fmt.Sprintf("/api/collections?_parentId=%v&_projectId=%v&order=updatedDesc&count=50&page=1&_=%v",
-		rootcollid, projectid, ts)
+		nodeid, projectid, ts)
 	data, err := util.GET(u, header)
 	if err != nil {
 		return list, err
@@ -627,10 +625,10 @@ func Collections(rootcollid, projectid string) (list []Collection, err error) {
 	return list, nil
 }
 
-func Works(rootcollid, projectid string) (list []Work, err error) {
+func Works(nodeid, projectid string) (list []Work, err error) {
 	ts := time.Now().UnixNano() / 1e6
 	u := www + fmt.Sprintf("/api/works?_parentId=%v&_projectId=%v&order=updatedDesc&count=50&page=1&_=%v",
-		rootcollid, projectid, ts)
+		nodeid, projectid, ts)
 	data, err := util.GET(u, header)
 	if err != nil {
 		return list, err
@@ -644,7 +642,7 @@ func Works(rootcollid, projectid string) (list []Work, err error) {
 	return list, nil
 }
 
-func CreateWork(parentid string, upload UploadInfo) error {
+func CreateWork(nodeid string, upload UploadInfo) error {
 	type file struct {
 		UploadInfo
 		InvolveMembers []interface{} `json:"involveMembers"`
@@ -660,9 +658,9 @@ func CreateWork(parentid string, upload UploadInfo) error {
 	body.Works = []file{{
 		UploadInfo: upload,
 		Visible:    "members",
-		ParentId:   parentid,
+		ParentId:   nodeid,
 	}}
-	body.ParentId = parentid
+	body.ParentId = nodeid
 	u := www + "/api/works"
 
 	_, err := util.POST(u, body, header)
@@ -670,7 +668,7 @@ func CreateWork(parentid string, upload UploadInfo) error {
 	return err
 }
 
-func CreateCollection(parentid, projectid, name string) error {
+func CreateCollection(nodeid, projectid, name string) error {
 	var body struct {
 		CollectionType string        `json:"collectionType"`
 		Color          string        `json:"color"`
@@ -690,7 +688,7 @@ func CreateCollection(parentid, projectid, name string) error {
 	body.Color = "blue"
 	body.ObjectType = "collection"
 	body.Title = name
-	body.ParentId = parentid
+	body.ParentId = nodeid
 	body.ProjectId = projectid
 
 	u := www + "/api/collections"
@@ -699,16 +697,72 @@ func CreateCollection(parentid, projectid, name string) error {
 	return err
 }
 
-func DeleteWork(id string) error  {
-	u := www + "/api/works/"+id
+func DeleteWork(nodeid string) error {
+	u := www + "/api/works/" + nodeid
 	_, err := util.DELETE(u, header)
 
 	return err
 }
 
-func DeleteCollection(id string) error  {
-	u := www + "/api/collections/"+id
+func DeleteCollection(nodeid string) error {
+	u := www + "/api/collections/" + nodeid
 	_, err := util.DELETE(u, header)
+
+	return err
+}
+
+func RenameWork(nodeid string, title string) error {
+	u := www + "/api/works/" + nodeid
+	_, err := util.PUT(u, map[string]string{"fileName": title}, header)
+
+	return err
+}
+
+func RenameCollection(nodeid string, title string) error {
+	u := www + "/api/collections/" + nodeid
+	_, err := util.PUT(u, map[string]string{"title": title}, header)
+
+	return err
+}
+
+func MoveWork(nodeid, dstParentNodeid string) error {
+	u := www + "/api/works/" + nodeid + "/move"
+	_, err := util.PUT(u, map[string]string{"_parentId": dstParentNodeid}, header)
+
+	return err
+}
+
+func MoveCollection(nodeid, dstParentNodeid string) error {
+	u := www + "/api/collections/" + nodeid + "/move"
+	_, err := util.PUT(u, map[string]string{"_parentId": dstParentNodeid}, header)
+
+	return err
+}
+
+func CopyWork(nodeid string, dstParentCollection Collection) error {
+	u := www + "/api/works/" + nodeid + "/fork"
+	body := map[string]interface{}{
+		"_parentId": map[string]interface{}{
+			"_id":        dstParentCollection.Nodeid,
+			"_parentId":  dstParentCollection.ParentId,
+			"_projectId": dstParentCollection.ProjectId,
+		},
+	}
+	_, err := util.PUT(u, body, header)
+
+	return err
+}
+
+func CopyCollection(nodeid string, dstParentCollection Collection) error {
+	u := www + "/api/collections/" + nodeid + "/fork"
+	body := map[string]interface{}{
+		"_parentId": map[string]interface{}{
+			"_id":        dstParentCollection.Nodeid,
+			"_parentId":  dstParentCollection.ParentId,
+			"_projectId": dstParentCollection.ProjectId,
+		},
+	}
+	_, err := util.PUT(u, body, header)
 
 	return err
 }
@@ -725,7 +779,7 @@ type ArchiveInfo struct {
 	Created    string `json:"created"`
 	Title      string `json:"subTitle"`
 	ProjectId  string `json:"_projectId"`
-	ID         string `json:"_boundToObjectId"`
+	NodeId     string `json:"_boundToObjectId"`
 }
 
 func GetArchives(orgid, _type string) (list []ArchiveInfo, err error) {
@@ -740,89 +794,8 @@ func GetArchives(orgid, _type string) (list []ArchiveInfo, err error) {
 	return list, err
 }
 
-
-
-func FindProjectDir(dir, orgid string) (collection Collection, err error) {
-	dir = strings.TrimSpace(dir)
-	if !strings.HasPrefix(dir, "/") {
-		return collection, errors.New("invalid path")
-	}
-
-	tokens := strings.Split(dir[1:], "/")
-	projects, err := Projects(orgid)
-	if err != nil {
-		return collection, err
-	}
-
-	var project Project
-	exist := false
-	for _, p := range projects {
-		if p.Name == tokens[0] {
-			exist = true
-			project = p
-			break
-		}
-	}
-
-	if !exist {
-		return collection, errors.New("no exist project")
-	}
-
-	tokens = tokens[1:]
-	rootid := project.RootCollectionId
-	for _, token := range tokens {
-		collections, err := Collections(rootid, project.ID)
-		if err != nil {
-			return collection, err
-		}
-
-		exist := false
-		for _, c := range collections {
-			if c.Title == token {
-				collection = c
-				rootid = c.ID
-				exist = true
-				break
-			}
-		}
-
-		if !exist {
-			return collection, errors.New("no exist path: " + token)
-		}
-	}
-
-	return
-}
-
-func FindProjectFile(path, orgid string) (work Work, err error) {
-	path = strings.TrimSpace(path)
-	if !strings.HasPrefix(path, "/") {
-		return work, errors.New("invalid path")
-	}
-
-	dir, name := filepath.Split(path)
-	dir = dir[:len(dir)-1]
-	c, err := FindProjectDir(dir, orgid)
-	if err != nil {
-		return work, err
-	}
-
-	works, err := Works(c.ID, c.ProjectId)
-	if err != nil {
-		return work, err
-	}
-
-	for _, work := range works {
-		if work.FileName == name {
-			return work, nil
-		}
-	}
-
-	return work, errors.New("not exist file:" + name)
-}
-
-func GetProjectToken(projectid, rootcollid string) (token string, err error) {
-	u := www + "/project/" + projectid + "/works/" + rootcollid
+func GetProjectToken(projectid, rootid string) (token string, err error) {
+	u := www + "/project/" + projectid + "/works/" + rootid
 	header := map[string]string{
 		"accept": "text/html",
 	}
@@ -1121,59 +1094,4 @@ func Spaces(orgid, memberid string) (spaces []Space, err error) {
 	}
 
 	return spaces, nil
-}
-
-func GetCacheData() (roles []Role, org Org, spaces []Space, err error) {
-	var result struct {
-		Roles  []Role
-		Org    Org
-		Spaces []Space
-	}
-
-	key := filepath.Join(ConfDir, "teambition_cache.json")
-	if util.ReadFile(key, &result) == nil {
-		return result.Roles, result.Org, result.Spaces, nil
-	}
-
-	roles, err = Roles()
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	if len(roles) == 0 {
-		err = errors.New("no roles")
-		return
-	}
-
-	org, err = Orgs(roles[0].OrganizationId)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	var user User
-	user, err = GetByUser(roles[0].OrganizationId)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	spaces, err = Spaces(user.OrganizationId, user.ID)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	if len(spaces) == 0 {
-		err = errors.New("no spaces")
-		return
-	}
-
-	result.Roles = roles
-	result.Org = org
-	result.Spaces = spaces
-	util.WriteFile(key, result)
-
-	return
 }
