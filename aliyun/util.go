@@ -1,4 +1,4 @@
-package teambition
+package aliyun
 
 import (
 	"errors"

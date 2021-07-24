@@ -1,4 +1,4 @@
-package teambition
+package aliyun
 
 import (
 	"errors"
@@ -25,16 +25,16 @@ const (
 	Node_File = 2
 )
 
-func FindProjectDir(dir, orgid string) (collection Collection, err error) {
-	dir = strings.TrimSpace(dir)
-	if !strings.HasPrefix(dir, "/") {
-		return collection, errors.New("invalid path")
+func FindProjectDir(path, orgid string) (c Collection, err error) {
+	path = strings.TrimSpace(path)
+	if !strings.HasPrefix(path, "/") {
+		return c, errors.New("invalid path")
 	}
 
-	tokens := strings.Split(dir[1:], "/")
+	tokens := strings.Split(path[1:], "/")
 	projects, err := Projects(orgid)
 	if err != nil {
-		return collection, err
+		return c, err
 	}
 
 	var project Project
@@ -48,7 +48,7 @@ func FindProjectDir(dir, orgid string) (collection Collection, err error) {
 	}
 
 	if !exist {
-		return collection, errors.New("no exist project")
+		return c, errors.New("no exist project")
 	}
 
 	tokens = tokens[1:]
@@ -56,43 +56,43 @@ func FindProjectDir(dir, orgid string) (collection Collection, err error) {
 	for _, token := range tokens {
 		collections, err := Collections(rootid, project.ID)
 		if err != nil {
-			return collection, err
+			return c, err
 		}
 
 		exist := false
-		for _, c := range collections {
-			if c.Title == token {
-				collection = c
-				rootid = c.Nodeid
+		for _, coll := range collections {
+			if coll.Title == token {
+				c = coll
+				rootid = coll.Nodeid
 				exist = true
 				break
 			}
 		}
 
 		if !exist {
-			return collection, errors.New("no exist path: " + token)
+			return c, errors.New("no exist path: " + token)
 		}
 	}
 
-	return
+	return c, nil
 }
 
-func FindProjectFile(path, orgid string) (work Work, err error) {
+func FindProjectFile(path, orgid string) (w Work, err error) {
 	path = strings.TrimSpace(path)
 	if !strings.HasPrefix(path, "/") {
-		return work, errors.New("invalid path")
+		return w, errors.New("invalid path")
 	}
 
 	dir, name := filepath.Split(path)
 	dir = dir[:len(dir)-1]
 	c, err := FindProjectDir(dir, orgid)
 	if err != nil {
-		return work, err
+		return w, err
 	}
 
 	works, err := Works(c.Nodeid, c.ProjectId)
 	if err != nil {
-		return work, err
+		return w, err
 	}
 
 	for _, work := range works {
@@ -101,7 +101,7 @@ func FindProjectFile(path, orgid string) (work Work, err error) {
 		}
 	}
 
-	return work, errors.New("not exist file:" + name)
+	return w, errors.New("not exist file:" + name)
 }
 
 type FileNode struct {
@@ -160,7 +160,6 @@ func NewProject(name, orgid string) (*ProjectFs, error) {
 	}
 	return &p, nil
 }
-
 
 func (p *ProjectFs) projectPath(path string) (string, error) {
 	path = strings.TrimSpace(path)

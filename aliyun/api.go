@@ -1,4 +1,4 @@
-package teambition
+package aliyun
 
 import (
 	"bytes"
@@ -825,7 +825,7 @@ func GetProjectToken(projectid, rootid string) (token string, err error) {
 	return token, errors.New("no tokens")
 }
 
-//===================================== pan  =====================================
+//=====================================  pan  =====================================
 
 // 文件上传: CreateFolder -> CreateFile -> UploadUrl -> UploadPanFile
 type Node struct {

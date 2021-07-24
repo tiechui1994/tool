@@ -41,11 +41,11 @@ func request(method, u string, body interface{}, header map[string]string) (raw 
 	}
 
 	request.Header.Set("user-agent", UserAgent())
-	response, err := http.DefaultClient.Do(request)
 	if Debug {
 		log.Println(method, request.URL.Path, request.Header.Get("cookie"))
 	}
 
+	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		return raw, err
 	}
@@ -63,7 +63,7 @@ func request(method, u string, body interface{}, header map[string]string) (raw 
 		return raw, CodeError(response.StatusCode)
 	}
 
-	return raw, err
+	return raw, nil
 }
 
 func POST(u string, body interface{}, header map[string]string) (raw json.RawMessage, err error) {
