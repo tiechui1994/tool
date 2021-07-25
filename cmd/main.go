@@ -38,10 +38,11 @@ func Main() {
 	Exec()
 }
 
+// 54633dba1b444c0386bc246590566e7e
 func main() {
 	md5.New()
 
-	aliyun.CalProof("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJhOGZiMjM5Mjc4ZDg0NmZlOWExYmIzMGI2N2JiYjVmZCIsImN1c3RvbUpzb24iOiJ7XCJjbGllbnRJZFwiOlwiMjVkelgzdmJZcWt0Vnh5WFwiLFwiZG9tYWluSWRcIjpcImJqMjlcIixcInNjb3BlXCI6W1wiRFJJVkUuQUxMXCIsXCJTSEFSRS5BTExcIixcIkZJTEUuQUxMXCIsXCJVU0VSLkFMTFwiLFwiU1RPUkFHRS5BTExcIixcIlNUT1JBR0VGSUxFLkxJU1RcIixcIkJBVENIXCIsXCJPQVVUSC5BTExcIixcIklNQUdFLkFMTFwiLFwiSU5WSVRFLkFMTFwiLFwiQUNDT1VOVC5BTExcIl0sXCJyb2xlXCI6XCJ1c2VyXCIsXCJyZWZcIjpcImh0dHBzOi8vd3d3LmFsaXl1bmRyaXZlLmNvbS9cIn0iLCJleHAiOjE2MjcxMzk1NzEsImlhdCI6MTYyNzEzMjMxMX0.uPF3LPTUYBsI5BoaOaW1USfpM-ndnFspL-5l-gFVmhdSC6tPC8Jj1NDF1AKj39Q-NbxdOBD2_gG6NYIQQVIEz7k7_vMS15BJsv6txZXxWe_1WUldPh6lYNSkTJvJEdprq61A93ig-sNhVC81yD2Di6azyx3MWQ_pXEufDfI7nB4", "/home/quinn/Desktop/charles.tar.gz")
+	aliyun.CalProof("..-ndnFspL-5l-gFVmhdSC6tPC8Jj1NDF1AKj39Q-NbxdOBD2_gG6NYIQQVIEz7k7_vMS15BJsv6txZXxWe_1WUldPh6lYNSkTJvJEdprq61A93ig-sNhVC81yD2Di6azyx3MWQ_pXEufDfI7nB4", "/home/quinn/Desktop/charles.tar.gz")
 
 	data := make([]byte, 8)
 	fd, _ := os.Open("/home/quinn/Desktop/charles.tar.gz")

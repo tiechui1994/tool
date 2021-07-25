@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -50,7 +51,7 @@ const (
 )
 
 type File struct {
-	DeviceID    string `json:"device_id"`
+	DriveID     string `json:"drive_id"`
 	DomainID    string `json:"domain_id"`
 	EncryptMode string `json:"encrypt_mode"`
 	FileID      string `json:"file_id"`
@@ -326,4 +327,135 @@ func UploadFile(path, fileid string, token Token) error {
 func CreateDirectory(name, fileid string, token Token) (err error) {
 	_, err = CreateWithFolder(refuse_mode, name, TYPE_FOLDER, fileid, token, nil)
 	return err
+}
+
+type batchRequest struct {
+	Body    interface{}       `json:"body"`
+	Headers map[string]string `json:"headers"`
+	ID      string            `json:"id"`
+	Method  string            `json:"method"`
+	Url     string            `json:"url"`
+}
+
+func Batch(requests []batchRequest, token Token) error {
+	u := yunpan + "/v3/batch"
+	header := map[string]string{
+		"accept":        "application/json",
+		"authorization": "Bearer " + token.AccessToken,
+		"content-type":  "application/json",
+	}
+
+	body := map[string]interface{}{
+		"requests": requests,
+		"resource": "file",
+	}
+	_, err := util.POST(u, body, header)
+	return err
+}
+
+func Move(tofileid string, files []File, token Token) error {
+	var requests []batchRequest
+	for _, file := range files {
+		requests = append(requests, batchRequest{
+			Url:    "/file/move",
+			Method: "POST",
+			ID:     file.FileID,
+			Headers: map[string]string{
+				"Content-Type": "application/json",
+			},
+			Body: map[string]interface{}{
+				"drive_id":          file.DriveID,
+				"file_id":           file.FileID,
+				"to_drive_id":       file.DriveID,
+				"to_parent_file_id": tofileid,
+			},
+		})
+	}
+	return Batch(requests, token)
+}
+
+func Trash(files []File, token Token) error {
+	var requests []batchRequest
+	for _, file := range files {
+		requests = append(requests, batchRequest{
+			Url:    "/recyclebin/trash",
+			Method: "POST",
+			ID:     file.FileID,
+			Headers: map[string]string{
+				"Content-Type": "application/json",
+			},
+			Body: map[string]interface{}{
+				"drive_id": file.DriveID,
+				"file_id":  file.FileID,
+			},
+		})
+	}
+	return Batch(requests, token)
+}
+
+func Delete(files []File, token Token) error {
+	var requests []batchRequest
+	for _, file := range files {
+		requests = append(requests, batchRequest{
+			Url:    "/file/delete",
+			Method: "POST",
+			ID:     file.FileID,
+			Headers: map[string]string{
+				"Content-Type": "application/json",
+			},
+			Body: map[string]interface{}{
+				"drive_id": file.DriveID,
+				"file_id":  file.FileID,
+			},
+		})
+	}
+	return Batch(requests, token)
+}
+
+func Rename(name, fileid string, token Token) error {
+	u := yunpan + "/v3/file/update"
+	header := map[string]string{
+		"accept":        "application/json",
+		"authorization": "Bearer " + token.AccessToken,
+		"content-type":  "application/json",
+	}
+
+	body := map[string]interface{}{
+		"check_name_mode": refuse_mode,
+		"drive_id":        token.DriveID,
+		"file_id":         fileid,
+		"name":            name,
+	}
+
+	_, err := util.POST(u, body, header)
+	return err
+}
+
+type ShareInfo struct {
+	ShareID    string `json:"share_id"`
+	ShareName  string `json:"share_name"`
+	ShareUrl   string `json:"share_url"`
+	Expiration string `json:"expiration"`
+}
+
+func Share(fileidlist []string, token Token) (share ShareInfo, err error) {
+	u := yunpan + "/adrive/v2/share_link/create"
+	header := map[string]string{
+		"accept":        "application/json",
+		"authorization": "Bearer " + token.AccessToken,
+		"content-type":  "application/json",
+	}
+	body := map[string]interface{}{
+		"drive_id":     token.DriveID,
+		"expiration":   time.Now().Add(7 * time.Hour * 24).Format("2006-01-02T15:04:05.000Z"),
+		"file_id_list": fileidlist,
+	}
+
+	raw, err := util.POST(u, body, header)
+	if err != nil {
+		return share, err
+	}
+
+	err = json.Unmarshal(raw, &share)
+	return share, err
 }
