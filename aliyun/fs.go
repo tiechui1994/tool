@@ -58,7 +58,7 @@ func Select() {
 func main() {
 	AutoLogin()
 
-	_, _, _, err := GetCacheData()
+	_, _, err := GetCacheData()
 	if err != nil {
 		log.Println(err)
 		return

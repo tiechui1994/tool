@@ -118,6 +118,7 @@ var (
 )
 
 //=====================================  login  =====================================
+
 func Login(clientid, pubkey, token, email, phone, pwd string) (access string, err error) {
 	key, _ := base64.StdEncoding.DecodeString(pubkey)
 	oeap := New(HASH_SHA1, string(key), "")
@@ -825,6 +826,7 @@ func GetProjectToken(projectid, rootid string) (token string, err error) {
 	return token, errors.New("no tokens")
 }
 
+/*
 //=====================================  pan  =====================================
 
 // 文件上传: CreateFolder -> CreateFile -> UploadUrl -> UploadPanFile
@@ -1095,3 +1097,4 @@ func Spaces(orgid, memberid string) (spaces []Space, err error) {
 
 	return spaces, nil
 }
+*/

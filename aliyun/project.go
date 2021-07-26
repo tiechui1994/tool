@@ -3,10 +3,14 @@ package aliyun
 import (
 	"errors"
 	"fmt"
+	"github.com/urfave/cli"
+	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/tiechui1994/tool/util"
 )
@@ -128,7 +132,7 @@ type ProjectFs struct {
 }
 
 func NewProject(name, orgid string) (*ProjectFs, error) {
-	p := ProjectFs{Name:name, Orgid:orgid}
+	p := ProjectFs{Name: name, Orgid: orgid}
 
 	list, err := Projects(p.Orgid)
 	if err != nil {
@@ -546,4 +550,85 @@ download:
 		return util.File(accnode.Url, "GET", nil, nil, filepath.Join(targetdir, accnode.Name))
 	}
 	return ArchiveProjectDir(p.token, accnode.NodeId, p.projectid, accnode.Name, targetdir)
+}
+
+func Exec() {
+	var daemon bool
+	var version bool
+	app := cli.NewApp()
+	app.Commands = []cli.Command{
+		{
+			Name:  "upload",
+			Usage: "upload a file or directory",
+			Action: func(c *cli.Context) error {
+				fmt.Println("upload")
+				return nil
+			},
+		},
+		{
+			Name:  "copy",
+			Usage: "copy [src] to [dst]",
+			Action: func(c *cli.Context) error {
+				fmt.Println("copy")
+				return nil
+			},
+		},
+		{
+			Name:  "move",
+			Usage: "move [src] to [dst]",
+			Action: func(c *cli.Context) error {
+				fmt.Println("move")
+				return nil
+			},
+		},
+		{
+			Name:  "rename",
+			Usage: "rename file or dir name",
+			Action: func(c *cli.Context) error {
+				fmt.Println("rename")
+				return nil
+			},
+		},
+		{
+			Name:  "ls",
+			Usage: "list files",
+			Action: func(c *cli.Context) error {
+				for {
+					fmt.Println("ls")
+					time.Sleep(3 * time.Second)
+					break
+				}
+
+				return nil
+			},
+		},
+	}
+
+	app.Flags = []cli.Flag{
+		cli.BoolFlag{Name: "daemon, d", Usage: "run cli as daemon", Destination: &daemon},
+		cli.BoolFlag{Name: "version, v", Usage: "version", Destination: &version},
+	}
+	app.Name = "project"
+	app.Usage = "aliyun teambition cli"
+	app.EnableBashCompletion = true
+	app.Description = "aliyun teambition cli" // 描述
+
+	app.Before = func(c *cli.Context) error {
+		if daemon {
+			cmd := exec.Command(os.Args[0])
+			if err := cmd.Start(); err != nil {
+				fmt.Printf("start %s failed, error: %v\n", os.Args[0], err)
+				os.Exit(1)
+			}
+			fmt.Printf("%v\n[PID] %d running...\n", os.Args, cmd.Process.Pid)
+			os.Exit(0)
+		}
+		return nil
+	}
+
+	err := app.Run(os.Args)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 }

@@ -8,16 +8,15 @@ import (
 	"github.com/tiechui1994/tool/util"
 )
 
-func GetCacheData() (roles []Role, org Org, spaces []Space, err error) {
+func GetCacheData() (roles []Role, org Org, err error) {
 	var result struct {
-		Roles  []Role
-		Org    Org
-		Spaces []Space
+		Roles []Role
+		Org   Org
 	}
 
 	key := filepath.Join(util.ConfDir, "teambition_cache.json")
 	if util.ReadFile(key, &result) == nil {
-		return result.Roles, result.Org, result.Spaces, nil
+		return result.Roles, result.Org, nil
 	}
 
 	roles, err = Roles()
@@ -37,28 +36,8 @@ func GetCacheData() (roles []Role, org Org, spaces []Space, err error) {
 		return
 	}
 
-	var user User
-	user, err = GetByUser(roles[0].OrganizationId)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	spaces, err = Spaces(user.OrganizationId, user.ID)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	if len(spaces) == 0 {
-		err = errors.New("no spaces")
-		return
-	}
-
 	result.Roles = roles
 	result.Org = org
-	result.Spaces = spaces
 	util.WriteFile(key, result)
-
 	return
 }

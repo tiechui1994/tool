@@ -1,54 +1,39 @@
 package main
 
 import (
-	"crypto/md5"
-	"encoding/base64"
-	"encoding/hex"
-	"flag"
 	"fmt"
-	"github.com/tiechui1994/tool/aliyun"
-	"os"
-	"os/exec"
-	"time"
-
-	"github.com/pborman/uuid"
-	"github.com/tiechui1994/tool/log"
+	"github.com/spf13/cobra"
 )
 
-func Exec() {
-	for {
-		fmt.Println(log.Log(log.INFO, "%v %v", uuid.New(), time.Now().Unix()))
-	}
-}
-
 func Main() {
-	d := flag.Bool("d", false, "run app as a daemon with -d=true.")
-	flag.Parse()
+	var newCmd = &cobra.Command{
+		Use:   "new",
+		Short: "A brief description of your command",
+		Long:  `A longer description...`,
+		Run: func(cmd *cobra.Command, args []string) {
 
-	if *d {
-		cmd := exec.Command(os.Args[0], flag.Args()...)
-		if err := cmd.Start(); err != nil {
-			fmt.Printf("start %s failed, error: %v\n", os.Args[0], err)
-			os.Exit(1)
-		}
-		fmt.Printf("%s [PID] %d running...\n", os.Args[0], cmd.Process.Pid)
-		os.Exit(0)
+		},
 	}
 
-	Exec()
+	newCmd.Flags().Int("intf", 0, "Set Int")
+	newCmd.Flags().String("stringf", "sss", "Set String")
+	newCmd.Flags().Bool("q", false, "Set Bool")
+
+	newCmd.Flags().IntP("aaa", "a", 1, "Set A")
+	newCmd.Flags().IntP("bbb", "b", -1, "Set B")
+
+	root := cobra.Command{
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Println(args, cmd.Flag("daemon").Value)
+		},
+	}
+	root.Flags().BoolP("daemon", "d", false, "daemon")
+
+	root.AddCommand(newCmd)
+
+	root.Execute()
 }
 
-// 54633dba1b444c0386bc246590566e7e
 func main() {
-	md5.New()
-
-	aliyun.CalProof("..-ndnFspL-5l-gFVmhdSC6tPC8Jj1NDF1AKj39Q-NbxdOBD2_gG6NYIQQVIEz7k7_vMS15BJsv6txZXxWe_1WUldPh6lYNSkTJvJEdprq61A93ig-sNhVC81yD2Di6azyx3MWQ_pXEufDfI7nB4", "/home/quinn/Desktop/charles.tar.gz")
-
-	data := make([]byte, 8)
-	fd, _ := os.Open("/home/quinn/Desktop/charles.tar.gz")
-
-	fd.ReadAt(data, 29928710)
-
-	fmt.Println(hex.EncodeToString(data))
-	fmt.Println(base64.StdEncoding.EncodeToString(data))
+	Main()
 }
