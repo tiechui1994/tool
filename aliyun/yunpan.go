@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"github.com/tiechui1994/tool/util"
 	"io"
 	"net/http"
@@ -59,6 +60,10 @@ func Refresh(refresh string) (token Token, err error) {
 	u := yunpan + "/token/refresh"
 	body := map[string]string{
 		"refresh_token": refresh,
+	}
+	header := map[string]string{
+		"accept":       "application/json",
+		"content-type": "application/json",
 	}
 
 	raw, err := util.POST(u, body, header)
@@ -219,6 +224,9 @@ func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, app
 	if err != nil {
 		// pre_hash match
 		if val, ok := err.(util.CodeError); ok && val == http.StatusConflict {
+			if len(path) == 0 {
+				return upload, errors.New("invliad path")
+			}
 			buf := make([]byte, 10*1024*1024)
 			sh := sha1.New()
 			fd, err := os.Open(path[0])
@@ -279,7 +287,7 @@ func UploadFile(path, fileid string, token Token) error {
 		"size":           info.Size(),
 		"part_info_list": partlist,
 	}
-	upload, err := CreateWithFolder(rename_mode, info.Name(), TYPE_FILE, fileid, token, args)
+	upload, err := CreateWithFolder(rename_mode, info.Name(), TYPE_FILE, fileid, token, args, path)
 	if err != nil {
 		return err
 	}
@@ -288,28 +296,14 @@ func UploadFile(path, fileid string, token Token) error {
 		return nil
 	}
 
-	var (
-		wg    sync.WaitGroup
-		count int
-	)
-
+	data = make([]byte, m10)
 	for _, part := range upload.PartInfoList {
-		count += 1
-		wg.Add(1)
-		go func(u string, part int) {
-			defer wg.Done()
-			data := make([]byte, m10)
-			fd.ReadAt(data, int64((part-1)*m10))
-			util.PUT(u, data, nil)
-		}(part.UploadUrl, part.PartNumber)
-		if count == 5 {
-			wg.Wait()
-			count = 0
+		info := part
+		n, _ := fd.ReadAt(data, int64((info.PartNumber-1)*m10))
+		_, err = util.PUT(info.UploadUrl, data[:n], nil)
+		if err != nil {
+			return err
 		}
-	}
-
-	if count > 0 {
-		wg.Wait()
 	}
 
 	u := yunpan + "/v2/file/complete"
@@ -532,6 +526,9 @@ func Create(checkmode, name, filetype, fileid string, token Token, appendargs ma
 	if err != nil {
 		// pre_hash match
 		if val, ok := err.(util.CodeError); ok && val == http.StatusConflict {
+			if len(path) == 0 {
+				return upload, errors.New("invliad path")
+			}
 			buf := make([]byte, 10*1024*1024)
 			sh := sha1.New()
 			fd, err := os.Open(path[0])
@@ -561,7 +558,7 @@ func Create(checkmode, name, filetype, fileid string, token Token, appendargs ma
 	return upload, err
 }
 
-func UploadImage(path string, token Token) error                                                                                                                                                                                                                                            {
+func UploadImage(path string, token Token) error {
 	imageupload := func(path string) error {
 		info, err := os.Stat(path)
 		if err != nil {
@@ -602,28 +599,11 @@ func UploadImage(path string, token Token) error                                
 			return nil
 		}
 
-		var (
-			wg    sync.WaitGroup
-			count int
-		)
-
 		for _, part := range upload.PartInfoList {
-			count += 1
-			wg.Add(1)
-			go func(u string, part int) {
-				defer wg.Done()
-				data := make([]byte, m10)
-				fd.ReadAt(data, int64((part-1)*m10))
-				util.PUT(u, data, nil)
-			}(part.UploadUrl, part.PartNumber)
-			if count == 5 {
-				wg.Wait()
-				count = 0
-			}
-		}
-
-		if count > 0 {
-			wg.Wait()
+			info := part
+			data := make([]byte, m10)
+			fd.ReadAt(data, int64((info.PartNumber-1)*m10))
+			util.PUT(info.UploadUrl, data, nil)
 		}
 
 		return nil
@@ -631,12 +611,12 @@ func UploadImage(path string, token Token) error                                
 
 	info, err := os.Stat(path)
 	if err != nil {
-
+		return err
 	}
 
 	path, err = filepath.Abs(path)
 	if err != nil {
-
+		return err
 	}
 
 	var files []string
