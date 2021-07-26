@@ -428,11 +428,15 @@ func Rename(name, fileid string, token Token) error {
 	return err
 }
 
+//=====================================  share  =====================================
+
 type ShareInfo struct {
-	ShareID    string `json:"share_id"`
-	ShareName  string `json:"share_name"`
-	ShareUrl   string `json:"share_url"`
-	Expiration string `json:"expiration"`
+	ShareID    string   `json:"share_id"`
+	ShareName  string   `json:"share_name"`
+	ShareUrl   string   `json:"share_url"`
+	Expiration string   `json:"expiration"`
+	Status     string   `json:"status"`
+	FileIDList []string `json:"file_id_list"`
 }
 
 func Share(fileidlist []string, token Token) (share ShareInfo, err error) {
@@ -455,6 +459,53 @@ func Share(fileidlist []string, token Token) (share ShareInfo, err error) {
 
 	err = json.Unmarshal(raw, &share)
 	return share, err
+}
+
+func ShareList(token Token) (list []ShareInfo, err error) {
+	u := yunpan + "/adrive/v2/share_link/list"
+	header := map[string]string{
+		"accept":        "application/json",
+		"authorization": "Bearer " + token.AccessToken,
+		"content-type":  "application/json",
+	}
+	body := map[string]interface{}{
+		"creator":          token.UserID,
+		"include_canceled": false,
+		"order_by":         "created_at",
+		"order_direction":  "DESC",
+	}
+
+	raw, err := util.POST(u, body, header)
+	if err != nil {
+		return list, err
+	}
+
+	var result struct {
+		Items      []ShareInfo `json:"items"`
+		NextMarker string      `json:"next_marker"`
+	}
+
+	err = json.Unmarshal(raw, &result)
+	return result.Items, err
+}
+
+func ShareCancel(shareidlist []string, token Token) error {
+	var requests []batchRequest
+	for _, shareid := range shareidlist {
+		requests = append(requests, batchRequest{
+			Url:    "/share_link/cancel",
+			Method: "POST",
+			ID:     shareid,
+			Headers: map[string]string{
+				"Content-Type": "application/json",
+			},
+			Body: map[string]interface{}{
+				"share_id": shareid,
+			},
+		})
+	}
+
+	return Batch(requests, token)
 }
 
 //=====================================  image  =====================================
