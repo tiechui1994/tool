@@ -55,7 +55,7 @@ func buildAuthorizeUri() (uri string, err error) {
 
 	bin, _ := json.Marshal(body)
 	u := google + "/oauthplayground/buildAuthorizeUri"
-	data, err := util.POST(u, bytes.NewBuffer(bin),nil)
+	data, err := util.POST(u, bytes.NewBuffer(bin), nil)
 	if err != nil {
 		log.Println("Authorize:", err)
 		return uri, err
@@ -89,7 +89,7 @@ func exchangeAuthCode(code string) error {
 	bin, _ := json.Marshal(body)
 	u := google + "/oauthplayground/exchangeAuthCode"
 
-	data, err := util.POST(u, bytes.NewBuffer(bin),nil)
+	data, err := util.POST(u, bytes.NewBuffer(bin), nil)
 	if err != nil {
 		log.Println("AuthCode:", err)
 		return err
@@ -129,7 +129,7 @@ func refreshAccessToken() error {
 	bin, _ := json.Marshal(body)
 	u := google + "/oauthplayground/refreshAccessToken"
 
-	data, err := util.POST(u, bytes.NewBuffer(bin),nil)
+	data, err := util.POST(u, bytes.NewBuffer(bin), nil)
 	if err != nil {
 		log.Println("AuthCode:", err)
 		return err

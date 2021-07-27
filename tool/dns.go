@@ -16,7 +16,6 @@ dns查询
 网站:
 */
 
-
 const (
 	DNS_A     = "A"
 	DNS_CNAME = "CNAME"

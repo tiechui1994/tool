@@ -102,9 +102,9 @@ func UserAgent(args ...int) string {
 		return agent
 	}
 
-	rnd := int(time.Now().Unix())%len(agents)
+	rnd := int(time.Now().Unix()) % len(agents)
 	args = append(args, rnd)
-	if args[0] < len(agent) && args[0] >= 0{
+	if args[0] < len(agent) && args[0] >= 0 {
 		agent = agents[args[0]]
 	} else {
 		agent = agents[rnd]

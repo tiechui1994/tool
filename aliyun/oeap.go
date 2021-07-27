@@ -28,7 +28,7 @@ const (
 )
 
 func New(hash string, pubkey, prikey string) *OAEP {
-	o := OAEP{pubkey:pubkey,prikey:prikey,alg:hash}
+	o := OAEP{pubkey: pubkey, prikey: prikey, alg: hash}
 	o.init()
 	return &o
 }
