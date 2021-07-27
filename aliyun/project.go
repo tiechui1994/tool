@@ -54,7 +54,7 @@ func FindProjectDir(path, orgid string) (c Collection, err error) {
 	tokens = tokens[1:]
 	rootid := project.RootCollectionId
 	for _, token := range tokens {
-		collections, err := Collections(rootid, project.ID)
+		collections, err := Collections(rootid, project.ProjectId)
 		if err != nil {
 			return c, err
 		}
@@ -138,7 +138,7 @@ func NewProject(name, orgid string) (*ProjectFs, error) {
 
 	for _, item := range list {
 		if item.Name == p.Name {
-			p.projectid = item.ID
+			p.projectid = item.ProjectId
 			p.rootcollid = item.RootCollectionId
 		}
 	}
@@ -147,7 +147,7 @@ func NewProject(name, orgid string) (*ProjectFs, error) {
 		return nil, errors.New("invalid name")
 	}
 
-	p.token, err = GetProjectToken(p.projectid, p.rootcollid)
+	p.token, err = GetToken(p.projectid, p.rootcollid)
 	if err != nil {
 		return nil, err
 	}
@@ -417,7 +417,7 @@ func (p *ProjectFs) Copy(src, dst string) error {
 		Nodeid:     dstnode.NodeId,
 		ParentId:   dstnode.ParentId,
 		ProjectId:  p.projectid,
-		ObjectType: Object_Collection,
+		ObjectType: OBJECT_COLLECTION,
 	}
 
 	if srcnode.Type == Node_File {
@@ -545,5 +545,5 @@ download:
 	if accnode.Type == Node_File {
 		return util.File(accnode.Url, "GET", nil, nil, filepath.Join(targetdir, accnode.Name))
 	}
-	return ArchiveProjectDir(p.token, accnode.NodeId, p.projectid, accnode.Name, targetdir)
+	return ArchiveProject(p.token, accnode.NodeId, p.projectid, accnode.Name, targetdir)
 }

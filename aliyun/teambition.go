@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,7 +27,6 @@ const (
 	acc = "https://account.teambition.com"
 	tcs = "https://tcs.teambition.net"
 	www = "https://www.teambition.com"
-	pan = "https://pan.teambition.com"
 )
 
 var (
@@ -244,16 +244,21 @@ func LoginParams() (clientid, token, publickey string, err error) {
 
 //=====================================  user  =====================================
 type Role struct {
-	ID             string   `json:"_id"`
+	RoleId         string   `json:"_id"`
 	OrganizationId string   `json:"_organizationId"`
 	Level          int      `json:"level"`
 	Permissions    []string `json:"-"`
 }
 
+// Organization 角色
 func Roles() (list []Role, err error) {
-	ts := time.Now().UnixNano() / 1e6
-	u := www + fmt.Sprintf("/api/v2/roles?type=organization&_=%v", ts)
-	data, err := util.GET(u, header)
+	ts := int(time.Now().UnixNano() / 1e6)
+	values := []string{
+		"type=organization",
+		"_=" + strconv.Itoa(ts),
+	}
+	u := www + "/api/v2/roles?" + strings.Join(values, "&")
+	raw, err := util.GET(u, header)
 	if err != nil {
 		return list, err
 	}
@@ -263,7 +268,7 @@ func Roles() (list []Role, err error) {
 			Roles []Role `json:"roles"`
 		} `json:"result"`
 	}
-	err = json.Unmarshal(data, &result)
+	err = json.Unmarshal(raw, &result)
 	if err != nil {
 		return list, err
 	}
@@ -272,65 +277,25 @@ func Roles() (list []Role, err error) {
 }
 
 type Org struct {
-	OrganizationId string `json:"organizationId"`
-	DriveId        string `json:"driveId"`
-	AppId          string `json:"_appId"`
-	IsPersonal     bool   `json:"isPersonal"`
-	IsPublic       bool   `json:"isPublic"`
-	Name           string `json:"name"`
-	TotalSize      int64  `json:"totalSize"`
-	UsedSize       int64  `json:"usedSize"`
+	OrganizationId      string `json:"_id"`
+	Name                string `json:"name"`
+	DefaultCollectionId string `json:"_defaultCollectionId"`
+	IsPublic            bool   `json:"isPublic"`
 }
 
 func Orgs(orgid string) (org Org, err error) {
-	u := pan + fmt.Sprintf("/pan/api/orgs/%v?orgId=%v", orgid, orgid)
+	u := www + "/api/organizations/" + orgid
 	data, err := util.GET(u, header)
 	if err != nil {
 		return org, err
 	}
 
-	var result struct {
-		Data Org `json:"data"`
-	}
-	err = json.Unmarshal(data, &result)
+	err = json.Unmarshal(data, &org)
 	if err != nil {
 		return org, err
 	}
 
-	return result.Data, nil
-}
-
-type User struct {
-	Email          string `json:"email"`
-	Name           string `json:"name"`
-	Phone          string `json:"phone"`
-	PhoneForLogin  string `json:"phoneForLogin"`
-	ID             string `json:"_id"`
-	OrganizationId string `json:"_organizationId"`
-	Roleid         string `json:"roleid"`
-}
-
-func GetByUser(orgid string) (user User, err error) {
-	u := pan + fmt.Sprintf("/pan/api/orgs/%v/members/getByUser?orgId=%v", orgid, orgid)
-	data, err := util.GET(u, header)
-	if err != nil {
-		return user, err
-	}
-
-	var result struct {
-		RoleId          string `json:"_roleId"`
-		BoundToObjectId string `json:"_boundToObjectId"`
-		UserInfo        User   `json:"userInfo"`
-	}
-	err = json.Unmarshal(data, &result)
-	if err != nil {
-		return user, err
-	}
-
-	result.UserInfo.OrganizationId = result.BoundToObjectId
-	result.UserInfo.Roleid = result.RoleId
-
-	return result.UserInfo, nil
+	return org, nil
 }
 
 type MeConfig struct {
@@ -496,9 +461,51 @@ func UploadProjectFileChunk(token, path string) (upload UploadInfo, err error) {
 	return upload, err
 }
 
-func ArchiveProjectDir(token string, nodeid, projectid, name, targetdir string) (err error) {
-	u := www + fmt.Sprintf("/api/projects/%v/download-info?_collectionIds=%v&_workIds=&zipName=%v",
-		projectid, nodeid, name)
+type Project struct {
+	ProjectId        string `json:"_id"`
+	Name             string `json:"name"`
+	OrganizationId   string `json:"_organizationId"`
+	RootCollectionId string `json:"_rootCollectionId"`
+}
+
+// 注: 这个 orgid 比较特殊, 它是一个特殊的 orgid
+func Projects(orgid string) (list []Project, err error) {
+	ts := int(time.Now().UnixNano() / 1e6)
+	values := []string{
+		"pageSize=20",
+		"_organizationId=" + orgid,
+		"selectBy=joined",
+		"orderBy=name",
+		"pageToken=",
+		"_=" + strconv.Itoa(ts),
+	}
+
+	u := www + "/api/v2/projects?" + strings.Join(values, "&")
+	data, err := util.GET(u, header)
+	if err != nil {
+		return list, err
+	}
+
+	var result struct {
+		Result []Project `json:"result"`
+	}
+
+	err = json.Unmarshal(data, &result)
+	if err != nil {
+		return list, err
+	}
+
+	return result.Result, nil
+}
+
+func ArchiveProject(token string, nodeid, projectid, name, targetdir string) (err error) {
+	values := []string{
+		"_collectionIds=" + nodeid,
+		"_workIds=",
+		"zipName=" + name,
+	}
+
+	u := www + "/api/projects/" + projectid + "/download-info?" + strings.Join(values, "&")
 	data, err := util.GET(u, header)
 	if err != nil {
 		return err
@@ -551,38 +558,9 @@ func ArchiveProjectDir(token string, nodeid, projectid, name, targetdir string) 
 	return util.File(u, "POST", bytes.NewBufferString(value.Encode()), header, filepath.Join(targetdir, name+".zip"))
 }
 
-type Project struct {
-	ID               string `json:"_id"`
-	Name             string `json:"name"`
-	OrganizationId   string `json:"_organizationId"`
-	RootCollectionId string `json:"_rootCollectionId"`
-}
-
-// 注: 这个 orgid 比较特殊, 它是一个特殊的 orgid
-func Projects(orgid string) (list []Project, err error) {
-	ts := time.Now().UnixNano() / 1e6
-	u := www + fmt.Sprintf("/api/v2/projects?_organizationId=%v&selectBy=joined&orderBy=name&pageToken=&pageSize=20&_=%v",
-		orgid, ts)
-	data, err := util.GET(u, header)
-	if err != nil {
-		return list, err
-	}
-
-	var result struct {
-		Result []Project `json:"result"`
-	}
-
-	err = json.Unmarshal(data, &result)
-	if err != nil {
-		return list, err
-	}
-
-	return result.Result, nil
-}
-
 const (
-	Object_Collection = "collection"
-	Object_Work       = "work"
+	OBJECT_COLLECTION = "collection"
+	OBJECT_WORK       = "work"
 )
 
 type Collection struct {
@@ -610,9 +588,17 @@ type Work struct {
 }
 
 func Collections(nodeid, projectid string) (list []Collection, err error) {
-	ts := time.Now().UnixNano() / 1e6
-	u := www + fmt.Sprintf("/api/collections?_parentId=%v&_projectId=%v&order=updatedDesc&count=50&page=1&_=%v",
-		nodeid, projectid, ts)
+	ts := int(time.Now().UnixNano() / 1e6)
+	values := []string{
+		"_parentId=" + nodeid,
+		"_projectId=" + projectid,
+		"order=updatedDesc",
+		"count=50",
+		"page=1",
+		"_=" + strconv.Itoa(ts),
+	}
+
+	u := www + "/api/collections?" + strings.Join(values, "&")
 	data, err := util.GET(u, header)
 	if err != nil {
 		return list, err
@@ -627,9 +613,17 @@ func Collections(nodeid, projectid string) (list []Collection, err error) {
 }
 
 func Works(nodeid, projectid string) (list []Work, err error) {
-	ts := time.Now().UnixNano() / 1e6
-	u := www + fmt.Sprintf("/api/works?_parentId=%v&_projectId=%v&order=updatedDesc&count=50&page=1&_=%v",
-		nodeid, projectid, ts)
+	ts := int(time.Now().UnixNano() / 1e6)
+	values := []string{
+		"_parentId=" + nodeid,
+		"_projectId=" + projectid,
+		"order=updatedDesc",
+		"count=50",
+		"page=1",
+		"_=" + strconv.Itoa(ts),
+	}
+
+	u := www + "/api/works?" + strings.Join(values, "&")
 	data, err := util.GET(u, header)
 	if err != nil {
 		return list, err
@@ -655,13 +649,13 @@ func CreateWork(nodeid string, upload UploadInfo) error {
 		Works    []file `json:"works"`
 		ParentId string `json:"_parentId"`
 	}
-
 	body.Works = []file{{
 		UploadInfo: upload,
 		Visible:    "members",
 		ParentId:   nodeid,
 	}}
 	body.ParentId = nodeid
+
 	u := www + "/api/works"
 
 	_, err := util.POST(u, body, header)
@@ -741,7 +735,6 @@ func MoveCollection(nodeid, dstParentNodeid string) error {
 }
 
 func CopyWork(nodeid string, dstParentCollection Collection) error {
-	u := www + "/api/works/" + nodeid + "/fork"
 	body := map[string]interface{}{
 		"_parentId": map[string]interface{}{
 			"_id":        dstParentCollection.Nodeid,
@@ -749,13 +742,13 @@ func CopyWork(nodeid string, dstParentCollection Collection) error {
 			"_projectId": dstParentCollection.ProjectId,
 		},
 	}
+	u := www + "/api/works/" + nodeid + "/fork"
 	_, err := util.PUT(u, body, header)
 
 	return err
 }
 
 func CopyCollection(nodeid string, dstParentCollection Collection) error {
-	u := www + "/api/collections/" + nodeid + "/fork"
 	body := map[string]interface{}{
 		"_parentId": map[string]interface{}{
 			"_id":        dstParentCollection.Nodeid,
@@ -763,6 +756,8 @@ func CopyCollection(nodeid string, dstParentCollection Collection) error {
 			"_projectId": dstParentCollection.ProjectId,
 		},
 	}
+	u := www + "/api/collections/" + nodeid + "/fork"
+
 	_, err := util.PUT(u, body, header)
 
 	return err
@@ -783,9 +778,16 @@ type ArchiveInfo struct {
 	NodeId     string `json:"_boundToObjectId"`
 }
 
-func GetArchives(orgid, _type string) (list []ArchiveInfo, err error) {
-	ts := time.Now().UnixNano() / 1e6
-	u := www + "/api/projects/" + orgid + fmt.Sprintf("/archives?objectType=%v&count=100&page=1&_=%v", _type, ts)
+func GetArchives(projectid, objectType string) (list []ArchiveInfo, err error) {
+	ts := int(time.Now().UnixNano() / 1e6)
+	values := []string{
+		"objectType=" + objectType,
+		"count=100",
+		"page=1",
+		"_=" + strconv.Itoa(ts),
+	}
+	u := www + "/api/projects/" + projectid + "/archives?" + strings.Join(values, "&")
+
 	data, err := util.GET(u, header)
 	if err != nil {
 		return list, err
@@ -795,7 +797,8 @@ func GetArchives(orgid, _type string) (list []ArchiveInfo, err error) {
 	return list, err
 }
 
-func GetProjectToken(projectid, rootid string) (token string, err error) {
+// token
+func GetToken(projectid, rootid string) (token string, err error) {
 	u := www + "/project/" + projectid + "/works/" + rootid
 	header := map[string]string{
 		"accept": "text/html",
@@ -825,276 +828,3 @@ func GetProjectToken(projectid, rootid string) (token string, err error) {
 
 	return token, errors.New("no tokens")
 }
-
-/*
-//=====================================  pan  =====================================
-
-// 文件上传: CreateFolder -> CreateFile -> UploadUrl -> UploadPanFile
-type Node struct {
-	Kind        string `json:"kind"` // file, folder
-	Name        string `json:"name"`
-	ParentId    string `json:"parentId"`
-	NodeId      string `json:"nodeId"`
-	Status      string `json:"status"`
-	DriveId     string `json:"driveId"`
-	ContainerId string `json:"containerId"`
-
-	DownloadUrl string `json:"downloadUrl"`
-	Url         string `json:"url"`
-}
-
-func Nodes(orgid, driveid, parentid string) (list []Node, err error) {
-	u := pan + fmt.Sprintf("/pan/api/nodes?orgId=%v&from=&limit=100&orderBy=updated_at&orderDirection=DESC&driveId=%v&parentId=%v",
-		orgid, driveid, parentid)
-	data, err := util.GET(u, header)
-	if err != nil {
-		return list, err
-	}
-
-	var result struct {
-		Data []Node `json:"data"`
-	}
-	err = json.Unmarshal(data, &result)
-	if err != nil {
-		return list, err
-	}
-
-	return result.Data, nil
-}
-
-func NodeArchive(orgid string, nodeids []string) (err error) {
-	u := pan + "/pan/api/nodes/archive"
-
-	var body struct {
-		NodeIds []string `json:"nodeIds"`
-		OrgId   string   `json:"orgId"`
-	}
-	body.NodeIds = nodeids
-	body.OrgId = orgid
-	_, err = util.POST(u, body, header)
-	return err
-}
-
-func NodeMove(orgid, driverid string, nodeids []string, dstparentid string) (err error) {
-	u := pan + "/pan/api/nodes/move"
-
-	var body struct {
-		DriveId   string              `json:"driveId"`
-		Ids       []map[string]string `json:"ids"`
-		OrgId     string              `json:"orgId"`
-		ParentId  string              `json:"parentId"`
-		SameLevel bool                `json:"sameLevel"`
-	}
-	body.DriveId = driverid
-	for _, id := range nodeids {
-		body.Ids = append(body.Ids, map[string]string{
-			"id":        id,
-			"ccpFileId": id,
-		})
-	}
-	body.ParentId = dstparentid
-	body.OrgId = orgid
-
-	_, err = util.POST(u, body, header)
-	return err
-}
-
-func CreateFolder(name, orgid, parentid, spaceid, driverid string) (nodeid string, err error) {
-	var body struct {
-		CcpParentId   string `json:"ccpParentId"`
-		CheckNameMode string `json:"checkNameMode"`
-		DriveId       string `json:"driveId"`
-		Name          string `json:"name"`
-		OrgId         string `json:"orgId"`
-		ParentId      string `json:"parentId"`
-		SpaceId       string `json:"spaceId"`
-		Type          string `json:"type"`
-	}
-
-	body.CheckNameMode = "refuse"
-	body.DriveId = driverid
-	body.Name = name
-	body.OrgId = orgid
-	body.CcpParentId = parentid
-	body.ParentId = parentid
-	body.SpaceId = spaceid
-	body.Type = "folder"
-	u := pan + "/pan/api/nodes/folder"
-
-	data, err := util.POST(u, body, header)
-	if err != nil {
-		return nodeid, err
-	}
-
-	var result []struct {
-		NodeId string `json:"nodeId"`
-	}
-	err = json.Unmarshal(data, &result)
-	if err != nil {
-		return nodeid, err
-	}
-
-	return result[0].NodeId, nil
-}
-
-type PanFile struct {
-	OrgId           string   `json:"orgId"`
-	Name            string   `json:"name"`
-	Kind            string   `json:"kind"`
-	UploadId        string   `json:"uploadId"`
-	UploadUrl       []string `json:"uploadUrl"`
-	NodeId          string   `json:"nodeId"`
-	ParentId        string   `json:"parentId"`
-	DriveId         string   `json:"driveId"`
-	CcpFileId       string   `json:"ccpFileId"`       // NodeId
-	CcpParentFileId string   `json:"ccpParentFileId"` // ParentID
-}
-
-func CreatePanFile(orgid, parentid, spaceid, driverid, path string) (files []PanFile, err error) {
-	type file struct {
-		Name        string `json:"name"`
-		ContentType string `json:"contentType"`
-		ChunkCount  int    `json:"chunkCount"`
-		Size        int64  `json:"size"`
-		CcpParentId string `json:"ccpParentId"`
-		DriveId     string `json:"driveId"`
-		Type        string `json:"type"`
-	}
-
-	var body struct {
-		CheckNameMode string `json:"checkNameMode"`
-		Infos         []file `json:"infos"`
-		OrgId         string `json:"orgId"`
-		ParentId      string `json:"parentId"`
-		SpaceId       string `json:"spaceId"`
-	}
-
-	info, _ := os.Stat(path)
-	body.Infos = []file{{
-		Name:        info.Name(),
-		ChunkCount:  1,
-		ContentType: extType(filepath.Ext(info.Name())),
-		DriveId:     driverid,
-		Size:        info.Size(),
-		CcpParentId: parentid,
-		Type:        "file",
-	}}
-	body.CheckNameMode = "refuse"
-	body.OrgId = orgid
-	body.ParentId = parentid
-	body.SpaceId = spaceid
-	u := pan + "/pan/api/nodes/file"
-
-	data, err := util.POST(u, body, header)
-	if err != nil {
-		return files, err
-	}
-
-	err = json.Unmarshal(data, &files)
-	return files, nil
-}
-
-type PanUpload struct {
-	DomainId     string `json:"domainId"`
-	DriveId      string `json:"driveId"`
-	UploadId     string `json:"uploadId"`
-	FileId       string `json:"fileId"`
-	NodeId       string `json:"nodeid"`
-	PartInfoList []struct {
-		PartNumber int    `json:"partNumber"`
-		UploadUrl  string `json:"uploadUrl"`
-	} `json:"partInfoList"`
-}
-
-func CreatePanUpload(orgid string, panfile PanFile) (upload PanUpload, err error) {
-	var body struct {
-		DriveId         string `json:"driveId"`
-		OrgId           string `json:"orgId"`
-		UploadId        string `json:"uploadId"`
-		StartPartNumber int    `json:"startPartNumber"`
-		EndPartNumber   int    `json:"endPartNumber"`
-	}
-
-	body.DriveId = panfile.DriveId
-	body.OrgId = orgid
-	body.UploadId = panfile.UploadId
-	body.StartPartNumber = 1
-	body.EndPartNumber = len(panfile.UploadUrl)
-
-	u := pan + fmt.Sprintf("/pan/api/nodes/%v/uploadUrl", panfile.NodeId)
-
-	data, err := util.POST(u, body, header)
-	if err != nil {
-		return upload, err
-	}
-
-	err = json.Unmarshal(data, &upload)
-	upload.NodeId = panfile.NodeId
-	return upload, err
-}
-
-func UploadPanFile(orgid string, upload PanUpload, path string) error {
-	fd, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-
-	info, _ := fd.Stat()
-	chunk := uint64(info.Size() / int64(len(upload.PartInfoList)))
-	k8 := uint64(8192)
-	chunk = k8 + (^(k8 - 1))&chunk /// 8192对其
-
-	var wg sync.WaitGroup
-	wg.Add(len(upload.PartInfoList))
-	for _, v := range upload.PartInfoList {
-		part := v
-		go func(u string, partnum int) {
-			defer wg.Done()
-			reader := make([]byte, chunk)
-			fd.ReadAt(reader, int64(partnum-1)*int64(chunk))
-			_, err = util.PUT(u, bytes.NewBuffer(reader), nil)
-		}(part.UploadUrl, part.PartNumber)
-	}
-	wg.Wait()
-
-	var body struct {
-		CcpFileId string `json:"ccpFileId"`
-		DriveId   string `json:"driveId"`
-		NodeId    string `json:"nodeId"`
-		OrgId     string `json:"orgId"`
-		UploadId  string `json:"uploadId"`
-	}
-	body.CcpFileId = upload.NodeId
-	body.NodeId = upload.NodeId
-	body.OrgId = orgid
-	body.DriveId = upload.DriveId
-	body.UploadId = upload.UploadId
-	u := pan + "/pan/api/nodes/complete"
-
-	_, err = util.POST(u, body, header)
-	return err
-}
-
-type Space struct {
-	IsPublic     bool   `json:"isPublic"`
-	MembersCount int    `json:"membersCount"`
-	Name         string `json:"name"`
-	RootId       string `json:"rootId"`
-	SpaceId      string `json:"spaceId"`
-}
-
-func Spaces(orgid, memberid string) (spaces []Space, err error) {
-	u := pan + fmt.Sprintf("/pan/api/spaces?orgId=%v&memberId=%v", orgid, memberid)
-	data, err := util.GET(u, header)
-	if err != nil {
-		return spaces, err
-	}
-
-	err = json.Unmarshal(data, &spaces)
-	if err != nil {
-		return spaces, err
-	}
-
-	return spaces, nil
-}
-*/
