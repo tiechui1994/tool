@@ -198,7 +198,8 @@ func TwoFactor(clientid, token, verify string) error {
 }
 
 func LoginParams() (clientid, token, publickey string, err error) {
-	raw, err := util.GET("https://account.teambition.com/login", nil)
+	u := acc + "/login"
+	raw, err := util.GET(u, nil)
 	if err != nil {
 		return clientid, token, publickey, err
 	}
@@ -281,6 +282,7 @@ type Org struct {
 	Name                string `json:"name"`
 	DefaultCollectionId string `json:"_defaultCollectionId"`
 	IsPublic            bool   `json:"isPublic"`
+	Projects            []Project
 }
 
 func Orgs(orgid string) (org Org, err error) {
@@ -639,7 +641,7 @@ func Works(nodeid, projectid string) (list []Work, err error) {
 	return list, nil
 }
 
-func CreateWork(nodeid string, upload UploadInfo) error {
+func CreateWork(nodeid string, upload UploadInfo) (w Work, err error) {
 	type file struct {
 		UploadInfo
 		InvolveMembers []interface{} `json:"involveMembers"`
@@ -660,12 +662,17 @@ func CreateWork(nodeid string, upload UploadInfo) error {
 
 	u := www + "/api/works"
 
-	_, err := util.POST(u, body, header)
+	raw, err := util.POST(u, body, header)
+	if err != nil {
+		return w, err
+	}
 
-	return err
+	err = json.Unmarshal(raw, &w)
+
+	return w, err
 }
 
-func CreateCollection(nodeid, projectid, name string) error {
+func CreateCollection(nodeid, projectid, name string) (c Collection, err error) {
 	var body struct {
 		CollectionType string        `json:"collectionType"`
 		Color          string        `json:"color"`
@@ -689,9 +696,13 @@ func CreateCollection(nodeid, projectid, name string) error {
 	body.ProjectId = projectid
 
 	u := www + "/api/collections"
-	_, err := util.POST(u, body, header)
+	raw, err := util.POST(u, body, header)
+	if err != nil {
+		return c, err
+	}
 
-	return err
+	err = json.Unmarshal(raw, &c)
+	return c, err
 }
 
 func DeleteWork(nodeid string) error {

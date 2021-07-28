@@ -56,18 +56,18 @@ type Jar struct {
 }
 
 func Serialize(jar *cookiejar.Jar) {
-	oldpath := filepath.Join(ConfDir, "."+AppName+".json")
+	oldpath := filepath.Join(ConfDir, "."+cookie+".json")
 	localjar := (*Jar)(unsafe.Pointer(jar))
 	fd, _ := os.Create(oldpath)
 	json.NewEncoder(fd).Encode(localjar)
 	fd.Sync()
 
-	os.Rename(oldpath, filepath.Join(ConfDir, AppName+".json"))
+	os.Rename(oldpath, filepath.Join(ConfDir, cookie+".json"))
 }
 
 func UnSerialize() *Jar {
 	var localjar Jar
-	fd, _ := os.Open(filepath.Join(ConfDir, AppName+".json"))
+	fd, _ := os.Open(filepath.Join(ConfDir, cookie+".json"))
 	err := json.NewDecoder(fd).Decode(&localjar)
 	if err != nil {
 		return nil
@@ -79,12 +79,12 @@ func UnSerialize() *Jar {
 var (
 	Debug = false
 
-	AppName string
 	ConfDir string
 
 	jar     http.CookieJar
 	agent   string
 	jarsync = make(chan struct{})
+	cookie  = "cookie"
 )
 
 func GetCookie(url *url.URL, name string) *http.Cookie {

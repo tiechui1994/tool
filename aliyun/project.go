@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"text/template"
@@ -144,10 +146,11 @@ type ProjectFs struct {
 	rootcollid string
 	token      string
 	root       *FileNode
+	pwd        string
 }
 
 func NewProject(name, orgid string) (*ProjectFs, error) {
-	p := ProjectFs{Name: name, Orgid: orgid}
+	p := ProjectFs{Name: name, Orgid: orgid, pwd: "/"}
 
 	list, err := Projects(p.Orgid)
 	if err != nil {
@@ -295,16 +298,16 @@ func (p *ProjectFs) mkdir(path string) (node *FileNode, err error) {
 		return node, err
 	}
 	if exist {
-		p.fetchWorks(accnode.NodeId, accnode.Child)
-		return accnode, nil
+		accnode.Child, err = p.fetchWorks(accnode.NodeId)
+		return accnode, err
 	}
 
 	p.mux.Lock()
 	defer p.mux.Unlock()
 
 	// sync accnode
-	tokens := strings.Split(newpath[len(prefix)+1:], "/")
-	accnode.Child, err = p.fetchCollections(accnode.NodeId, tokens)
+	subpath := strings.Split(newpath[len(prefix)+1:], "/")
+	accnode.Child, err = p.fetchCollections(accnode.NodeId, subpath)
 	if err != nil {
 		return node, err
 	}
@@ -315,36 +318,28 @@ func (p *ProjectFs) mkdir(path string) (node *FileNode, err error) {
 		return node, err
 	}
 	if exist {
-		p.fetchWorks(accnode.NodeId, accnode.Child)
-		return accnode, nil
+		accnode.Child, err = p.fetchWorks(accnode.NodeId)
+		return accnode, err
 	}
 
 	// new path
 	parent := accnode
-	tokens = strings.Split(newpath[len(prefix)+1:], "/")
-	for _, token := range tokens {
-		err = CreateCollection(parent.NodeId, p.projectid, token)
-		if err != nil {
-			return node, err
-		}
-		list, err := Collections(parent.NodeId, p.projectid)
+	subpath = strings.Split(newpath[len(prefix)+1:], "/")
+	for _, token := range subpath {
+		cnode, err := CreateCollection(parent.NodeId, p.projectid, token)
 		if err != nil {
 			return node, err
 		}
 
-		for _, coll := range list {
-			if coll.Title == token {
-				curnode := &FileNode{
-					Type:     Node_Dir,
-					Name:     token,
-					ParentId: coll.ParentId,
-					NodeId:   coll.Nodeid,
-					Updated:  coll.Updated,
-				}
-				parent = curnode
-				break
-			}
+		curnode := &FileNode{
+			Type:     Node_Dir,
+			Name:     token,
+			ParentId: cnode.ParentId,
+			NodeId:   cnode.Nodeid,
+			Updated:  cnode.Updated,
+			Created:  cnode.Created,
 		}
+		parent = curnode
 	}
 
 	return parent, nil
@@ -377,7 +372,8 @@ func (p *ProjectFs) fileupload(path, target string) error {
 		return err
 	}
 
-	return CreateWork(targetNode.NodeId, upload)
+	_, err = CreateWork(targetNode.NodeId, upload)
+	return err
 }
 
 func (p *ProjectFs) Rename(before, after, dir string) error {
@@ -646,14 +642,22 @@ total {{(len .)}}
 }
 
 func (p *ProjectFs) Cwd(dir string) error {
+	path, err := filepath.Rel(p.pwd, dir)
+	if err != nil {
+		return err
+	}
+
+	p.pwd = path
 	return nil
 }
 
 func (p *ProjectFs) Pwd() {
-
+	fmt.Println(p.pwd)
 }
 
 func Exec() cli.Command {
+	Setup()
+
 	cmd := cli.Command{
 		Name:        "project",
 		Description: "aliyun teambition management",
@@ -752,4 +756,68 @@ func Exec() cli.Command {
 	}
 
 	return cmd
+}
+
+func Setup() *ProjectFs {
+	AutoLogin()
+
+	_, orgs, err := GetCacheData()
+	if err != nil {
+		fmt.Println("catch data err", err)
+		os.Exit(1)
+	}
+
+	tpl := `
+{{ range $orgidx, $ele := . }}
+{{ printf "%d. org: %s(%s)" $orgidx  .Name .OrganizationId -}}
+{{ range $pidx, $val := .Projects }}
+  {{ printf "%d.%d project: %s(%s)" $orgidx $pidx .Name .ProjectId -}}
+{{ end }}
+{{ end }}
+`
+
+	tpl = strings.Trim(tpl, "\n")
+	temp, err := template.New("").Parse(tpl)
+	if err != nil {
+		os.Exit(1)
+	}
+
+	var buf bytes.Buffer
+	err = temp.Execute(&buf, orgs)
+	if err != nil {
+		os.Exit(1)
+	}
+	fmt.Println(buf.String())
+
+	reindex := regexp.MustCompile(`^([0-9])\.([0-9])$`)
+retry:
+	var idx string
+	fmt.Printf("Select project index:")
+	fmt.Scanf("%s", &idx)
+	if !reindex.MatchString(idx) {
+		fmt.Println("input fortmat error. eg: 1.1")
+		goto retry
+	}
+	tokens := reindex.FindAllStringSubmatch(idx, -1)
+	if len(tokens) == 0 || len(tokens[0]) != 3 {
+		fmt.Println("input fortmat error. eg: 1.1")
+		goto retry
+	}
+
+	id1, _ := strconv.Atoi(tokens[0][1])
+	id2, _ := strconv.Atoi(tokens[0][2])
+	if len(orgs) < id1 || len(orgs[id1].Projects) < id2 {
+		fmt.Println("input fortmat error. eg: 1.1")
+		goto retry
+	}
+
+	orgid := orgs[id1].OrganizationId
+	name := orgs[id1].Projects[id2].Name
+	p, err := NewProject(name, orgid)
+	if err != nil {
+		fmt.Println("new project err", err)
+		os.Exit(1)
+	}
+
+	return p
 }
