@@ -573,6 +573,7 @@ type Collection struct {
 	CollectionCount int    `json:"collectionCount"`
 	WorkCount       int    `json:"workCount"`
 	Updated         string `json:"updated"`
+	Created         string `json:"created"`
 }
 
 type Work struct {
@@ -585,6 +586,7 @@ type Work struct {
 	ParentId    string `json:"_parentId"`
 	ObjectType  string `json:"objectType"`
 	Updated     string `json:"updated"`
+	Created     string `json:"created"`
 }
 
 func Collections(nodeid, projectid string) (list []Collection, err error) {

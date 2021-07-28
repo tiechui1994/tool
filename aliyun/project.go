@@ -1,12 +1,17 @@
 package aliyun
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
+	"text/template"
+
+	"github.com/urfave/cli"
 
 	"github.com/tiechui1994/tool/util"
 )
@@ -105,15 +110,29 @@ func FindProjectFile(path, orgid string) (w Work, err error) {
 }
 
 type FileNode struct {
-	Type     int                  `json:"type"`
-	Name     string               `json:"name"`
-	NodeId   string               `json:"nodeid"`
-	ParentId string               `json:"parentid"`
-	Updated  string               `json:"updated"`
-	Child    map[string]*FileNode `json:"child,omitempty"`
-	Url      string               `json:"url,omitempty"`
-	Size     int                  `json:"size,omitempty"`
-	Private  interface{}          `json:"private,omitempty"`
+	Type     int         `json:"type"`
+	Name     string      `json:"name"`
+	NodeId   string      `json:"nodeid"`
+	ParentId string      `json:"parentid"`
+	Updated  string      `json:"updated"`
+	Created  string      `json:"created"`
+	Child    []*FileNode `json:"child,omitempty"`
+	Url      string      `json:"url,omitempty"`
+	Size     int         `json:"size,omitempty"`
+	Private  interface{} `json:"private,omitempty"`
+}
+
+func search(arr []*FileNode, name string) (*FileNode, bool) {
+	for i := range arr {
+		if arr[i].Name == name {
+			return arr[i], true
+		}
+	}
+	return nil, false
+}
+
+func (node *FileNode) Search(name string) (*FileNode, bool) {
+	return search(node.Child, name)
 }
 
 type ProjectFs struct {
@@ -156,7 +175,7 @@ func NewProject(name, orgid string) (*ProjectFs, error) {
 		Type:   Node_Dir,
 		Name:   "/",
 		NodeId: p.rootcollid,
-		Child:  make(map[string]*FileNode),
+		Child:  make([]*FileNode, 0, 10),
 	}
 	return &p, nil
 }
@@ -178,7 +197,8 @@ func (p *ProjectFs) projectPath(path string) (string, error) {
 	return path, nil
 }
 
-func (p *ProjectFs) fetchCollections(rootid string, root map[string]*FileNode, paths []string, private ...interface{}) {
+func (p *ProjectFs) fetchCollections(rootid string, paths []string, private ...interface{}) (list []*FileNode, err error) {
+	list = make([]*FileNode, 0, 10)
 	colls, err := Collections(rootid, p.projectid)
 	if err == nil {
 		for _, coll := range colls {
@@ -188,22 +208,29 @@ func (p *ProjectFs) fetchCollections(rootid string, root map[string]*FileNode, p
 				NodeId:   coll.Nodeid,
 				ParentId: coll.ParentId,
 				Updated:  coll.Updated,
-				Child:    make(map[string]*FileNode),
+				Created:  coll.Created,
+				Child:    make([]*FileNode, 0, 10),
 				Private:  private,
 			}
 			if len(paths) > 0 && node.Name == paths[0] {
-				p.fetchCollections(node.NodeId, node.Child, paths[1:], private)
+				node.Child, err = p.fetchCollections(node.NodeId, paths[1:], private)
+				if err != nil {
+					return list, err
+				}
 			}
-			root[coll.Title] = node
+			list = append(list, node)
 		}
 	}
+
+	return list, err
 }
 
-func (p *ProjectFs) fetchWorks(rootid string, root map[string]*FileNode, private ...interface{}) {
+func (p *ProjectFs) fetchWorks(rootid string, private ...interface{}) (list []*FileNode, err error) {
+	list = make([]*FileNode, 0, 10)
 	works, err := Works(rootid, p.projectid)
 	if err == nil {
 		for _, work := range works {
-			root[work.FileName] = &FileNode{
+			node := &FileNode{
 				Type:     Node_File,
 				Name:     work.FileName,
 				NodeId:   work.Nodeid,
@@ -211,10 +238,14 @@ func (p *ProjectFs) fetchWorks(rootid string, root map[string]*FileNode, private
 				Url:      work.DownloadUrl,
 				Size:     work.FileSize,
 				Updated:  work.Updated,
+				Created:  work.Created,
 				Private:  private,
 			}
+			list = append(list, node)
 		}
 	}
+
+	return list, err
 }
 
 func (p *ProjectFs) find(path string) (node *FileNode, prefix string, exist bool, err error) {
@@ -223,36 +254,33 @@ func (p *ProjectFs) find(path string) (node *FileNode, prefix string, exist bool
 		return node, prefix, exist, err
 	}
 
-	defer func() {
-		if err == nil && node != nil && node.Child == nil {
-			node.Child = make(map[string]*FileNode)
-		}
-	}()
+	subpaths := strings.Split(newpath[1:], "/")
 
-	tokens := strings.Split(newpath[1:], "/")
 	node = p.root
-	root := p.root.Child
+	child := p.root.Child
 
-	for idx, token := range tokens {
-		if val, ok := root[token]; ok {
+	for idx, subpath := range subpaths {
+		// subpath
+		if val, ok := search(child, subpath); ok {
 			node = val
-			root = val.Child
-			if idx == len(tokens)-1 {
+			child = val.Child
+			if idx == len(subpaths)-1 {
 				exist = true
-				return node, "/" + strings.Join(tokens, "/"), exist, nil
+				return node, "/" + strings.Join(subpaths, "/"), exist, nil
 			}
 			continue
 		}
 
+		// subpath not exist
 		exist = false
 		if idx == 0 {
 			return node, "", exist, nil
 		}
 
-		return node, "/" + strings.Join(tokens[:idx], "/"), exist, nil
+		return node, "/" + strings.Join(subpaths[:idx], "/"), exist, nil
 	}
 
-	return
+	return node, "", false, errors.New("invalid path")
 }
 
 func (p *ProjectFs) mkdir(path string) (node *FileNode, err error) {
@@ -276,7 +304,10 @@ func (p *ProjectFs) mkdir(path string) (node *FileNode, err error) {
 
 	// sync accnode
 	tokens := strings.Split(newpath[len(prefix)+1:], "/")
-	p.fetchCollections(accnode.NodeId, accnode.Child, tokens)
+	accnode.Child, err = p.fetchCollections(accnode.NodeId, tokens)
+	if err != nil {
+		return node, err
+	}
 
 	// query again
 	accnode, prefix, exist, err = p.find(newpath)
@@ -289,37 +320,34 @@ func (p *ProjectFs) mkdir(path string) (node *FileNode, err error) {
 	}
 
 	// new path
-	root := accnode
+	parent := accnode
 	tokens = strings.Split(newpath[len(prefix)+1:], "/")
 	for _, token := range tokens {
-		err = CreateCollection(root.NodeId, p.projectid, token)
+		err = CreateCollection(parent.NodeId, p.projectid, token)
 		if err != nil {
 			return node, err
 		}
-		list, err := Collections(root.NodeId, p.projectid)
+		list, err := Collections(parent.NodeId, p.projectid)
 		if err != nil {
 			return node, err
 		}
 
-		if root.Child == nil {
-			root.Child = make(map[string]*FileNode)
-		}
 		for _, coll := range list {
 			if coll.Title == token {
-				root.Child[coll.Title] = &FileNode{
+				curnode := &FileNode{
 					Type:     Node_Dir,
 					Name:     token,
 					ParentId: coll.ParentId,
 					NodeId:   coll.Nodeid,
 					Updated:  coll.Updated,
 				}
-				root = root.Child[coll.Title]
+				parent = curnode
 				break
 			}
 		}
 	}
 
-	return root, nil
+	return parent, nil
 }
 
 func (p *ProjectFs) fileupload(path, target string) error {
@@ -333,7 +361,7 @@ func (p *ProjectFs) fileupload(path, target string) error {
 		return err
 	}
 
-	filenode, exist := targetNode.Child[info.Name()]
+	filenode, exist := targetNode.Search(info.Name())
 	if exist && filenode.Size == int(info.Size()) {
 		return nil
 	}
@@ -361,18 +389,20 @@ func (p *ProjectFs) Rename(before, after, dir string) error {
 		return errors.New("not exist")
 	}
 
-	works := make(map[string]*FileNode)
-	p.fetchWorks(node.NodeId, works)
-	if works[before] != nil {
-		node = works[before]
-		return RenameWork(node.NodeId, after)
+	works, err := p.fetchWorks(node.NodeId)
+	if err != nil {
+		return err
+	}
+	if val, exist := search(works, before); exist {
+		return RenameWork(val.NodeId, after)
 	}
 
-	collections := make(map[string]*FileNode)
-	p.fetchCollections(node.NodeId, collections, nil)
-	if collections[before] != nil {
-		node = collections[before]
-		return RenameCollection(node.NodeId, after)
+	collections, err := p.fetchCollections(node.NodeId, nil)
+	if err != nil {
+		return err
+	}
+	if val, exist := search(collections, before); exist {
+		return RenameCollection(val.NodeId, after)
 	}
 
 	return nil
@@ -514,7 +544,12 @@ func (p *ProjectFs) Download(srcpath, targetdir string) error {
 	// sync dirs
 	p.mux.Lock()
 	tokens = strings.Split(newpath[len(prefix)+1:], "/")
-	p.fetchCollections(accnode.NodeId, accnode.Child, tokens)
+	accnode.Child, err = p.fetchCollections(accnode.NodeId, tokens)
+	if err != nil {
+		p.mux.Unlock()
+		return err
+	}
+
 	p.mux.Unlock()
 
 	// query second
@@ -546,4 +581,175 @@ download:
 		return util.File(accnode.Url, "GET", nil, nil, filepath.Join(targetdir, accnode.Name))
 	}
 	return ArchiveProject(p.token, accnode.NodeId, p.projectid, accnode.Name, targetdir)
+}
+
+func (p *ProjectFs) List(dir string, onlyfile, onlydir bool) error {
+	node, _, exist, err := p.find(dir)
+	if err != nil {
+		return err
+	}
+	if !exist {
+		return errors.New("not exist dir")
+	}
+
+	works := make([]*FileNode, 0, 0)
+	dirs := make([]*FileNode, 0, 0)
+	if !onlyfile && !onlydir {
+		onlyfile, onlydir = true, true
+	}
+
+	if onlyfile {
+		works, err = p.fetchWorks(node.NodeId)
+	}
+
+	if onlydir {
+		dirs, err = p.fetchCollections(node.NodeId, nil)
+	}
+
+	list := make([]*FileNode, 0, len(works)+len(dir))
+	for _, val := range works {
+		list = append(list, val)
+	}
+	for _, val := range dirs {
+		list = append(list, val)
+	}
+
+	sort.SliceStable(list, func(i, j int) bool {
+		return list[i].Updated < list[j].Updated
+	})
+
+	tpl := `
+total {{(len .)}}
+{{- range . }}
+{{ $x := "f" }}
+{{- if (eq .Type 1) -}} 
+	{{- $x = "d" -}} 
+{{- end -}}
+{{printf "%s  %24s  %s" $x .Updated .Name}}
+{{- end }}
+`
+
+	tpl = strings.Trim(tpl, "\n")
+	temp, err := template.New("").Parse(tpl)
+	if err != nil {
+		return err
+	}
+
+	var buf bytes.Buffer
+	err = temp.Execute(&buf, list)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(buf.String())
+	return nil
+}
+
+func (p *ProjectFs) Cwd(dir string) error {
+	return nil
+}
+
+func (p *ProjectFs) Pwd() {
+
+}
+
+func Exec() cli.Command {
+	cmd := cli.Command{
+		Name:        "project",
+		Description: "aliyun teambition management",
+	}
+
+	cmd.Subcommands = []cli.Command{
+		{
+			Name:  "pwd",
+			Usage: "current dir",
+			Action: func(c *cli.Context) error {
+				fmt.Println("pwd")
+				return nil
+			},
+		},
+		{
+			Name:      "cd",
+			Usage:     "change to dir",
+			ArgsUsage: "[DIR]",
+			Action: func(c *cli.Context) error {
+				fmt.Println("cd")
+				return nil
+			},
+		},
+		{
+			Name:      "ls",
+			Aliases:   []string{"list"},
+			Usage:     "list files or dirs in the dir",
+			ArgsUsage: "[DIR]",
+			Flags: []cli.Flag{
+				cli.BoolFlag{
+					Name:  "d",
+					Usage: "only include dirs",
+				},
+				cli.BoolFlag{
+					Name:  "f",
+					Usage: "only include files",
+				},
+				cli.BoolFlag{
+					Name:  "a",
+					Usage: "include files and dirs",
+				},
+			},
+			Action: func(c *cli.Context) error {
+				fmt.Println("ls", c.Bool("a"))
+
+				for i := 0; i < c.NArg(); i++ {
+					fmt.Println(c.Args().Get(i))
+				}
+
+				return nil
+			},
+		},
+		{
+			Name:      "upload",
+			Usage:     "upload file to project",
+			ArgsUsage: "[LOCAL] [REMOTE]",
+			Action: func(c *cli.Context) error {
+				return nil
+			},
+		},
+		{
+			Name:      "mv",
+			Aliases:   []string{"move"},
+			Usage:     "move file or dir to dir",
+			ArgsUsage: "[SRC] [DST]",
+			Action: func(c *cli.Context) error {
+				return nil
+			},
+		},
+		{
+			Name:      "cp",
+			Aliases:   []string{"copy"},
+			Usage:     "copy dir or file",
+			ArgsUsage: "[SRC] [DST]",
+			Action: func(c *cli.Context) error {
+				return nil
+			},
+		},
+		{
+			Name:      "rm",
+			Aliases:   []string{"remove"},
+			Usage:     "remove dir or file",
+			ArgsUsage: "[NAME]",
+			Action: func(c *cli.Context) error {
+				return nil
+			},
+		},
+		{
+			Name:      "rename",
+			Usage:     "rename dir or file",
+			ArgsUsage: "[SRCNAME] [DSTNAME]",
+			Action: func(c *cli.Context) error {
+				return nil
+			},
+		},
+	}
+
+	return cmd
 }
