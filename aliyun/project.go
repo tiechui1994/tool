@@ -769,7 +769,7 @@ func Setup() *ProjectFs {
 
 	tpl := `
 {{ range $orgidx, $ele := . }}
-{{ printf "%d. org: %s(%s)" $orgidx  .Name .OrganizationId -}}
+{{ printf "%d org: %s(%s)" $orgidx  .Name .OrganizationId -}}
 {{ range $pidx, $val := .Projects }}
   {{ printf "%d.%d project: %s(%s)" $orgidx $pidx .Name .ProjectId -}}
 {{ end }}
@@ -795,19 +795,19 @@ retry:
 	fmt.Printf("Select project index:")
 	fmt.Scanf("%s", &idx)
 	if !reindex.MatchString(idx) {
-		fmt.Println("input fortmat error. eg: 1.1")
+		fmt.Println("input fortmat error. eg: 0.1")
 		goto retry
 	}
 	tokens := reindex.FindAllStringSubmatch(idx, -1)
 	if len(tokens) == 0 || len(tokens[0]) != 3 {
-		fmt.Println("input fortmat error. eg: 1.1")
+		fmt.Println("input fortmat error. eg: 0.1")
 		goto retry
 	}
 
 	id1, _ := strconv.Atoi(tokens[0][1])
 	id2, _ := strconv.Atoi(tokens[0][2])
-	if len(orgs) < id1 || len(orgs[id1].Projects) < id2 {
-		fmt.Println("input fortmat error. eg: 1.1")
+	if !(len(orgs) > id1 && len(orgs[id1].Projects) > id2) {
+		fmt.Println("input fortmat error. eg: 0.1")
 		goto retry
 	}
 
@@ -815,7 +815,7 @@ retry:
 	name := orgs[id1].Projects[id2].Name
 	p, err := NewProject(name, orgid)
 	if err != nil {
-		fmt.Println("new project err", err)
+		fmt.Println("new project err:", err)
 		os.Exit(1)
 	}
 

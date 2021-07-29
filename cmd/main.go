@@ -1,8 +1,9 @@
 package main
 
 import (
-	"github.com/urfave/cli"
 	"os"
+
+	"github.com/urfave/cli"
 
 	"github.com/tiechui1994/tool/aliyun"
 	"github.com/tiechui1994/tool/util"

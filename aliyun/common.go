@@ -39,10 +39,14 @@ func GetCacheData() (roles []Role, orgs []Org, err error) {
 		wg   sync.WaitGroup
 	)
 	for _, role := range roles {
+		if role.Level == 0 {
+			continue
+		}
 		wg.Add(1)
+		orgid := role.OrganizationId
 		go func(orgid string) {
 			defer wg.Done()
-			org, err := Orgs(roles[0].OrganizationId)
+			org, err := Orgs(orgid)
 			if err != nil {
 				log.Println("fetch org err:", orgid, err)
 				return
@@ -56,7 +60,7 @@ func GetCacheData() (roles []Role, orgs []Org, err error) {
 			lock.Lock()
 			orgs = append(orgs, org)
 			lock.Unlock()
-		}(role.OrganizationId)
+		}(orgid)
 	}
 
 	wg.Wait()
