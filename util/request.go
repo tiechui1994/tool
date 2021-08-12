@@ -41,13 +41,14 @@ func request(method, u string, body interface{}, header map[string]string) (raw 
 	}
 
 	request.Header.Set("user-agent", UserAgent())
-	if Debug {
-		log.Println(method, request.URL.Path, request.Header.Get("cookie"))
-	}
 
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		return raw, err
+	}
+
+	if Debug {
+		log.Println(method, request.URL.Path, request.Cookies())
 	}
 
 	raw, err = ioutil.ReadAll(response.Body)
@@ -56,7 +57,7 @@ func request(method, u string, body interface{}, header map[string]string) (raw 
 	}
 
 	if Debug && len(raw) > 0 {
-		log.Println(method, request.URL.Path, "data", string(raw))
+		log.Println(method, request.URL.Path, response.Cookies())
 	}
 
 	if response.StatusCode >= 400 {
