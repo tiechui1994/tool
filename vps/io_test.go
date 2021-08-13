@@ -19,7 +19,12 @@ func TestRun(t *testing.T) {
 		return
 	}
 
-	run(cs[0])
+	_, err = run(cs[0])
+	if err != nil {
+		t.Log("err", err, cs[0])
+	}
+
+	time.Sleep(10 * time.Minute)
 }
 
 func TestParse(t *testing.T) {
@@ -27,6 +32,6 @@ func TestParse(t *testing.T) {
 
 	data, _ := hex.DecodeString(origin)
 	t.Log("data", string(data))
-	t.Log("idx", bytes.IndexRune(data, '{'))
-	t.Log("xx", data[:5], len(data))
+	t.Log("idx", bytes.IndexRune(data, '0'))
+	t.Log("xx", data[:4], len(data), len(data)-4, string(data[:4]))
 }

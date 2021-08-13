@@ -3,12 +3,16 @@ package util
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/gorilla/websocket"
 	"io"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
+	"time"
 )
 
 type CodeError int
@@ -81,6 +85,51 @@ func GET(u string, header map[string]string) (raw json.RawMessage, err error) {
 
 func DELETE(u string, header map[string]string) (raw json.RawMessage, err error) {
 	return request("DELETE", u, nil, header)
+}
+
+func SOCKET(u string, header map[string]string) (conn *websocket.Conn, raw json.RawMessage, err error) {
+	dailer := websocket.Dialer{
+		Proxy:             http.ProxyFromEnvironment,
+		NetDialContext:    (&net.Dialer{}).DialContext,
+		HandshakeTimeout:  45 * time.Second,
+		EnableCompression: true,
+	}
+
+	head := make(http.Header)
+	for key, val := range header {
+		head.Set(key, val)
+	}
+	head.Set("user-agent", UserAgent())
+
+	uu, _ := url.Parse(u)
+	if cookies := jar.Cookies(uu); len(cookies) > 0 {
+		cookie := make([]string, 0, len(cookies))
+		for _, v := range cookies {
+			cookie = append(cookie, v.String())
+		}
+		head.Set("cookie", strings.Join(cookie, "; "))
+	}
+
+	if strings.HasPrefix(u, "https") {
+		u = "wss" + u[5:]
+	} else {
+		u = "ws" + u[4:]
+	}
+	conn, response, err := dailer.Dial(u, head)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	raw, err = ioutil.ReadAll(response.Body)
+	if err != nil {
+		return conn, nil, err
+	}
+
+	if response.StatusCode >= 400 {
+		return conn, raw, CodeError(response.StatusCode)
+	}
+
+	return conn, raw, nil
 }
 
 func File(u, method string, body io.Reader, header map[string]string, path string) (err error) {
