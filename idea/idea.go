@@ -4,10 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
-	"flag"
-	"fmt"
 	"io/ioutil"
-	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -15,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tiechui1994/tool/log"
 	"github.com/tiechui1994/tool/util"
 )
 
@@ -24,15 +22,11 @@ import (
 
 // go build -o idea -ldflags '-w -s' idea.go
 
-func init() {
-	log.SetPrefix("idea ")
-}
-
-func writeCode(code, file string) {
+func WriteCode(code, file string) {
 	if fd, err := os.Open(file); err == nil {
 		data, err := ioutil.ReadAll(fd)
 		if err != nil {
-			log.Println(err)
+			log.Errorln(err.Error())
 			return
 		}
 		prefix := []byte{0xff, 0xff}
@@ -44,10 +38,10 @@ func writeCode(code, file string) {
 		}
 	}
 
-	log.Printf("Start write code to file: %v ...", file)
+	log.Infoln("Start write code to file: %v ...", file)
 	fd, err := os.Create(file)
 	if err != nil {
-		log.Println(err)
+		log.Errorln("%v", err)
 		return
 	}
 	defer fd.Close()
@@ -58,14 +52,14 @@ func writeCode(code, file string) {
 		data = append(data, []byte{b, 0x00}...)
 	}
 	fd.Write(data)
-	log.Printf("Success write %v", file)
+	log.Infoln("Success write %v", file)
 }
 
-func getCode1() string {
+func GetCode1() string {
 	u := "http://idea.94goo.com"
 	data, err := util.GET(u, nil)
 	if err != nil {
-		log.Println(err)
+		log.Infoln("%v", err)
 		return ""
 	}
 
@@ -78,10 +72,10 @@ func getCode1() string {
 	return ""
 }
 
-func getCode2() string {
+func GetCode2() string {
 	data, err := util.GET("http://vrg123.com/", nil)
 	if err != nil {
-		log.Println(err)
+		log.Infoln("%v", err)
 		return ""
 	}
 
@@ -107,7 +101,7 @@ func getCode2() string {
 	u := "http://vrg123.com/loadcode/"
 	data, err = util.POST(u, bytes.NewBufferString(val.Encode()), header)
 	if err != nil {
-		log.Println(err)
+		log.Infoln("%v", err)
 		return ""
 	}
 
@@ -119,7 +113,7 @@ func getCode2() string {
 	return result.Codeval
 }
 
-func validCode(code string) bool {
+func ValidCode(code string) bool {
 	tokens := strings.Split(code, "-")
 	// licenseid-metadata-sign-cert
 	if len(tokens) != 4 {
@@ -145,14 +139,14 @@ func validCode(code string) bool {
 		return false
 	}
 
-	fmt.Println(meta.Products[0].PaidUpTo)
-	fmt.Println(code)
+	log.Debugln(meta.Products[0].PaidUpTo)
+	log.Debugln(code)
 
 	return meta.LicenseId == tokens[0] && len(meta.Products) > 0 &&
 		meta.Products[0].PaidUpTo >= time.Now().Format("2006-01-02")
 }
 
-func searchFile(dir string) []string {
+func SearchFile(dir string) []string {
 	var paths []string
 	re := regexp.MustCompile(`\.(goland|clion|pycharm|intellijidea)[0-9]{4}\.[0-9]`)
 	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
@@ -173,23 +167,4 @@ func searchFile(dir string) []string {
 	})
 
 	return paths
-}
-
-func Main() {
-	dir := flag.String("path", "/root", "jetbrains work dir")
-	flag.Parse()
-
-	code := getCode1()
-	if !validCode(code) {
-		code = getCode2()
-	}
-	if !validCode(code) {
-		log.Println("no code")
-		return
-	}
-
-	paths := searchFile(*dir)
-	for _, path := range paths {
-		writeCode(code, path)
-	}
 }

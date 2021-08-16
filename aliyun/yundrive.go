@@ -23,7 +23,7 @@ const (
 	yunpan = "https://api.aliyundrive.com"
 )
 
-func CalProof(accesstoken string, path string) string {
+func calProof(accesstoken string, path string) string {
 	// r := md5(accesstoken)[0:16]
 	// i := size
 	// 开始: r % i
@@ -198,7 +198,7 @@ const (
 	rename_mode = "auto_rename"
 )
 
-func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, appendargs map[string]interface{}, path ...string) (
+func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, args map[string]interface{}, path ...string) (
 	upload UploadFolderInfo, err error) {
 	u := yunpan + "/adrive/v2/file/createWithFolders"
 	header := map[string]string{
@@ -215,8 +215,8 @@ func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, app
 		"type":            filetype,
 	}
 
-	if appendargs != nil {
-		for k, v := range appendargs {
+	if args != nil {
+		for k, v := range args {
 			body[k] = v
 		}
 	}
@@ -240,10 +240,10 @@ func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, app
 			}
 
 			args := map[string]interface{}{
-				"size":              appendargs["size"],
-				"part_info_list":    appendargs["part_info_list"],
+				"size":              args["size"],
+				"part_info_list":    args["part_info_list"],
 				"proof_version":     "v1",
-				"proof_code":        CalProof(token.AccessToken, path[0]),
+				"proof_code":        calProof(token.AccessToken, path[0]),
 				"content_hash_name": "sha1",
 				"content_hash":      strings.ToUpper(hex.EncodeToString(sh.Sum(nil))),
 			}
@@ -257,14 +257,14 @@ func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, app
 	return upload, err
 }
 
-func UploadFile(path, fileid string, token Token) error {
+func UploadFile(path, fileid string, token Token) (id string, err error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return err
+		return id, err
 	}
 	fd, err := os.Open(path)
 	if err != nil {
-		return err
+		return id, err
 	}
 
 	data := make([]byte, 1024) // 1K, prehash
@@ -290,11 +290,11 @@ func UploadFile(path, fileid string, token Token) error {
 	}
 	upload, err := CreateWithFolder(rename_mode, info.Name(), TYPE_FILE, fileid, token, args, path)
 	if err != nil {
-		return err
+		return id,err
 	}
 
 	if upload.RapidUpload {
-		return nil
+		return upload.FileID,nil
 	}
 
 	data = make([]byte, m10)
@@ -303,7 +303,7 @@ func UploadFile(path, fileid string, token Token) error {
 		n, _ := fd.ReadAt(data, int64((info.PartNumber-1)*m10))
 		_, err = util.PUT(info.UploadUrl, data[:n], nil)
 		if err != nil {
-			return err
+			return upload.FileID, err
 		}
 	}
 
@@ -319,7 +319,7 @@ func UploadFile(path, fileid string, token Token) error {
 		"upload_id": upload.UploadID,
 	}
 	_, err = util.POST(u, body, header)
-	return err
+	return upload.FileID, err
 }
 
 func CreateDirectory(name, fileid string, token Token) (err error) {
@@ -596,7 +596,7 @@ func Create(checkmode, name, filetype, fileid string, token Token, appendargs ma
 				"size":              appendargs["size"],
 				"part_info_list":    appendargs["part_info_list"],
 				"proof_version":     "v1",
-				"proof_code":        CalProof(token.AccessToken, path[0]),
+				"proof_code":        calProof(token.AccessToken, path[0]),
 				"content_hash_name": "sha1",
 				"content_hash":      strings.ToUpper(hex.EncodeToString(sh.Sum(nil))),
 			}

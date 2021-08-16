@@ -5,16 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
-	"mime"
-	"net/http"
+	"io/ioutil"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"strconv"
-	"sync"
+	"strings"
+	"text/template"
 	"time"
 
+	"github.com/tiechui1994/tool/log"
 	"github.com/tiechui1994/tool/util"
 )
 
@@ -35,10 +33,19 @@ var config struct {
 }
 
 func init() {
+	config.AccessToken = "ya29.a0ARrdaM-EWM4QCzV6prTezvE7DI2Ty4khhPu69LcvLzwGCgRgMmiV49LLWITP2DDO1dygi7adKCEPf_m4HBLQ5hodsqupft-cKKmBhuRZmJ3HBWsGZscwJTTRlaSAX8u1TEEeTckzn2avxrEwqcy2saI_fEKx"
+	config.RefreshToken = "1//04tyFUCO2L6AICgYIARAAGAQSNwF-L9IrYYhoxfhvegjU1B3iZ8PipxJdlpZ6FO3sX2ZpEFxoGclCHAf7oF2Kl3OpLUYWCFQUnr0"
+	config.Expired = time.Now().Add(3000 * time.Second)
+
+	if _, err := os.Stat("/tmp/token"); err == nil {
+		data, _ := ioutil.ReadFile("/tmp/token")
+		json.Unmarshal(data, &config)
+	}
+
 	config.tokenuri = "https://oauth2.googleapis.com/token"
 }
 
-func buildAuthorizeUri() (uri string, err error) {
+func BuildAuthorizeUri() (uri string, err error) {
 	var body struct {
 		Scope        []string `json:"scope"`
 		ResponseType string   `json:"response_type"`
@@ -57,7 +64,7 @@ func buildAuthorizeUri() (uri string, err error) {
 	u := google + "/oauthplayground/buildAuthorizeUri"
 	data, err := util.POST(u, bytes.NewBuffer(bin), nil)
 	if err != nil {
-		log.Println("Authorize:", err)
+		log.Errorln("BuildAuthorizeUri:", err)
 		return uri, err
 	}
 
@@ -78,7 +85,7 @@ func buildAuthorizeUri() (uri string, err error) {
 	return result.AuthorizeUri, nil
 }
 
-func exchangeAuthCode(code string) error {
+func ExchangeAuthCode(code string) error {
 	var body struct {
 		Code     string `json:"code"`
 		TokenUri string `json:"token_uri"`
@@ -89,9 +96,9 @@ func exchangeAuthCode(code string) error {
 	bin, _ := json.Marshal(body)
 	u := google + "/oauthplayground/exchangeAuthCode"
 
-	data, err := util.POST(u, bytes.NewBuffer(bin), nil)
+	raw, err := util.POST(u, bytes.NewBuffer(bin), nil)
 	if err != nil {
-		log.Println("AuthCode:", err)
+		log.Errorln("ExchangeAuthCode:", err)
 		return err
 	}
 
@@ -102,12 +109,13 @@ func exchangeAuthCode(code string) error {
 		Success      bool   `json:"success"`
 	}
 
-	err = json.Unmarshal(data, &result)
+	err = json.Unmarshal(raw, &result)
 	if err != nil {
 		return err
 	}
 
 	if !result.Success {
+		log.Errorln("ExchangeAuthCode failed:%v", string(raw))
 		return errors.New("ExchangeAuthCode failed")
 	}
 
@@ -118,7 +126,7 @@ func exchangeAuthCode(code string) error {
 	return nil
 }
 
-func refreshAccessToken() error {
+func RefreshAccessToken() error {
 	var body struct {
 		RefreshToken string `json:"refresh_token"`
 		TokenUri     string `json:"token_uri"`
@@ -129,9 +137,9 @@ func refreshAccessToken() error {
 	bin, _ := json.Marshal(body)
 	u := google + "/oauthplayground/refreshAccessToken"
 
-	data, err := util.POST(u, bytes.NewBuffer(bin), nil)
+	raw, err := util.POST(u, bytes.NewBuffer(bin), nil)
 	if err != nil {
-		log.Println("AuthCode:", err)
+		log.Errorln("RefreshAccessToken: %v", err)
 		return err
 	}
 
@@ -142,251 +150,194 @@ func refreshAccessToken() error {
 		Success      bool   `json:"success"`
 	}
 
-	err = json.Unmarshal(data, &result)
+	err = json.Unmarshal(raw, &result)
 	if err != nil {
 		return err
 	}
 
 	if !result.Success {
-		return errors.New("ExchangeAuthCode failed")
+		log.Errorln("RefreshAccessToken failed:%v", string(raw))
+		return errors.New("RefreshAccessToken failed")
 	}
 
 	config.AccessToken = result.AccessToken
 	config.RefreshToken = result.RefreshToken
 	config.Expired = time.Now().Add(time.Duration(result.ExpiresIn) * time.Second)
 
-	log.Println("AccessToken", config.AccessToken)
-	log.Println("RefreshToken", config.RefreshToken)
-	log.Println("Expired", config.Expired.Local())
+	log.Infoln("AccessToken:%v", config.AccessToken)
+	log.Infoln("RefreshToken:%v", config.RefreshToken)
+	log.Infoln("Expired:%v", config.Expired.Local())
 
+	data, _ := json.Marshal(config)
+	ioutil.WriteFile("/tmp/token", data, 0666)
 	return nil
 }
 
-func main() {
-	config.AccessToken = "ya29.a0AfH6SMDa5IOLecESbKeuVY5f_dPDIY2qEgTEgb9MGhcuKh2yre-r65Ty5eQSbPmjqxofpklTCEPcr38MW3NFU3PYm3kvGA22M6GLark-9Mu9aTO5-wYBxDDrYGgop5K2yzDXkJEAbXj0T-Bzs1G6fAMtTogN"
-	config.RefreshToken = "1//04-FprfeMnoeMCgYIARAAGAQSNwF-L9IrfanDIAWX5zc55iitnj1Oq4nGHOdIks5FyXHTqZIDsJ9JHpxD-_zuSliprhmp_sq_o1U"
-	config.Expired = time.Now().Add(3000 * time.Second)
+func Token(code string) error {
+	if code != "" {
+		err := ExchangeAuthCode(code)
+		if err != nil {
+			return err
+		}
+	}
+
+	err := RefreshAccessToken()
+	if err != nil {
+		return err
+	}
 
 	go func() {
-		refreshAccessToken()
 		tciker := time.NewTicker(3000 * time.Second)
 		for {
 			select {
 			case <-tciker.C:
-				refreshAccessToken()
+				RefreshAccessToken()
 			}
 		}
 	}()
 
+	return nil
+}
+
+func Download(dist string, file File) {
 	timer := time.NewTimer(5 * time.Second)
 	for {
 		select {
 		case <-timer.C:
 			timer.Reset(30 * time.Minute)
-			cmd := fmt.Sprintf(`curl -C - -H 'Authorization: Bearer %v' \
-			-o /media/user/data/iso/www/macOSX.iso \
-			https://www.googleapis.com/drive/v3/files/18eeA54RApJf8Zt0M5oeNeXvX1VTQt7KC?alt=media`, config.AccessToken)
-			log.Println(cmd)
+			cmd := fmt.Sprintf(`curl -C - \
+					-H 'Authorization: Bearer %v' \
+					-o %v -L 'https://www.googleapis.com/drive/v3/files/%v?alt=media&acknowledgeAbuse=True'`,
+				config.AccessToken, dist, file.ID)
 			cm := exec.Command("bash", "-c", cmd)
 			cm.Stdin = os.Stdin
 			cm.Stdout = os.Stdout
 			cm.Stderr = os.Stderr
 			cm.Run()
+			return
 		}
 	}
 }
 
-type FileDownloader struct {
-	fileSize int
-	curPos   int
+const (
+	folder = "application/vnd.google-apps.folder"
+)
 
-	url            string
-	outputFileName string
-	totalPart      int //下载线程
-	outputDir      string
+type File struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Parents      []string `json:"parents"`
+	MimeType     string   `json:"mimeType"`
+	WebViewLink  string   `json:"webViewLink"`
+	CreatedTime  string   `json:"createdTime"`
+	ModifiedTime string   `json:"modifiedTime"`
+	Shared       bool     `json:"shared"`
 }
 
-//NewFileDownloader .
-func NewFileDownloader(url, fileName, outputDir string, totalPart int) *FileDownloader {
-	if outputDir == "" {
-		wd, err := os.Getwd()
-		if err != nil {
-			log.Println(err)
-		}
-		outputDir = wd
+func Files() (files []File, err error) {
+	values := []string{
+		"pageSize=1000",
+		"fields=files(id,name,mimeType,parents,webViewLink,createdTime,modifiedTime,shared)",
 	}
-
-	return &FileDownloader{
-		fileSize:       0,
-		url:            url,
-		outputFileName: fileName,
-		outputDir:      outputDir,
-		totalPart:      totalPart,
+	u := "https://www.googleapis.com/drive/v3/files?" + strings.Join(values, "&")
+	header := map[string]string{
+		"Authorization": "Bearer " + config.AccessToken,
 	}
-}
-
-func Main() {
-	startTime := time.Now()
-	var url string //下载文件的地址
-	url = "https://download.jetbrains.com/go/goland-2020.2.2.dmg"
-	downloader := NewFileDownloader(url, "", "", 10)
-	if err := downloader.Run(5); err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("\n 文件下载完成耗时: %f second\n", time.Now().Sub(startTime).Seconds())
-}
-
-func (d *FileDownloader) head() (int, error) {
-	r, err := d.getNewRequest("HEAD")
+	raw, err := util.GET(u, header)
 	if err != nil {
-		return 0, err
-	}
-	w, err := http.DefaultClient.Do(r)
-	if err != nil {
-		return 0, err
-	}
-	if w.StatusCode >= 400 {
-		return 0, errors.New(fmt.Sprintf("Can't process, response is %v", w.StatusCode))
-	}
-
-	// check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Accept-Ranges
-	if w.Header.Get("Accept-Ranges") != "bytes" {
-		return 0, errors.New("server not support range send")
-	}
-
-	contentDisposition := w.Header.Get("Content-Disposition")
-	if contentDisposition != "" {
-		_, params, err := mime.ParseMediaType(contentDisposition)
-
-		if err != nil {
-			panic(err)
-		}
-		d.outputFileName = params["filename"]
-	} else {
-		d.outputFileName = filepath.Base(w.Request.URL.Path)
-	}
-
-	// https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Length
-	return strconv.Atoi(w.Header.Get("Content-Length"))
-}
-
-func (d *FileDownloader) Run(n int) error {
-	if n < 0 {
-		n = 10
-	}
-
-	totalSize, err := d.head()
-	if err != nil {
-		return err
-	}
-
-	d.fileSize = totalSize
-
-	const frame = 2 * 1024 // 8K
-	stepSize := n * frame
-
-	path := filepath.Join(d.outputDir, d.outputFileName)
-	fd, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer fd.Close()
-	st, err := os.Create(path + ".st")
-	if err != nil {
-		return err
-	}
-	defer st.Close()
-
-	data := make([]byte, stepSize)
-	var wg sync.WaitGroup
-	for pos := 0; pos < d.fileSize; pos += stepSize {
-		count := n
-		size := stepSize
-		if count+stepSize >= d.fileSize {
-			count = (d.fileSize-pos)/frame + 1
-			if (d.fileSize-pos)%frame == 0 {
-				count -= 1
-			}
-			size = d.fileSize - pos
-		}
-
-		wg.Add(count)
-		for i := 0; i < count; i++ {
-			idx := i
-			go func(idx int) {
-				defer wg.Done()
-				start := idx * frame
-				end := (idx + 1) * frame
-
-				from := pos + idx*frame
-				to := pos + (idx+1)*frame
-				if to > d.fileSize {
-					to = d.fileSize
-				}
-				err := d.downloadPart(data[start:end], from, to)
-				if err != nil {
-					log.Printf("download failed:[%v], [%v]", err, idx)
-				}
-			}(idx)
-		}
-
-		wg.Wait()
-
-		n, err := fd.WriteAt(data[:size], int64(pos))
-		return nil
-		if err != nil {
-			return err
-		}
-
-		if n != size {
-			log.Println("Write faild")
-			return err
-		}
-
-		fd.Sync()
-	}
-
-	return nil
-}
-
-// 下载分片
-func (d FileDownloader) downloadPart(data []byte, from, to int) error {
-	r, err := d.getNewRequest("GET")
-	if err != nil {
-		return err
-	}
-
-	log.Printf("download from:%d to:%d", from, to)
-	r.Header.Set("Range", fmt.Sprintf("bytes=%v-%v", from, to))
-	w, err := http.DefaultClient.Do(r)
-	if err != nil {
-		return err
-	}
-	defer w.Body.Close()
-
-	if w.StatusCode >= http.StatusBadRequest {
-		return errors.New(w.Status)
-	}
-
-	n, err := w.Body.Read(data)
-	if err != nil {
-		return err
-	}
-
-	if n != to-from {
-		log.Println(n, to-from+1)
-		return errors.New("shard failed")
-	}
-
-	return nil
-}
-
-func (d FileDownloader) getNewRequest(method string) (*http.Request, error) {
-	r, err := http.NewRequest(method, d.url, nil)
-	if err != nil {
+		log.Infoln("%v", string(raw))
 		return nil, err
 	}
 
-	r.Header.Set("User-Agent", "mojocn")
-	return r, nil
+	var result struct {
+		Files []File `json:"files"`
+	}
+
+	err = json.Unmarshal(raw, &result)
+	return result.Files, err
 }
+
+func Exec() {
+	files, err := Files()
+	if err != nil {
+		os.Exit(1)
+	}
+
+	tpl1 := `
+{{ range $idx, $ele := . }}
+{{ $x := "f" }}
+{{- if (eq .MimeType "application/vnd.google-apps.folder") -}} 
+	{{- $x = "d" -}}
+{{- end -}}
+{{ printf "%-2d %-4s %-28s %s" $idx $x .ModifiedTime .Name -}}
+{{ end }}
+`
+	tpl1 = strings.Trim(tpl1, "\n")
+	list, err := template.New("").Parse(tpl1)
+	if err != nil {
+		os.Exit(1)
+	}
+
+	tpl2 := `
+operate:
+{{- range $idx, $ele := . }}
+  {{ printf "%-2d %s" $idx $ele -}}
+{{ end }}
+`
+	tpl2 = strings.Trim(tpl2, "\n")
+	op, err := template.New("").Parse(tpl2)
+	if err != nil {
+		os.Exit(1)
+	}
+	ops := []string{
+		"list files",
+		"download file",
+		"exit",
+	}
+
+	var buf bytes.Buffer
+	funcs := []func(){
+		0: func() {
+			err = list.Execute(&buf, files)
+			if err != nil {
+				os.Exit(1)
+			}
+			fmt.Println(buf.String())
+		},
+		1: func() {
+		again:
+			var idx int
+			fmt.Printf("Please Select Download File:")
+			fmt.Scanf("%d", &idx)
+			if idx < 0 || idx >= len(files) {
+				fmt.Println("please select download file. eg: 0")
+				goto again
+			}
+			Download("./"+files[idx].Name, files[idx])
+		},
+		2: func() {
+			os.Exit(0)
+		},
+	}
+
+retry:
+	var idx int
+	buf.Reset()
+	// op
+	err = op.Execute(&buf, ops)
+	if err != nil {
+		os.Exit(1)
+	}
+	fmt.Println(buf.String())
+	fmt.Printf("Please Select Opertion:")
+	fmt.Scanf("%d", &idx)
+	if idx < 0 || idx >= len(ops) {
+		fmt.Println("input fortmat error. eg: 0")
+		goto retry
+	}
+
+	// operate
+	funcs[idx]()
+	goto retry
+}
+
