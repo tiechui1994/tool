@@ -8,9 +8,8 @@ import (
 	"github.com/tiechui1994/tool/log"
 )
 
-func Deamon(args []string) error {
+func Deamon1(args []string) error {
 	fd, _ := os.Create("/tmp/tool.log")
-	os.Setenv("DAEMON", "1")
 	pid, err := syscall.ForkExec(args[0], args, &syscall.ProcAttr{
 		Dir: ".",
 		Env: os.Environ(),

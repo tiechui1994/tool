@@ -28,7 +28,7 @@ func App() {
 					args = append(args, arg)
 				}
 			}
-			err := util.Deamon(args)
+			err := util.Deamon1(args)
 			if err != nil {
 				return err
 			}

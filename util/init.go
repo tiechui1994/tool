@@ -77,7 +77,7 @@ func UnSerialize() *Jar {
 }
 
 var (
-	Debug = false
+	DEBUG = false
 
 	ConfDir string
 

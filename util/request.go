@@ -3,16 +3,18 @@ package util
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/gorilla/websocket"
 	"io"
 	"io/ioutil"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/gorilla/websocket"
+
+	"github.com/tiechui1994/tool/log"
 )
 
 type CodeError int
@@ -24,13 +26,13 @@ func (err CodeError) Error() string {
 func request(method, u string, body interface{}, header map[string]string) (raw json.RawMessage, err error) {
 	var reader io.Reader
 	if body != nil {
-		switch body.(type) {
+		switch body := body.(type) {
 		case io.Reader:
-			reader = body.(io.Reader)
+			reader = body
 		case string:
-			reader = strings.NewReader(body.(string))
+			reader = strings.NewReader(body)
 		case []byte:
-			reader = bytes.NewReader(body.([]byte))
+			reader = bytes.NewReader(body)
 		default:
 			bin, _ := json.Marshal(body)
 			reader = bytes.NewReader(bin)
@@ -38,10 +40,8 @@ func request(method, u string, body interface{}, header map[string]string) (raw 
 	}
 
 	request, _ := http.NewRequest(method, u, reader)
-	if header != nil {
-		for k, v := range header {
-			request.Header.Set(k, v)
-		}
+	for k, v := range header {
+		request.Header.Set(k, v)
 	}
 
 	request.Header.Set("user-agent", UserAgent())
@@ -51,8 +51,8 @@ func request(method, u string, body interface{}, header map[string]string) (raw 
 		return raw, err
 	}
 
-	if Debug {
-		log.Println(method, request.URL.Path, request.Cookies())
+	if DEBUG {
+		log.Infoln("%v %v %v", method, request.URL.Path, request.Cookies())
 	}
 
 	raw, err = ioutil.ReadAll(response.Body)
@@ -60,8 +60,8 @@ func request(method, u string, body interface{}, header map[string]string) (raw 
 		return raw, err
 	}
 
-	if Debug && len(raw) > 0 {
-		log.Println(method, request.URL.Path, response.Cookies())
+	if DEBUG && len(raw) > 0 {
+		log.Infoln("%v %v %v", method, request.URL.Path, response.Cookies())
 	}
 
 	if response.StatusCode >= 400 {
