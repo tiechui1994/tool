@@ -109,7 +109,7 @@ func Files(fileid string, token Token) (list []File, err error) {
 		"content-type":  "application/json",
 	}
 	var body struct {
-		All                   string `json:"all"`
+		All                   bool   `json:"all"`
 		DriveID               string `json:"drive_id"`
 		Fields                string `json:"fields"`
 		OrderBy               string `json:"order_by"`
@@ -290,11 +290,11 @@ func UploadFile(path, fileid string, token Token) (id string, err error) {
 	}
 	upload, err := CreateWithFolder(rename_mode, info.Name(), TYPE_FILE, fileid, token, args, path)
 	if err != nil {
-		return id,err
+		return id, err
 	}
 
 	if upload.RapidUpload {
-		return upload.FileID,nil
+		return upload.FileID, nil
 	}
 
 	data = make([]byte, m10)
