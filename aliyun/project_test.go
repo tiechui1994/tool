@@ -109,3 +109,10 @@ func TestOrgs(t *testing.T) {
 
 	fmt.Println(buf.String())
 }
+
+func TestAlign(t *testing.T) {
+	x := uint(54)
+	y := uint(16)
+
+	fmt.Println(x + (y - x&^y))
+}

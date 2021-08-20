@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -427,6 +428,48 @@ func Rename(name, fileid string, token Token) error {
 
 	_, err := util.POST(u, body, header)
 	return err
+}
+
+func Download(file File, parallel int, dir string) error {
+	if parallel > 10 {
+		parallel = 10
+	}
+	if parallel <= 3 {
+		parallel = 3
+	}
+
+	m8 := uint(1024 * 1024 * 8)
+	rangesize := uint(file.Size / parallel)
+	rangesize = (m8 - rangesize&^m8) + rangesize
+
+	batch := uint(file.Size) / rangesize
+	if uint(file.Size)%rangesize != 0 {
+		batch += 1
+	}
+
+	fd, err := os.Create(filepath.Join(dir, file.Name))
+	if err != nil {
+		return err
+	}
+	var wg sync.WaitGroup
+	wg.Add(int(batch))
+	for i := uint(0); i < batch; i++ {
+		go func(idx uint) {
+			from := idx * rangesize
+			to := (idx+1)*rangesize - 1
+			if to >= uint(file.Size) {
+				to = uint(file.Size) - 1
+			}
+			header["bytes"] = fmt.Sprintf("%v-%v", from, to)
+			raw, err := util.GET(file.Url, header)
+			if err != nil {
+				return
+			}
+			fd.WriteAt(raw, int64(from))
+		}(i)
+	}
+	wg.Done()
+	return nil
 }
 
 //=====================================  share  =====================================
