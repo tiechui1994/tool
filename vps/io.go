@@ -198,7 +198,6 @@ func run(c Container) (domain string, err error) {
 		bin, _ := json.Marshal(ans)
 		return string(bin)
 	}
-
 	go func() {
 		first := true
 		cmds := []string{
@@ -284,13 +283,13 @@ func run(c Container) (domain string, err error) {
 
 	go socket.ping(conn)
 
-	time.Sleep(20*time.Second)
+	time.Sleep(20 * time.Second)
 	socket.polling2(`31:42["/portforward/init_list",{}]`)
 
 	return domain, nil
 }
 
-func listen(c Container, domain string) (err error) {
+func monitor(c Container, domain string) (err error) {
 	socket := Socket{
 		Endpoint: "https://proxy.goorm.io/app/" + domain + "/9080",
 		Attr: []string{
@@ -315,8 +314,55 @@ func listen(c Container, domain string) (err error) {
 		return err
 	}
 
+	cmd := func(cmd string, data interface{}) string {
+		var ans interface{}
+		switch cmd {
+		case "message", "access", "leave", "join":
+			bin, _ := json.Marshal(data)
+			ans = [3]interface{}{
+				cmd, string(bin),
+			}
+		default:
+			if data != nil {
+				ans = [3]interface{}{
+					cmd, data,
+				}
+			} else {
+				ans = [3]string{
+					cmd,
+				}
+			}
+		}
+
+		bin, _ := json.Marshal(ans)
+		return string(bin)
+	}
+
 	go func() {
 		first := true
+		cmds := []string{
+			cmd("/container/stats", nil),
+			cmd("access", map[string]string{
+				"channel":      "join",
+				"uid":          c.Uid,
+				"project_path": c.ProjectPath,
+			}),
+
+			cmd("/project/get_property", map[string]string{
+				"type": "all",
+			}),
+			cmd("/project/get_property", map[string]string{
+				"type": "all",
+			}),
+			cmd("/project/get_testcase", map[string]string{
+				"project_name": c.Name,
+			}),
+			cmd("/project/available", map[string]string{}),
+			cmd("/project/get_property", map[string]string{
+				"type": "all",
+			}),
+			cmd("/project/get_property", map[string]string{}),
+		}
 		for {
 			msg, closed := conn.ReadMessage()
 			if closed {
@@ -386,7 +432,7 @@ func (s *Socket) polling() error {
 	values := []string{
 		"EIO=3",
 		"transport=polling",
-		"t="+tencode(),
+		"t=" + tencode(),
 	}
 	u := s.Endpoint + "/socket.io/?" + strings.Join(append(s.Attr, values...), "&")
 	raw, err := util.GET(u, nil)
@@ -430,7 +476,7 @@ func (s *Socket) polling2(body string) error {
 	values := []string{
 		"EIO=3",
 		"transport=polling",
-		"t="+ tencode(),
+		"t=" + tencode(),
 		"sid=" + s.sid,
 	}
 	u := s.Endpoint + "/socket.io/?" + strings.Join(append(s.Attr, values...), "&")
@@ -453,7 +499,7 @@ func (s *Socket) polling3() error {
 	values := []string{
 		"EIO=3",
 		"transport=polling",
-		"t="+ tencode(),
+		"t=" + tencode(),
 		"sid=" + s.sid,
 	}
 
