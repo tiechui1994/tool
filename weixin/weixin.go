@@ -3,6 +3,8 @@ package weixin
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"os"
@@ -216,4 +218,39 @@ func AddPersitMaterial(token string, mtype, filename string, args ...map[string]
 	}
 
 	return result.URL, nil
+}
+
+type TokenInfo struct {
+	AccessToken string `json:"access_token"`
+	ExpiresIn   int    `json:"expires_in"`
+}
+
+func Token(appid, secret string) (token TokenInfo, err error) {
+	value := []string{
+		"grant_type=client_credential",
+		"appid=" + appid,
+		"secret=" + secret,
+	}
+	u := weixin + "/cgi-bin/token?" + strings.Join(value, "&")
+	raw, err := util.GET(u, nil)
+	if err != nil {
+		return
+	}
+
+	var result struct {
+		TokenInfo
+		Code int    `json:"errcode"`
+		Msg  string `json:"errmsg"`
+	}
+	err = json.Unmarshal(raw, &result)
+	if err != nil {
+		return
+	}
+
+	if result.Code != 0 {
+		err = errors.New(fmt.Sprintf(`failed: code is [%v], msg: %v"`, result.Code, result.Msg))
+		return
+	}
+
+	return result.TokenInfo, nil
 }
