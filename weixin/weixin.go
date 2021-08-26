@@ -3,7 +3,6 @@ package weixin
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -45,7 +44,7 @@ type Article struct {
 	Content string `json:"content"`
 	Digest  string `json:"digest"`
 
-	ThumbMediaUrl    string `json:"thumb_media_url"`
+	ThumbMediaID     string `json:"thumb_media_id"`
 	ShowCoverPic     int    `json:"show_cover_pic"`
 	ContentSourceUrl string `json:"content_source_url"`
 
@@ -53,7 +52,20 @@ type Article struct {
 	ThumbUrl string `json:"thumb_url"`
 }
 
-func MaterialList(token string, mtype string) (list interface{}, err error) {
+type wxerror struct {
+	Code int    `json:"errcode"`
+	Msg  string `json:"errmsg"`
+}
+
+func (e wxerror) Error() string {
+	return fmt.Sprintf("code:[%v], msg:%v", e.Code, e.Msg)
+}
+
+func (e wxerror) isError() bool {
+	return e.Code != 0
+}
+
+func PersitMaterialList(token string, mtype string) (list interface{}, err error) {
 	value := []string{
 		"access_token=" + token,
 	}
@@ -74,6 +86,7 @@ func MaterialList(token string, mtype string) (list interface{}, err error) {
 
 	if mtype == MediaNews {
 		var result struct {
+			wxerror
 			TotalCount int    `json:"total_count"`
 			ItemCount  int    `json:"item_count"`
 			Item       []News `json:"item"`
@@ -82,10 +95,16 @@ func MaterialList(token string, mtype string) (list interface{}, err error) {
 		if err != nil {
 			return nil, err
 		}
-		return result.Item, nil
 
+		if result.isError() {
+			err = result.wxerror
+			return
+		}
+
+		return result.Item, nil
 	} else {
 		var result struct {
+			wxerror
 			TotalCount int     `json:"total_count"`
 			ItemCount  int     `json:"item_count"`
 			Item       []Media `json:"item"`
@@ -94,6 +113,12 @@ func MaterialList(token string, mtype string) (list interface{}, err error) {
 		if err != nil {
 			return nil, err
 		}
+
+		if result.isError() {
+			err = result.wxerror
+			return
+		}
+
 		return result.Item, nil
 	}
 }
@@ -113,6 +138,7 @@ func AddPersitNews(token string, article Article) (id string, err error) {
 	}
 
 	var result struct {
+		wxerror
 		MediaID string `json:"media_id"`
 	}
 	err = json.Unmarshal(raw, &result)
@@ -120,7 +146,74 @@ func AddPersitNews(token string, article Article) (id string, err error) {
 		return id, err
 	}
 
+	if result.isError() {
+		err = result.wxerror
+		return
+	}
+
 	return result.MediaID, nil
+}
+
+func UpdatePersitNews(token, mdediaid string, index int, article Article) (err error) {
+	value := []string{
+		"access_token=" + token,
+	}
+	u := weixin + "/cgi-bin/material/update_news?" + strings.Join(value, "&")
+	body := map[string]interface{}{
+		"media_id": mdediaid,
+		"index":    index,
+		"articles": article,
+	}
+
+	raw, err := util.POST(u, &body, nil)
+	if err != nil {
+		return err
+	}
+
+	var result struct {
+		wxerror
+	}
+	err = json.Unmarshal(raw, &result)
+	if err != nil {
+		return err
+	}
+
+	if result.isError() {
+		err = result.wxerror
+		return
+	}
+
+	return nil
+}
+
+func GetPersitNews(token string, mediaid string) (artice []Article, err error) {
+	value := []string{
+		"access_token=" + token,
+	}
+	u := weixin + "/cgi-bin/material/get_material?" + strings.Join(value, "&")
+	body := map[string]string{
+		"media_id": mediaid,
+	}
+	raw, err := util.POST(u, body, nil)
+	if err != nil {
+		return artice, err
+	}
+
+	var result struct {
+		wxerror
+		NewsItem []Article `json:"news_item"`
+	}
+	err = json.Unmarshal(raw, &result)
+	if err != nil {
+		return artice, err
+	}
+
+	if result.isError() {
+		err = result.wxerror
+		return
+	}
+
+	return result.NewsItem, nil
 }
 
 func UploadNewsImage(token string, filename string) (url string, err error) {
@@ -158,11 +251,17 @@ func UploadNewsImage(token string, filename string) (url string, err error) {
 	}
 
 	var result struct {
+		wxerror
 		URL string `json:"url"`
 	}
 	err = json.Unmarshal(raw, &result)
 	if err != nil {
 		return url, err
+	}
+
+	if result.isError() {
+		err = result.wxerror
+		return
 	}
 
 	return result.URL, nil
@@ -209,12 +308,18 @@ func AddPersitMaterial(token string, mtype, filename string, args ...map[string]
 	}
 
 	var result struct {
+		wxerror
 		MediaID string `json:"media_id"`
 		URL     string `json:"url"`
 	}
 	err = json.Unmarshal(raw, &result)
 	if err != nil {
 		return url, err
+	}
+
+	if result.isError() {
+		err = result.wxerror
+		return
 	}
 
 	return result.URL, nil
@@ -238,17 +343,16 @@ func Token(appid, secret string) (token TokenInfo, err error) {
 	}
 
 	var result struct {
+		wxerror
 		TokenInfo
-		Code int    `json:"errcode"`
-		Msg  string `json:"errmsg"`
 	}
 	err = json.Unmarshal(raw, &result)
 	if err != nil {
 		return
 	}
 
-	if result.Code != 0 {
-		err = errors.New(fmt.Sprintf(`failed: code is [%v], msg: %v"`, result.Code, result.Msg))
+	if result.isError() {
+		err = result.wxerror
 		return
 	}
 
