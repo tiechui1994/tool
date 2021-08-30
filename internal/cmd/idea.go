@@ -1,15 +1,17 @@
 package main
 
 import (
+	"os"
+
+	"github.com/urfave/cli"
+
 	"github.com/tiechui1994/tool/idea"
 	"github.com/tiechui1994/tool/log"
-	"github.com/urfave/cli"
-	"os"
 )
 
 func main() {
 	var (
-		path    string
+		path string
 	)
 	app := cli.NewApp()
 	app.Flags = []cli.Flag{
@@ -22,9 +24,9 @@ func main() {
 	}
 
 	app.Action = func(c *cli.Context) error {
-		code := idea.GetCode1()
+		code := idea.GetCode2()
 		if !idea.ValidCode(code) {
-			code = idea.GetCode2()
+			code = idea.GetCode1()
 		}
 		if !idea.ValidCode(code) {
 			log.Errorln("no code")
