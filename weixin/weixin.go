@@ -65,15 +65,15 @@ func (e wxerror) isError() bool {
 	return e.Code != 0
 }
 
-func PersitMaterialList(token string, mtype string) (list interface{}, err error) {
+func PersitMaterialList(token, mtype string, offset, count int) (list interface{}, err error) {
 	value := []string{
 		"access_token=" + token,
 	}
 	u := weixin + "/cgi-bin/material/batchget_material?" + strings.Join(value, "&")
 	body := map[string]interface{}{
 		"type":   mtype,
-		"offset": 0,
-		"count":  2,
+		"offset": offset,
+		"count":  count,
 	}
 
 	header := map[string]string{
@@ -186,7 +186,7 @@ func UpdatePersitNews(token, mdediaid string, index int, article Article) (err e
 	return nil
 }
 
-func GetPersitNews(token string, mediaid string) (artice []Article, err error) {
+func GetPersitNews(token, mediaid string) (artice []Article, err error) {
 	value := []string{
 		"access_token=" + token,
 	}
@@ -216,7 +216,7 @@ func GetPersitNews(token string, mediaid string) (artice []Article, err error) {
 	return result.NewsItem, nil
 }
 
-func UploadNewsImage(token string, filename string) (url string, err error) {
+func UploadNewsImage(token, filename string) (url string, err error) {
 	info, err := os.Stat(filename)
 	if err != nil {
 		return url, err
@@ -267,7 +267,7 @@ func UploadNewsImage(token string, filename string) (url string, err error) {
 	return result.URL, nil
 }
 
-func AddPersitMaterial(token string, mtype, filename string, args ...map[string]string) (url string, err error) {
+func AddPersitMaterial(token, mtype, filename string, args ...map[string]string) (url string, err error) {
 	info, err := os.Stat(filename)
 	if err != nil {
 		return url, err

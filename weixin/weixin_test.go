@@ -17,7 +17,7 @@ func TestAddPersitMaterial(t *testing.T) {
 }
 
 func TestMediaList(t *testing.T) {
-	list, err := PersitMaterialList(token, MediaImage)
+	list, err := PersitMaterialList(token, MediaImage, 0, 1)
 	t.Log("id", list)
 	t.Log("err", err)
 }
