@@ -24,8 +24,9 @@ func main() {
 	}
 
 	app.Action = func(c *cli.Context) error {
-		code := idea.GetCode2()
+		code, username, password := idea.GetCode2()
 		if !idea.ValidCode(code) {
+			log.Infoln("username:%v, password:%v, you can try", username, password)
 			code = idea.GetCode1()
 		}
 		if !idea.ValidCode(code) {
