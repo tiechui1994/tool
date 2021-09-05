@@ -4,5 +4,5 @@ import "testing"
 
 func TestGET(t *testing.T) {
 	DEBUG = true
-	GET("https://www.baidu.com", nil)
+	GET("https://blog.tiechui1994.tk", nil)
 }

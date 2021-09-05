@@ -1,6 +1,7 @@
 package util
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"net"
@@ -133,12 +134,24 @@ func init() {
 		jar, _ = cookiejar.New(nil)
 	}
 
+	resolver := net.Resolver{
+		PreferGo: false,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			d := net.Dialer{
+				Timeout: time.Millisecond * time.Duration(10000),
+			}
+
+			conn, err := d.DialContext(ctx, network, "8.8.4.4:53")
+			return conn, err
+		},
+	}
 	http.DefaultClient = &http.Client{
 		Transport: &http.Transport{
 			DisableKeepAlives: true,
 			DialContext: (&net.Dialer{
 				Timeout:   60 * time.Second,
 				KeepAlive: 5 * time.Minute,
+				Resolver:  &resolver,
 			}).DialContext,
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: true,
