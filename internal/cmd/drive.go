@@ -2,12 +2,12 @@ package main
 
 import (
 	"fmt"
-	"github.com/tiechui1994/tool/log"
 	"os"
 
 	"github.com/urfave/cli"
 
 	"github.com/tiechui1994/tool/drive"
+	"github.com/tiechui1994/tool/log"
 )
 
 func main() {
