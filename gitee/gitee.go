@@ -27,11 +27,16 @@ var (
 	grouppath string
 )
 
+func InitParams(c string, s time.Duration)  {
+	cookie = c
+	sleep = s
+}
+
 // CSRF-Token
 func CsrfToken() (err error) {
 	u := endpoint
 	data, _ := util.GET(u, map[string]string{"Cookie": cookie})
-	re := regexp.MustCompile(`meta content="(.*?)" name="csrf-token"`)
+	re := regexp.MustCompile(`meta name="csrf-token" content="(.*?)"`)
 	tokens := re.FindStringSubmatch(string(data))
 	if len(tokens) == 2 {
 		token = tokens[1]
@@ -47,6 +52,7 @@ func Resources() (err error) {
 
 	data, err := util.GET(u, map[string]string{"X-CSRF-Token": token})
 	if err != nil {
+		log.Errorln("my resources:%v", err)
 		return err
 	}
 

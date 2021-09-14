@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"sync"
+	"time"
 
 	"github.com/urfave/cli"
 
@@ -48,9 +49,11 @@ func main() {
 			sleep = 10
 		}
 
+		gitee.InitParams(cookie, time.Duration(sleep)*time.Second)
+
 		err := gitee.CsrfToken()
 		if err != nil {
-			log.Errorln("cookie内容不合法")
+			log.Errorln("CsrfToken获取失败")
 			return err
 		}
 
