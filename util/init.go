@@ -141,7 +141,7 @@ func init() {
 				Timeout: time.Millisecond * time.Duration(10000),
 			}
 
-			conn, err := d.DialContext(ctx, network, "8.8.4.4:53")
+			conn, err := d.DialContext(ctx, network, "8.8.8.8:53")
 			return conn, err
 		},
 	}
