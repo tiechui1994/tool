@@ -157,7 +157,8 @@ func init() {
 				InsecureSkipVerify: true,
 			},
 		},
-		Jar: jar,
+		Jar:     jar,
+		Timeout: 60 * time.Second,
 	}
 
 	go func() {
