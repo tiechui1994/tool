@@ -118,7 +118,7 @@ func SyncCookieJar() {
 	jarsync <- struct{}{}
 }
 
-func init() {
+func RegisterLocalJar() {
 	home := os.Getenv("HOME")
 	if home == "" {
 		home = "/tmp"
@@ -128,11 +128,29 @@ func init() {
 	os.MkdirAll(ConfDir, 0775)
 
 	localjar := UnSerialize()
-	if localjar != nil {
-		jar = (*cookiejar.Jar)(unsafe.Pointer(localjar))
-	} else {
-		jar, _ = cookiejar.New(nil)
+	if localjar == nil {
+		return
 	}
+	jar = (*cookiejar.Jar)(unsafe.Pointer(localjar))
+	http.DefaultClient.Jar = jar
+
+	go func() {
+		timer := time.NewTicker(5 * time.Second)
+		for {
+			select {
+			case <-timer.C:
+				cookjar := jar.(*cookiejar.Jar)
+				Serialize(cookjar)
+			case <-jarsync:
+				cookjar := jar.(*cookiejar.Jar)
+				Serialize(cookjar)
+			}
+		}
+	}()
+}
+
+func init() {
+	jar, _ = cookiejar.New(nil)
 
 	resolver := net.Resolver{
 		PreferGo: false,
@@ -161,19 +179,7 @@ func init() {
 		Timeout: 60 * time.Second,
 	}
 
-	go func() {
-		timer := time.NewTicker(5 * time.Second)
-		for {
-			select {
-			case <-timer.C:
-				cookjar := jar.(*cookiejar.Jar)
-				Serialize(cookjar)
-			case <-jarsync:
-				cookjar := jar.(*cookiejar.Jar)
-				Serialize(cookjar)
-			}
-		}
-	}()
+	RegisterLocalJar()
 }
 
 func WriteFile(filepath string, data interface{}) error {
