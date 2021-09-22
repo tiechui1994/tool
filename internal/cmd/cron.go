@@ -136,8 +136,13 @@ func Main(params map[string]interface{}) map[string]interface{} {
 
 	raw, err := request(method, url, body, header)
 	fmt.Println("raw", len(raw), "err", err)
+	if err != nil {
+		return map[string]interface{}{
+			"error": err,
+		}
+	}
+
 	return map[string]interface{}{
-		"data":  string(raw),
-		"error": err,
+		"msg": string(raw),
 	}
 }
