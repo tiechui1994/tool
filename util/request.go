@@ -51,7 +51,7 @@ func request(method, u string, body interface{}, header map[string]string) (raw 
 		return raw, err
 	}
 
-	if DEBUG {
+	if logprefix {
 		log.Infoln("%v %v %v", method, request.URL.Path, request.Cookies())
 	}
 
@@ -60,7 +60,7 @@ func request(method, u string, body interface{}, header map[string]string) (raw 
 		return raw, err
 	}
 
-	if DEBUG && len(raw) > 0 {
+	if logsufix && len(raw) > 0 {
 		log.Infoln("%v %v %v", method, request.URL.Path, response.Cookies())
 	}
 

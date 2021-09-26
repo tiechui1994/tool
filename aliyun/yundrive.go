@@ -323,9 +323,8 @@ func UploadFile(path, fileid string, token Token) (id string, err error) {
 	return upload.FileID, err
 }
 
-func CreateDirectory(name, fileid string, token Token) (err error) {
-	_, err = CreateWithFolder(refuse_mode, name, TYPE_FOLDER, fileid, token, nil)
-	return err
+func CreateDirectory(name, fileid string, token Token) (upload UploadFolderInfo, err error) {
+	return CreateWithFolder(refuse_mode, name, TYPE_FOLDER, fileid, token, nil)
 }
 
 type batchRequest struct {
@@ -337,7 +336,7 @@ type batchRequest struct {
 }
 
 func Batch(requests []batchRequest, token Token) error {
-	u := yunpan + "/v3/batch"
+	u := yunpan + "/v2/batch"
 	header := map[string]string{
 		"accept":        "application/json",
 		"authorization": "Bearer " + token.AccessToken,
@@ -430,7 +429,31 @@ func Rename(name, fileid string, token Token) error {
 	return err
 }
 
-func Download(file File, parallel int, dir string) error {
+func Download(file File, parallel int, dir string, token Token) error {
+	u := yunpan + "/v2/file/get_download_url"
+	body := map[string]interface{}{
+		"file_id":  file.FileID,
+		"drive_id": file.DriveID,
+	}
+	header := map[string]string{
+		"accept":        "application/json",
+		"authorization": "Bearer " + token.AccessToken,
+		"content-type":  "application/json",
+	}
+	raw, err := util.POST(u, body, header)
+	if err != nil {
+		return err
+	}
+	var result struct {
+		Size        int    `json:"size"`
+		Url         string `json:"url"`
+		InternalUrl string `json:"internal_url"`
+	}
+	err = json.Unmarshal(raw, &result)
+	if err != nil {
+		return err
+	}
+
 	if parallel > 10 {
 		parallel = 10
 	}
@@ -441,9 +464,8 @@ func Download(file File, parallel int, dir string) error {
 	m8 := uint(1024 * 1024 * 8)
 	rangesize := uint(file.Size / parallel)
 	rangesize = (m8 - rangesize&^m8) + rangesize
-
-	batch := uint(file.Size) / rangesize
-	if uint(file.Size)%rangesize != 0 {
+	batch := uint(result.Size) / rangesize
+	if uint(result.Size)%rangesize != 0 {
 		batch += 1
 	}
 
@@ -451,24 +473,30 @@ func Download(file File, parallel int, dir string) error {
 	if err != nil {
 		return err
 	}
+
 	var wg sync.WaitGroup
 	wg.Add(int(batch))
+
 	for i := uint(0); i < batch; i++ {
 		go func(idx uint) {
+			defer wg.Done()
 			from := idx * rangesize
 			to := (idx+1)*rangesize - 1
-			if to >= uint(file.Size) {
-				to = uint(file.Size) - 1
+			if to >= uint(result.Size) {
+				to = uint(result.Size) - 1
 			}
-			header["bytes"] = fmt.Sprintf("%v-%v", from, to)
-			raw, err := util.GET(file.Url, header)
+			header = map[string]string{
+				"connection": "keep-alive",
+				"range":      fmt.Sprintf("bytes=%v-%v", from, to),
+			}
+			raw, err := util.GET(result.Url, header)
 			if err != nil {
 				return
 			}
 			fd.WriteAt(raw, int64(from))
 		}(i)
 	}
-	wg.Done()
+	wg.Wait()
 	return nil
 }
 

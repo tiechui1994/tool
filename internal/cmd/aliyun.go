@@ -1,257 +1,87 @@
 package main
 
 import (
-	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
-	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
-	"sync"
-	"text/template"
 
 	"github.com/urfave/cli"
 
 	"github.com/tiechui1994/tool/aliyun"
+	"github.com/tiechui1994/tool/log"
 	"github.com/tiechui1994/tool/util"
 )
 
 func init() {
+	util.SetLogPrefix()
 	util.RegisterLocalJar()
 }
 
-func GetCacheData() (roles []aliyun.Role, orgs []aliyun.Org, err error) {
-	var result struct {
-		Roles []aliyun.Role
-		Org   []aliyun.Org
+func GetLocalToken() (token aliyun.Token, err error) {
+	key := filepath.Join(util.ConfDir(), "drive.json")
+	if util.ReadFile(key, &token) == nil {
+		return token, nil
 	}
 
-	key := filepath.Join(util.ConfDir(), "teambition.json")
-	if util.ReadFile(key, &result) == nil {
-		return result.Roles, result.Org, nil
+	retry := 0
+try:
+	raw, err := util.GET("https://jobs.tiechui1994.tk/api/aliyun?response_type=refresh_token&key=yunpan", nil)
+	if err != nil && retry < 4 {
+		log.Errorln("err:%v, retry again", err)
+		retry += 1
+		goto try
 	}
 
-	roles, err = aliyun.Roles()
 	if err != nil {
-		log.Println(err)
-		return
+		log.Errorln("err:%v", err)
+		return token, err
 	}
 
-	if len(roles) == 0 {
-		err = errors.New("no roles")
-		return
+	err = json.Unmarshal(raw, &token)
+	if err != nil {
+		log.Errorln("decode: %v", err)
+		return token, err
 	}
-
-	var (
-		lock sync.Mutex
-		wg   sync.WaitGroup
-	)
-	for _, role := range roles {
-		if role.Level == 0 {
-			continue
-		}
-		wg.Add(1)
-		orgid := role.OrganizationId
-		go func(orgid string) {
-			defer wg.Done()
-			org, err := aliyun.Orgs(orgid)
-			if err != nil {
-				log.Println("fetch org err:", orgid, err)
-				return
-			}
-			org.Projects, err = aliyun.Projects(orgid)
-			if err != nil {
-				log.Println("fetch project err:", orgid, err)
-				return
-			}
-
-			lock.Lock()
-			orgs = append(orgs, org)
-			lock.Unlock()
-		}(orgid)
-	}
-
-	wg.Wait()
-
-	result.Roles = roles
-	result.Org = orgs
-	util.WriteFile(key, result)
-	return
+	util.WriteFile(key, token)
+	return token, nil
 }
 
-func AutoLogin() {
-	u, _ := url.Parse("https://www.teambition.com/")
-	cookie := util.GetCookie(u, "TEAMBITION_SESSIONID")
-	if cookie != nil {
-		return
-	}
-
-	clientid, token, pubkey, err := aliyun.LoginParams()
+func Startup() *aliyun.DriveFs {
+	token, err := GetLocalToken()
 	if err != nil {
-		return
+		os.Exit(1)
 	}
-
-	remail := regexp.MustCompile(`^[A-Za-z0-9]+([_\\.][A-Za-z0-9]+)*@([A-Za-z0-9\-]+\.)+[A-Za-z]{2,6}$`)
-	rphone := regexp.MustCompile(`^1[3-9]\\d{9}$`)
-
-retry:
-	var username string
-	var password string
-	fmt.Printf("Input Email/Phone:")
-	fmt.Scanf("%s", &username)
-	fmt.Printf("Input Password:")
-	fmt.Scanf("%s", &password)
-
-	if username == "" || password == "" {
-		goto retry
-	}
-
-	if remail.MatchString(username) {
-		_, err = aliyun.Login(clientid, pubkey, token, username, "", password)
-	} else if rphone.MatchString(username) {
-		_, err = aliyun.Login(clientid, pubkey, token, "", username, password)
-	} else {
-		goto retry
-	}
-
-	if err != nil {
-		fmt.Println(err.Error())
-		goto retry
-	}
-
-	fmt.Println("登录成功!!!")
-	util.SyncCookieJar()
+	return aliyun.NewDriveFs(token)
 }
 
-func Setup() *aliyun.ProjectFs {
-	AutoLogin()
+func Drive() []cli.Command {
+	drive := Startup()
 
-	_, orgs, err := GetCacheData()
-	if err != nil {
-		fmt.Println("catch data err", err)
-		os.Exit(1)
-	}
-
-	tpl := `
-{{ range $orgidx, $ele := . }}
-{{ printf "%d org: %s(%s)" $orgidx  .Name .OrganizationId -}}
-{{ range $pidx, $val := .Projects }}
-  {{ printf "%d.%d project: %s(%s)" $orgidx $pidx .Name .ProjectId -}}
-{{ end }}
-{{ end }}
-`
-
-	tpl = strings.Trim(tpl, "\n")
-	temp, err := template.New("").Parse(tpl)
-	if err != nil {
-		os.Exit(1)
-	}
-
-	var buf bytes.Buffer
-	err = temp.Execute(&buf, orgs)
-	if err != nil {
-		os.Exit(1)
-	}
-	fmt.Println(buf.String())
-
-	reindex := regexp.MustCompile(`^([0-9])\.([0-9])$`)
-retry:
-	var idx string
-	fmt.Printf("Select project index:")
-	fmt.Scanf("%s", &idx)
-	if !reindex.MatchString(idx) {
-		fmt.Println("input fortmat error. eg: 0.1")
-		goto retry
-	}
-	tokens := reindex.FindAllStringSubmatch(idx, -1)
-	if len(tokens) == 0 || len(tokens[0]) != 3 {
-		fmt.Println("input fortmat error. eg: 0.1")
-		goto retry
-	}
-
-	id1, _ := strconv.Atoi(tokens[0][1])
-	id2, _ := strconv.Atoi(tokens[0][2])
-	if !(len(orgs) > id1 && len(orgs[id1].Projects) > id2) {
-		fmt.Println("input fortmat error. eg: 0.1")
-		goto retry
-	}
-
-	orgid := orgs[id1].OrganizationId
-	name := orgs[id1].Projects[id2].Name
-	p, err := aliyun.NewProject(name, orgid)
-	if err != nil {
-		fmt.Println("new project err:", err)
-		os.Exit(1)
-	}
-
-	return p
-}
-
-func Exec() cli.Command {
-	Setup()
-
-	cmd := cli.Command{
-		Name:        "project",
-		Description: "aliyun teambition management",
-	}
-
-	cmd.Subcommands = []cli.Command{
-		{
-			Name:  "pwd",
-			Usage: "current dir",
-			Action: func(c *cli.Context) error {
-				fmt.Println("pwd")
-				return nil
-			},
-		},
-		{
-			Name:      "cd",
-			Usage:     "change to dir",
-			ArgsUsage: "[DIR]",
-			Action: func(c *cli.Context) error {
-				fmt.Println("cd")
-				return nil
-			},
-		},
-		{
-			Name:      "ls",
-			Aliases:   []string{"list"},
-			Usage:     "list files or dirs in the dir",
-			ArgsUsage: "[DIR]",
-			Flags: []cli.Flag{
-				cli.BoolFlag{
-					Name:  "d",
-					Usage: "only include dirs",
-				},
-				cli.BoolFlag{
-					Name:  "f",
-					Usage: "only include files",
-				},
-				cli.BoolFlag{
-					Name:  "a",
-					Usage: "include files and dirs",
-				},
-			},
-			Action: func(c *cli.Context) error {
-				fmt.Println("ls", c.Bool("a"))
-
-				for i := 0; i < c.NArg(); i++ {
-					fmt.Println(c.Args().Get(i))
-				}
-
-				return nil
-			},
-		},
+	return []cli.Command{
 		{
 			Name:      "upload",
+			Aliases:   []string{"up"},
 			Usage:     "upload file to project",
 			ArgsUsage: "[LOCAL] [REMOTE]",
 			Action: func(c *cli.Context) error {
-				return nil
+				args := []string(c.Args())
+				if len(args) != 2 {
+					cli.ShowCommandHelp(c, "upload")
+					os.Exit(1)
+				}
+				if _, err := os.Stat(args[0]); os.IsNotExist(err) {
+					cli.ShowCommandHelp(c, "upload")
+					return errors.New("invalid [LOCAL]")
+				}
+
+				if !strings.HasPrefix(args[1], "/") {
+					cli.ShowCommandHelp(c, "upload")
+					return errors.New("invalid [REMOTE]")
+				}
+				return drive.Upload(args[0], args[1])
 			},
 		},
 		{
@@ -260,73 +90,86 @@ func Exec() cli.Command {
 			Usage:     "move file or dir to dir",
 			ArgsUsage: "[SRC] [DST]",
 			Action: func(c *cli.Context) error {
-				return nil
-			},
-		},
-		{
-			Name:      "cp",
-			Aliases:   []string{"copy"},
-			Usage:     "copy dir or file",
-			ArgsUsage: "[SRC] [DST]",
-			Action: func(c *cli.Context) error {
-				return nil
+				args := []string(c.Args())
+				if len(args) != 2 {
+					cli.ShowCommandHelp(c, "mv")
+					os.Exit(1)
+				}
+				if !strings.HasPrefix(args[0], "/") {
+					cli.ShowCommandHelp(c, "mv")
+					return errors.New("invalid [SRC]")
+				}
+
+				if !strings.HasPrefix(args[1], "/") {
+					cli.ShowCommandHelp(c, "mv")
+					return errors.New("invalid [DST]")
+				}
+				return drive.Move(args[0], args[1])
 			},
 		},
 		{
 			Name:      "rm",
-			Aliases:   []string{"remove"},
+			Aliases:   []string{"remove", "del", "delete"},
 			Usage:     "remove dir or file",
 			ArgsUsage: "[NAME]",
 			Action: func(c *cli.Context) error {
-				return nil
+				args := []string(c.Args())
+				if len(args) != 1 {
+					cli.ShowCommandHelp(c, "rm")
+					os.Exit(1)
+				}
+				if !strings.HasPrefix(args[0], "/") {
+					cli.ShowCommandHelp(c, "rm")
+					return errors.New("invalid [SRC]")
+				}
+				return drive.Delete(args[0])
 			},
 		},
 		{
 			Name:      "rename",
 			Usage:     "rename dir or file",
-			ArgsUsage: "[SRCNAME] [DSTNAME]",
+			ArgsUsage: "[SRCNAME] [DSTNAME] [BASE]",
 			Action: func(c *cli.Context) error {
-				return nil
+				args := []string(c.Args())
+				if len(args) != 3 {
+					cli.ShowCommandHelp(c, "rename")
+					os.Exit(1)
+				}
+				if !strings.HasPrefix(args[2], "/") {
+					cli.ShowCommandHelp(c, "rename")
+					return errors.New("invalid [BASE]")
+				}
+				return drive.Rename(args[0], args[1], args[2])
+			},
+		},
+		{
+			Name:      "download",
+			Aliases:   []string{"down"},
+			Usage:     "download dir or file",
+			ArgsUsage: "[SRCPATH] [TARGETDIR]",
+			Action: func(c *cli.Context) error {
+				args := []string(c.Args())
+				if len(args) != 2 {
+					cli.ShowCommandHelp(c, "download")
+					os.Exit(1)
+				}
+				if !strings.HasPrefix(args[0], "/") {
+					cli.ShowCommandHelp(c, "rename")
+					return errors.New("invalid [SRCPATH]")
+				}
+				return drive.Download(args[0], args[1])
 			},
 		},
 	}
-
-	return cmd
-}
-
-func App() {
-	var daemon bool
-	app := cli.NewApp()
-	app.Flags = []cli.Flag{
-		cli.BoolFlag{
-			Name:        "daemon,d",
-			Usage:       "run as daemon",
-			Destination: &daemon,
-		},
-	}
-
-	app.Action = func(c *cli.Context) error {
-		if daemon {
-			var args []string
-			for _, arg := range os.Args {
-				if arg != "-d" && arg != "--daemon" {
-					args = append(args, arg)
-				}
-			}
-			err := util.Deamon1(args)
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
-	}
-
-	app.Commands = append(app.Commands, Exec())
-
-	app.Run(os.Args)
 }
 
 func main() {
-	App()
+	app := cli.NewApp()
+	app.Name = "drive"
+	app.Description = "aliyun drive management"
+	app.ExitErrHandler = func(context *cli.Context, err error) {
+		fmt.Println(err)
+	}
+	app.Commands = Drive()
+	app.Run(os.Args)
 }

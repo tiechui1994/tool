@@ -55,7 +55,8 @@ type Jar struct {
 }
 
 var (
-	DEBUG = false
+	logprefix = false
+	logsufix  = false
 
 	jar     http.CookieJar
 	jarsync chan struct{}
@@ -160,6 +161,19 @@ func SyncCookieJar() {
 
 func ConfDir() string {
 	return confdir
+}
+
+func SetLog() {
+	logprefix = true
+	logsufix = true
+}
+
+func SetLogPrefix() {
+	logprefix = true
+}
+
+func SetLogSufix() {
+	logsufix = true
 }
 
 func WriteFile(filepath string, data interface{}) error {
