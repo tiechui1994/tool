@@ -65,6 +65,7 @@ func request(method, u string, body interface{}, header map[string]string) (raw 
 	}
 
 	if response.StatusCode >= 400 {
+		log.Errorln("path:%v code:%v data:%v", request.URL.Path, response.StatusCode, string(raw))
 		return raw, CodeError(response.StatusCode)
 	}
 

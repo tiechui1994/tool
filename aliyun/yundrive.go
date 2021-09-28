@@ -191,7 +191,7 @@ type UploadFolderInfo struct {
 		InternalUploadUrl string `json:"internal_upload_url"`
 		PartNumber        int    `json:"part_number"`
 		UploadUrl         string `json:"upload_url"`
-	}
+	} `json:"part_info_list"`
 }
 
 const (
@@ -216,41 +216,59 @@ func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, arg
 		"type":            filetype,
 	}
 
-	if args != nil {
-		for k, v := range args {
-			body[k] = v
+	if filetype == TYPE_FOLDER {
+		raw, err := util.POST(u, body, header)
+		if err != nil {
+			return upload, err
 		}
+		err = json.Unmarshal(raw, &upload)
+		return upload, err
 	}
 
+	directCreate := func() (upload UploadFolderInfo, err error) {
+		if len(path) == 0 {
+			return upload, errors.New("invliad path")
+		}
+
+		buf := make([]byte, 10*1024*1024)
+		hash := sha1.New()
+		fd, err := os.Open(path[0])
+		if err != nil {
+			return upload, err
+		}
+		_, err = io.CopyBuffer(hash, fd, buf)
+		if err != nil {
+			return upload, err
+		}
+		sha1sum := strings.ToUpper(hex.EncodeToString(hash.Sum(nil)))
+
+		body["size"] = args["size"]
+		body["part_info_list"] = args["part_info_list"]
+		body["proof_version"] = "v1"
+		body["proof_code"] = calProof(token.AccessToken, path[0])
+		body["content_hash_name"] = "sha1"
+		body["content_hash"] = sha1sum
+
+		raw, err := util.POST(u, body, header)
+		if err != nil {
+			return upload, err
+		}
+		err = json.Unmarshal(raw, &upload)
+		return upload, err
+	}
+
+	if filetype == TYPE_FILE && args["size"].(int64) < 10*1024*1024 {
+		return directCreate()
+	}
+
+	// other
+	body["pre_hash"] = args["pre_hash"]
 	raw, err := util.POST(u, body, header)
 	if err != nil {
 		// pre_hash match
 		if val, ok := err.(util.CodeError); ok && val == http.StatusConflict {
-			if len(path) == 0 {
-				return upload, errors.New("invliad path")
-			}
-			buf := make([]byte, 10*1024*1024)
-			sh := sha1.New()
-			fd, err := os.Open(path[0])
-			if err != nil {
-				return upload, err
-			}
-			_, err = io.CopyBuffer(sh, fd, buf)
-			if err != nil {
-				return upload, err
-			}
-
-			args := map[string]interface{}{
-				"size":              args["size"],
-				"part_info_list":    args["part_info_list"],
-				"proof_version":     "v1",
-				"proof_code":        calProof(token.AccessToken, path[0]),
-				"content_hash_name": "sha1",
-				"content_hash":      strings.ToUpper(hex.EncodeToString(sh.Sum(nil))),
-			}
-			return CreateWithFolder(checkmode, name, filetype, fileid, token, args)
+			return directCreate()
 		}
-
 		return upload, err
 	}
 

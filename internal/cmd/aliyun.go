@@ -168,7 +168,9 @@ func main() {
 	app.Name = "drive"
 	app.Description = "aliyun drive management"
 	app.ExitErrHandler = func(context *cli.Context, err error) {
-		fmt.Println(err)
+		if err != nil {
+			fmt.Println(err)
+		}
 	}
 	app.Commands = Drive()
 	app.Run(os.Args)
