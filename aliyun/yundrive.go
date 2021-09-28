@@ -195,8 +195,9 @@ type UploadFolderInfo struct {
 }
 
 const (
-	refuse_mode = "refuse"
-	rename_mode = "auto_rename"
+	refuse_mode    = "refuse"
+	rename_mode    = "auto_rename"
+	overwrite_mode = "overwrite"
 )
 
 func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, args map[string]interface{}, path ...string) (
@@ -263,10 +264,13 @@ func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, arg
 
 	// other
 	body["pre_hash"] = args["pre_hash"]
+	body["size"] = args["size"]
+	body["part_info_list"] = args["part_info_list"]
 	raw, err := util.POST(u, body, header)
 	if err != nil {
 		// pre_hash match
 		if val, ok := err.(util.CodeError); ok && val == http.StatusConflict {
+			delete(body, "pre_hash")
 			return directCreate()
 		}
 		return upload, err
