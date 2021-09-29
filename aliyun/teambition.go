@@ -557,7 +557,20 @@ func ArchiveProject(token string, nodeid, projectid, name, targetdir string) (er
 	header = map[string]string{
 		"content-type": "application/x-www-form-urlencoded",
 	}
-	return util.File(u, "POST", bytes.NewBufferString(value.Encode()), header, filepath.Join(targetdir, name+".zip"))
+
+	fd, err := os.Create(filepath.Join(targetdir, name+".zip"))
+	if err != nil {
+		return err
+	}
+
+	reader, err := util.File(u, "POST", bytes.NewBufferString(value.Encode()), header)
+	if err != nil {
+		return err
+	}
+
+	buffer := make([]byte, 8*1024*1024)
+	_, err = io.CopyBuffer(fd, reader, buffer)
+	return err
 }
 
 const (

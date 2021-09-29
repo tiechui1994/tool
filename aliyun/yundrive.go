@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/tiechui1994/tool/log"
 	"io"
 	"net/http"
 	"os"
@@ -492,11 +493,9 @@ func Download(file File, parallel int, dir string, token Token) error {
 		parallel = 3
 	}
 
-	m8 := uint(1024 * 1024 * 8)
-	rangesize := uint(file.Size / parallel)
-	rangesize = (m8 - rangesize&^m8) + rangesize
-	batch := uint(result.Size) / rangesize
-	if uint(result.Size)%rangesize != 0 {
+	m32 := uint(1024 * 1024 * 32)
+	batch := uint(result.Size) / m32
+	if uint(result.Size)%m32 != 0 {
 		batch += 1
 	}
 
@@ -506,13 +505,15 @@ func Download(file File, parallel int, dir string, token Token) error {
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(int(batch))
-
+	count := 0
+	log.Infoln("batch: %v", batch)
 	for i := uint(0); i < batch; i++ {
+		wg.Add(1)
+		count += 1
 		go func(idx uint) {
 			defer wg.Done()
-			from := idx * rangesize
-			to := (idx+1)*rangesize - 1
+			from := idx * m32
+			to := (idx+1)*m32 - 1
 			if to >= uint(result.Size) {
 				to = uint(result.Size) - 1
 			}
@@ -523,12 +524,22 @@ func Download(file File, parallel int, dir string, token Token) error {
 			}
 			raw, err := util.GET(result.Url, header)
 			if err != nil {
+				log.Errorln("idx:%v, error:%v", i, err)
 				return
 			}
 			fd.WriteAt(raw, int64(from))
+			fd.Sync()
 		}(i)
+		if count == parallel {
+			wg.Wait()
+			count = 0
+		}
 	}
-	wg.Wait()
+
+	if count > 0 {
+		wg.Wait()
+	}
+
 	return nil
 }
 

@@ -81,18 +81,28 @@ func init() {
 	}
 	http.DefaultClient = &http.Client{
 		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				d := net.Dialer{
+					Resolver:  &resolver,
+					Timeout:   30 * time.Second,
+					KeepAlive: 5 * time.Minute,
+				}
+				conn, err := d.Dial(network, addr)
+				if err != nil {
+					return nil, err
+				}
+				return newTimeoutConn(conn, 60*time.Second, 300*time.Second), nil
+			},
 			DisableKeepAlives: true,
-			DialContext: (&net.Dialer{
-				Timeout:   60 * time.Second,
-				KeepAlive: 5 * time.Minute,
-				Resolver:  &resolver,
-			}).DialContext,
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: true,
 			},
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   100,
+			IdleConnTimeout:       50 * time.Second,
+			ResponseHeaderTimeout: time.Second * 60,
 		},
-		Jar:     jar,
-		Timeout: 60 * time.Second,
+		Jar: jar,
 	}
 }
 

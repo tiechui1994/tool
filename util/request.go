@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
@@ -133,12 +132,7 @@ func SOCKET(u string, header map[string]string) (conn *websocket.Conn, raw json.
 	return conn, raw, nil
 }
 
-func File(u, method string, body io.Reader, header map[string]string, path string) (err error) {
-	fd, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-
+func File(u, method string, body io.Reader, header map[string]string) (io io.Reader, err error) {
 	request, _ := http.NewRequest(method, u, body)
 	if header != nil {
 		for k, v := range header {
@@ -149,14 +143,12 @@ func File(u, method string, body io.Reader, header map[string]string, path strin
 
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return err
+		return io, err
 	}
 
 	if response.StatusCode != 200 {
-		return CodeError(response.StatusCode)
+		return io, CodeError(response.StatusCode)
 	}
 
-	buf := make([]byte, 8192)
-	_, err = io.CopyBuffer(fd, response.Body, buf)
-	return err
+	return response.Body, err
 }

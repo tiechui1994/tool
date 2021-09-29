@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -570,7 +571,19 @@ func (p *ProjectFs) Download(srcpath, targetdir string) error {
 
 download:
 	if accnode.Type == Node_File {
-		return util.File(accnode.Url, "GET", nil, nil, filepath.Join(targetdir, accnode.Name))
+		fd, err := os.Create(filepath.Join(targetdir, accnode.Name))
+		if err != nil {
+			return err
+		}
+
+		reader, err := util.File(accnode.Url, "GET", nil, nil)
+		if err != nil {
+			return err
+		}
+
+		buffer := make([]byte, 8*1024*1024)
+		_, err = io.CopyBuffer(fd, reader, buffer)
+		return err
 	}
 	return ArchiveProject(p.token, accnode.NodeId, p.projectid, accnode.Name, targetdir)
 }
