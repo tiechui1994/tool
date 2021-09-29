@@ -518,6 +518,7 @@ func Download(file File, parallel int, dir string, token Token) error {
 			}
 			header = map[string]string{
 				"connection": "keep-alive",
+				"referer":    "https://www.aliyundrive.com/",
 				"range":      fmt.Sprintf("bytes=%v-%v", from, to),
 			}
 			raw, err := util.GET(result.Url, header)

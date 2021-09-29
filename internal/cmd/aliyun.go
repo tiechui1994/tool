@@ -27,7 +27,7 @@ func GetLocalToken() (token aliyun.Token, err error) {
 	if util.ReadFile(key, &token) == nil {
 		tokens := strings.Split(token.AccessToken, ".")
 		if len(tokens) == 3 {
-			data, err := base64.StdEncoding.DecodeString(tokens[1])
+			data, err := base64.RawStdEncoding.DecodeString(tokens[1])
 			if err == nil {
 				var jwtinfo struct {
 					Exp int64 `json:"exp"`
@@ -83,6 +83,10 @@ func Drive() []cli.Command {
 			ArgsUsage: "[LOCAL] [REMOTE]",
 			Action: func(c *cli.Context) error {
 				args := []string(c.Args())
+				if len(args) == 0 {
+					cli.ShowCommandHelp(c, "upload")
+					return nil
+				}
 				if len(args) != 2 {
 					cli.ShowCommandHelp(c, "upload")
 					os.Exit(1)
@@ -106,6 +110,10 @@ func Drive() []cli.Command {
 			ArgsUsage: "[SRC] [DST]",
 			Action: func(c *cli.Context) error {
 				args := []string(c.Args())
+				if len(args) == 0 {
+					cli.ShowCommandHelp(c, "mv")
+					return nil
+				}
 				if len(args) != 2 {
 					cli.ShowCommandHelp(c, "mv")
 					os.Exit(1)
@@ -129,6 +137,10 @@ func Drive() []cli.Command {
 			ArgsUsage: "[NAME]",
 			Action: func(c *cli.Context) error {
 				args := []string(c.Args())
+				if len(args) == 0 {
+					cli.ShowCommandHelp(c, "rm")
+					return nil
+				}
 				if len(args) != 1 {
 					cli.ShowCommandHelp(c, "rm")
 					os.Exit(1)
@@ -146,6 +158,10 @@ func Drive() []cli.Command {
 			ArgsUsage: "[SRCNAME] [DSTNAME] [BASE]",
 			Action: func(c *cli.Context) error {
 				args := []string(c.Args())
+				if len(args) == 0 {
+					cli.ShowCommandHelp(c, "rename")
+					return nil
+				}
 				if len(args) != 3 {
 					cli.ShowCommandHelp(c, "rename")
 					os.Exit(1)
@@ -164,6 +180,10 @@ func Drive() []cli.Command {
 			ArgsUsage: "[SRCPATH] [TARGETDIR]",
 			Action: func(c *cli.Context) error {
 				args := []string(c.Args())
+				if len(args) == 0 {
+					cli.ShowCommandHelp(c, "download")
+					return nil
+				}
 				if len(args) != 2 {
 					cli.ShowCommandHelp(c, "download")
 					os.Exit(1)
