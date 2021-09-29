@@ -1,12 +1,14 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/urfave/cli"
 
@@ -23,7 +25,20 @@ func init() {
 func GetLocalToken() (token aliyun.Token, err error) {
 	key := filepath.Join(util.ConfDir(), "drive.json")
 	if util.ReadFile(key, &token) == nil {
-		return token, nil
+		tokens := strings.Split(token.AccessToken, ".")
+		if len(tokens) == 3 {
+			data, err := base64.StdEncoding.DecodeString(tokens[1])
+			if err == nil {
+				var jwtinfo struct {
+					Exp int64 `json:"exp"`
+					Iat int64 `json:"iat"`
+				}
+				json.Unmarshal(data, &jwtinfo)
+				if jwtinfo.Exp > time.Now().Unix() {
+					return token, nil
+				}
+			}
+		}
 	}
 
 	retry := 0

@@ -200,6 +200,10 @@ const (
 	overwrite_mode = "overwrite"
 )
 
+const (
+	m10 = 10 * 1024 * 1024
+)
+
 func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, args map[string]interface{}, path ...string) (
 	upload UploadFolderInfo, err error) {
 	u := yunpan + "/adrive/v2/file/createWithFolders"
@@ -231,7 +235,7 @@ func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, arg
 			return upload, errors.New("invliad path")
 		}
 
-		buf := make([]byte, 10*1024*1024)
+		buf := make([]byte, m10)
 		hash := sha1.New()
 		fd, err := os.Open(path[0])
 		if err != nil {
@@ -243,12 +247,19 @@ func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, arg
 		}
 		sha1sum := strings.ToUpper(hex.EncodeToString(hash.Sum(nil)))
 
-		body["size"] = args["size"]
-		body["part_info_list"] = args["part_info_list"]
-		body["proof_version"] = "v1"
-		body["proof_code"] = calProof(token.AccessToken, path[0])
-		body["content_hash_name"] = "sha1"
-		body["content_hash"] = sha1sum
+		body = map[string]interface{}{
+			"check_name_mode":   checkmode,
+			"drive_id":          token.DriveID,
+			"name":              name,
+			"parent_file_id":    fileid,
+			"type":              filetype,
+			"size":              args["size"],
+			"part_info_list":    args["part_info_list"],
+			"proof_version":     "v1",
+			"proof_code":        calProof(token.AccessToken, path[0]),
+			"content_hash_name": "sha1",
+			"content_hash":      sha1sum,
+		}
 
 		raw, err := util.POST(u, body, header)
 		if err != nil {
@@ -258,7 +269,7 @@ func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, arg
 		return upload, err
 	}
 
-	if filetype == TYPE_FILE && args["size"].(int64) < 10*1024*1024 {
+	if filetype == TYPE_FILE && args["size"].(int64) < m10 {
 		return directCreate()
 	}
 
@@ -270,7 +281,6 @@ func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, arg
 	if err != nil {
 		// pre_hash match
 		if val, ok := err.(util.CodeError); ok && val == http.StatusConflict {
-			delete(body, "pre_hash")
 			return directCreate()
 		}
 		return upload, err
@@ -296,7 +306,6 @@ func UploadFile(path, fileid string, token Token) (id string, err error) {
 	sh.Write(data)
 	prehash := hex.EncodeToString(sh.Sum(nil))
 
-	m10 := 10 * 1024 * 1024 // 10M
 	part := int(info.Size()) / m10
 	if int(info.Size())%m10 != 0 {
 		part += 1
