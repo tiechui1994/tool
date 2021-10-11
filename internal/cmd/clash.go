@@ -99,16 +99,16 @@ func main() {
 	if array.Len() > 0 {
 		first := array.Pop().(proxydelay)
 		if strings.Contains(first.proxy, "香港") {
-			goto set
+			goto proxyset
 		}
 		for array.Len() > 0 {
 			second := array.Pop().(proxydelay)
 			if strings.Contains(first.proxy, "香港") {
 				first = second
-				goto set
+				goto proxyset
 			}
 		}
-	set:
+	proxyset:
 		clash.SetProxy(provider.Name, first.proxy)
 		log.Infoln("provider: [%v] proxy: [%v] delay:%v", provider.Name, first.proxy, first.delay)
 		return
