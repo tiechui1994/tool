@@ -461,7 +461,15 @@ func Rename(name, fileid string, token Token) error {
 	return err
 }
 
-func Download(file File, parallel int, dir string, token Token) error {
+type DownloadUrl struct {
+	Url         string    `json:"url"`
+	InternalUrl string    `json:"internal_url"`
+	Expiration  time.Time `json:"expiration"`
+	Size        int       `json:"size"`
+	ContentHash string    `json:"content_hash"`
+}
+
+func GetDownloadUrl(file File, token Token) (du DownloadUrl, err error) {
 	u := yunpan + "/v2/file/get_download_url"
 	body := map[string]interface{}{
 		"file_id":  file.FileID,
@@ -474,14 +482,15 @@ func Download(file File, parallel int, dir string, token Token) error {
 	}
 	raw, err := util.POST(u, body, header)
 	if err != nil {
-		return err
+		return du, err
 	}
-	var result struct {
-		Size        int    `json:"size"`
-		Url         string `json:"url"`
-		InternalUrl string `json:"internal_url"`
-	}
-	err = json.Unmarshal(raw, &result)
+
+	err = json.Unmarshal(raw, &du)
+	return du, err
+}
+
+func Download(file File, parallel int, dir string, token Token) error {
+	du, err := GetDownloadUrl(file, token)
 	if err != nil {
 		return err
 	}
@@ -494,8 +503,8 @@ func Download(file File, parallel int, dir string, token Token) error {
 	}
 
 	m32 := uint(1024 * 1024 * 32)
-	batch := uint(result.Size) / m32
-	if uint(result.Size)%m32 != 0 {
+	batch := uint(du.Size) / m32
+	if uint(du.Size)%m32 != 0 {
 		batch += 1
 	}
 
@@ -504,6 +513,7 @@ func Download(file File, parallel int, dir string, token Token) error {
 		return err
 	}
 
+	var group util.Group
 	var wg sync.WaitGroup
 	count := 0
 	log.Infoln("batch: %v", batch)
@@ -512,19 +522,32 @@ func Download(file File, parallel int, dir string, token Token) error {
 		count += 1
 		go func(idx uint) {
 			defer wg.Done()
+			retry := 1
+		again:
 			from := idx * m32
 			to := (idx+1)*m32 - 1
-			if to >= uint(result.Size) {
-				to = uint(result.Size) - 1
+			if to >= uint(du.Size) {
+				to = uint(du.Size) - 1
 			}
 			header = map[string]string{
 				"connection": "keep-alive",
 				"referer":    "https://www.aliyundrive.com/",
 				"range":      fmt.Sprintf("bytes=%v-%v", from, to),
 			}
-			raw, err := util.GET(result.Url, header)
+			raw, err := util.GET(du.Url, header)
 			if err != nil {
 				log.Errorln("idx:%v, error:%v", i, err)
+				if strings.Contains(err.Error(), "Forbidden") && retry <= 3 {
+					retry += 1
+					val, err, _ := group.Do("url", func() (interface{}, error) {
+						return GetDownloadUrl(file, token)
+					})
+					if err == nil {
+						du = val.(DownloadUrl)
+						group.Forget("url")
+						goto again
+					}
+				}
 				return
 			}
 			fd.WriteAt(raw, int64(from))

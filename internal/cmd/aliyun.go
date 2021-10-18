@@ -41,12 +41,19 @@ func GetLocalToken() (token aliyun.Token, err error) {
 		}
 	}
 
+	u := os.Getenv("ALIDRIVE_TOKEN")
+	if u == "" {
+		log.Errorln("Please set env var ALIDRIVE_TOKEN for get aliyun accesstoken")
+		return
+	}
+
 	retry := 0
 try:
-	raw, err := util.GET("https://jobs.tiechui1994.tk/api/aliyun?response_type=refresh_token&key=yunpan", nil)
+	raw, err := util.GET(u, nil)
 	if err != nil && retry < 4 {
 		log.Errorln("err:%v, retry again", err)
 		retry += 1
+		time.Sleep(time.Duration(retry*100) * time.Millisecond)
 		goto try
 	}
 
@@ -175,7 +182,7 @@ func Drive() []cli.Command {
 		},
 		{
 			Name:      "download",
-			Aliases:   []string{"down"},
+			Aliases:   []string{"down", "d"},
 			Usage:     "download dir or file",
 			ArgsUsage: "[SRCPATH] [TARGETDIR]",
 			Action: func(c *cli.Context) error {
