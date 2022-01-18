@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
@@ -63,9 +64,18 @@ var (
 	agent   string
 	confdir string
 	cookie  = "cookie"
+
+	dnss = []string{
+		"8.8.8.8:53", "8.8.4.4:53",
+		"114.114.114.114:53",
+		"223.5.5.5:53", "223.6.6.6:53",
+		"112.124.47.27:53", "114.215.126.16:53",
+		"208.67.222.222:53", "208.67.220.220:53",
+	}
 )
 
 func init() {
+	rand.Seed(time.Now().UnixNano())
 	jar, _ = cookiejar.New(nil)
 
 	resolver := net.Resolver{
@@ -75,7 +85,7 @@ func init() {
 				Timeout: time.Millisecond * time.Duration(10000),
 			}
 
-			conn, err := d.DialContext(ctx, network, "8.8.8.8:53")
+			conn, err := d.DialContext(ctx, network, dnss[int(rand.Int31n(int32(len(dnss))))])
 			return conn, err
 		},
 	}
