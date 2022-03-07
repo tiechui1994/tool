@@ -2,6 +2,7 @@ package zerotier
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/tiechui1994/tool/util"
 )
 
@@ -53,6 +54,8 @@ func (z *Zerotier) GetNetworks() (netwoks []Network, err error) {
 		return netwoks, err
 	}
 
+	fmt.Println(string(raw))
+
 	err = json.Unmarshal(raw, &netwoks)
 	return netwoks, err
 }
@@ -86,6 +89,8 @@ func (z *Zerotier) GetMembers(networkid string) (members []Member, err error) {
 	if err != nil {
 		return members, err
 	}
+
+	fmt.Println(string(raw))
 
 	err = json.Unmarshal(raw, &members)
 	return members, err

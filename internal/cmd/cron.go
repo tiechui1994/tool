@@ -132,7 +132,8 @@ func Main(params map[string]interface{}) map[string]interface{} {
 	if val, ok := params["header"]; ok {
 		header, _ = val.(map[string]string)
 	}
-	body = params["body"]
+	bin, _ := json.Marshal(params["body"])
+	body = strings.ReplaceAll(string(bin), "$now", time.Now().Format(time.RFC3339))
 
 	raw, err := request(method, url, body, header)
 	fmt.Println("raw", len(raw), "err", err)

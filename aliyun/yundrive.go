@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/tiechui1994/tool/log"
 	"io"
 	"net/http"
 	"os"
@@ -18,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tiechui1994/tool/log"
 	"github.com/tiechui1994/tool/util"
 )
 
