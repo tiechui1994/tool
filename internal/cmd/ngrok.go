@@ -18,8 +18,8 @@ import (
 )
 
 type dns struct {
-	Name    string
-	Content string
+	Domain string
+	Ngrok  string
 }
 
 type config struct {
@@ -38,8 +38,8 @@ func configUsage() {
 		Userid: "cloudflare userid",
 		DNS: []dns{
 			{
-				Name:    "your domain",
-				Content: "ngrox http tunel name",
+				Domain: "cloudflare dns domain",
+				Ngrok:  "ngrox http tunnel tag name",
 			},
 		},
 	}
@@ -178,56 +178,25 @@ func main() {
 					UserID:    cfg.Userid,
 				}
 
-				/*
-				records, err := cl.DnsList(1, "CNAME")
-				if err != nil {
-					fmt.Println("Get Dns List Failed:", err)
-					return err
-				}
-				*/
 				rules, err := cl.PageRulesList()
 				if err != nil {
 					fmt.Println("Get PageRule List Failed:", err)
 					return err
 				}
 
-				//domain := regexp.MustCompile(`^http[s]://([^/]+)$`)
-
 				for _, dns := range cfg.DNS {
-					/*
-					http := domain.FindAllStringSubmatch(links[dns.Content], 1)
-
-					exist := false
-					for _, record := range records {
-						if record.Name == dns.Name {
-							exist = true
-							record.Proxied = true
-							record.Content = http[0][1]
-							err = cl.DnsUpdate(record)
-						}
-					}
-
-					if !exist {
-						err = cl.DnsCreate("CNAME", dns.Name, http[0][1], 3600, true)
-					}
-					if err != nil {
-						fmt.Println("Update DNS Record Failed:", err)
-						return err
-					}
-					*/
-
 					exist := false
 					for _, rule := range rules {
 						if len(rule.Targets) == 0 || len(rule.Actions) == 0 {
 							continue
 						}
-
-						if strings.HasPrefix(rule.Targets[0].Constraint.Value, dns.Name) {
+						
+						if strings.HasPrefix(rule.Targets[0].Constraint.Value, dns.Domain) {
 							exist = true
 							if rule.Actions[0].ID == "forwarding_url" {
 								val := rule.Actions[0].Value.(map[string]interface{})
 								val["status_code"] = 301
-								val["url"] = links[dns.Content] + "/$1"
+								val["url"] = links[dns.Ngrok] + "/$1"
 								rule.Actions[0].Value = val
 							}
 
@@ -246,14 +215,14 @@ func main() {
 								{
 									ID: "forwarding_url",
 									Value: cloudflare.ActionRedirect{
-										Url:        links[dns.Content] + "/$1",
+										Url:        links[dns.Ngrok] + "/$1",
 										StatusCode: 301,
 									},
 								},
 							},
 						}
 						rule.Targets[0].Constraint.Operator = "matches"
-						rule.Targets[0].Constraint.Value = dns.Name + "/*"
+						rule.Targets[0].Constraint.Value = dns.Ngrok + "/*"
 						err = cl.PageRulesCreate(rule)
 					}
 
