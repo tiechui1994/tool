@@ -17,3 +17,6 @@
 # User settings
 .idea/
 .vscode/
+
+# Special file
+internal/*.yml

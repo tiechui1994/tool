@@ -22,7 +22,7 @@ func (err CodeError) Error() string {
 	return http.StatusText(int(err))
 }
 
-func request(method, u string, body interface{}, header map[string]string) (raw json.RawMessage, err error) {
+func Request(method, u string, body interface{}, header map[string]string) (json.RawMessage, http.Header, error) {
 	var reader io.Reader
 	if body != nil {
 		switch body := body.(type) {
@@ -34,6 +34,7 @@ func request(method, u string, body interface{}, header map[string]string) (raw 
 			reader = bytes.NewReader(body)
 		default:
 			bin, _ := json.Marshal(body)
+			log.Infoln("body:%s", string(bin))
 			reader = bytes.NewReader(bin)
 		}
 	}
@@ -47,16 +48,16 @@ func request(method, u string, body interface{}, header map[string]string) (raw 
 
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return raw, err
+		return nil, nil, err
 	}
 
 	if logprefix {
 		log.Infoln("%v %v %v", method, request.URL.Path, request.Cookies())
 	}
 
-	raw, err = ioutil.ReadAll(response.Body)
+	raw, err := ioutil.ReadAll(response.Body)
 	if err != nil {
-		return raw, err
+		return nil, nil, err
 	}
 
 	if logsufix && len(raw) > 0 {
@@ -65,26 +66,30 @@ func request(method, u string, body interface{}, header map[string]string) (raw 
 
 	if response.StatusCode >= 400 {
 		log.Errorln("path:%v code:%v data:%v", request.URL.Path, response.StatusCode, string(raw))
-		return raw, CodeError(response.StatusCode)
+		return raw, response.Header, CodeError(response.StatusCode)
 	}
 
-	return raw, nil
+	return raw, response.Header, err
 }
 
 func POST(u string, body interface{}, header map[string]string) (raw json.RawMessage, err error) {
-	return request("POST", u, body, header)
+	raw, _, err = Request("POST", u, body, header)
+	return raw, err
 }
 
 func PUT(u string, body interface{}, header map[string]string) (raw json.RawMessage, err error) {
-	return request("PUT", u, body, header)
+	raw, _, err = Request("PUT", u, body, header)
+	return raw, err
 }
 
 func GET(u string, header map[string]string) (raw json.RawMessage, err error) {
-	return request("GET", u, nil, header)
+	raw, _, err = Request("GET", u, nil, header)
+	return raw, err
 }
 
 func DELETE(u string, header map[string]string) (raw json.RawMessage, err error) {
-	return request("DELETE", u, nil, header)
+	raw, _, err = Request("DELETE", u, nil, header)
+	return raw, err
 }
 
 func SOCKET(u string, header map[string]string) (conn *websocket.Conn, raw json.RawMessage, err error) {
