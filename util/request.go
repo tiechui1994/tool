@@ -51,8 +51,10 @@ func Request(method, u string, body interface{}, header map[string]string) (json
 		return nil, nil, err
 	}
 
-	if logprefix {
-		log.Infoln("%v %v %v", method, request.URL.Path, request.Cookies())
+	if len(requestInterceptor) > 0 {
+		for _, f := range requestInterceptor {
+			f(request)
+		}
 	}
 
 	raw, err := ioutil.ReadAll(response.Body)
@@ -60,8 +62,10 @@ func Request(method, u string, body interface{}, header map[string]string) (json
 		return nil, nil, err
 	}
 
-	if logsufix && len(raw) > 0 {
-		log.Infoln("%v %v %v", method, request.URL.Path, response.Cookies())
+	if len(responseInterceptor) > 0 {
+		for _, f := range responseInterceptor {
+			f(response)
+		}
 	}
 
 	if response.StatusCode >= 400 {

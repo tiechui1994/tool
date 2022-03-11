@@ -56,8 +56,8 @@ type Jar struct {
 }
 
 var (
-	logprefix = false
-	logsufix  = false
+	requestInterceptor  []func(*http.Request)
+	responseInterceptor []func(*http.Response)
 
 	jar     http.CookieJar
 	jarsync chan struct{}
@@ -183,17 +183,12 @@ func ConfDir() string {
 	return confdir
 }
 
-func SetLog() {
-	logprefix = true
-	logsufix = true
+func LogRequest(f func(*http.Request)) {
+	requestInterceptor = append(requestInterceptor, f)
 }
 
-func SetLogPrefix() {
-	logprefix = true
-}
-
-func SetLogSufix() {
-	logsufix = true
+func LogResponse(f func(*http.Response)) {
+	responseInterceptor = append(responseInterceptor, f)
 }
 
 func WriteFile(filepath string, data interface{}) error {

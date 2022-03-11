@@ -18,7 +18,6 @@ import (
 )
 
 func init() {
-	util.SetLogPrefix()
 	util.RegisterLocalJar()
 }
 
