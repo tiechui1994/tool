@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -42,11 +43,12 @@ func random(length int) string {
 }
 
 func init() {
+	rand.Seed(time.Now().Unix())
 	first = true
 	http.DefaultClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if strings.HasPrefix(req.URL.String(), "https://www.natfrp.com/cgi/user/login") {
 			x := random(160)
-			req.Header.Set("Cookie", "PHPSESSID="+x)
+			req.Header.Set("Cookie", "PHPSESSID="+x+";")
 			log.Infoln("set login cookie: %v", x)
 		}
 		log.Infoln("url: %v", req.URL.String())
@@ -68,6 +70,20 @@ func init() {
 	})
 }
 
+var ipsites = map[string]func(string) string{
+	"https://ip.cn/api/index?ip=&type=0": func(s string) string {
+		var data struct {
+			Address string `json:"address"`
+			IP      string `json:"ip"`
+		}
+
+		json.Unmarshal([]byte(s), &data)
+		return data.IP
+	},                                            // 中国
+	"https://inet-ip.info/ip": strings.TrimSpace, // 日本
+	"https://icanhazip.com":   strings.TrimSpace, // 美国
+}
+
 func main() {
 	app := cli.NewApp()
 	app.Flags = []cli.Flag{
@@ -84,6 +100,8 @@ func main() {
 			log.Errorln("token must be set")
 			return fmt.Errorf("invalid params")
 		}
+
+		go Server()
 
 		var ip string
 	again:
@@ -122,9 +140,13 @@ func main() {
 		log.Infoln("nodes: %v, %v", nodes, cookie.Value)
 
 		for i := range nodes {
-			if Auth(nodes[i], ip) == nil {
+			err = Auth(nodes[i], ip)
+			if err == nil {
 				log.Infoln("auth (type:%v, name:%v, remote:%v) suceess", nodes[i].Type,
 					nodes[i].Name, nodes[i].Remote)
+			} else {
+				log.Errorln("auth (type:%v, name:%v, remote:%v) failed: %v", nodes[i].Type,
+					nodes[i].Name, nodes[i].Remote, err)
 			}
 		}
 
@@ -239,22 +261,50 @@ func Auth(node Node, ip string) error {
 		return err
 	}
 	if response.Code != 200 {
+		fmt.Println(string(raw))
 		return util.CodeError(response.Code)
 	}
 
 	return nil
 }
 
-var ipsites = map[string]func(string) string{
-	"https://ip.cn/api/index?ip=&type=0": func(s string) string {
-		var data struct {
-			Address string `json:"address"`
-			IP      string `json:"ip"`
-		}
+func SignHandler(w http.ResponseWriter, r *http.Request) {
+	header := map[string]string{
+		"accept":     "application/json, text/plain, */*",
+		"referer":    "https://www.natfrp.com/user/",
+		"origin":     "https://www.natfrp.com",
+		"user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.99 Safari/537.36",
+	}
 
-		json.Unmarshal([]byte(s), &data)
-		return data.IP
-	},                                            // 中国
-	"https://inet-ip.info/ip": strings.TrimSpace, // 日本
-	"https://icanhazip.com":   strings.TrimSpace, // 美国
+	var raw []byte
+	var err error
+	switch r.Method {
+	case http.MethodGet:
+		raw, err = util.GET("https://www.natfrp.com/cgi/user/sign?gt", header)
+		if err != nil {
+			io.WriteString(w, `{"code":401, "data":{}}`)
+			log.Errorln("get code: %v", err)
+			return
+		}
+	case http.MethodPost:
+		header["content-type"] = "application/x-www-form-urlencoded"
+		raw, err = util.POST("https://www.natfrp.com/cgi/user/sign", r.Body, header)
+		if err != nil {
+			w.WriteHeader(401)
+			log.Errorln("get code: %v", err)
+			return
+		}
+	}
+
+	w.Write(raw)
+}
+
+func Server() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ajax/sign", SignHandler)
+	server := http.Server{
+		Addr:    ":1234",
+		Handler: mux,
+	}
+	server.ListenAndServe()
 }
