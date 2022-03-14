@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/tiechui1994/tool/util"
+	"strings"
 )
 
 type Target struct {
@@ -44,6 +45,9 @@ func (c *Cloudflare) PageRulesList() (records []PageRule, err error) {
 
 	raw, err := util.GET(u, header)
 	if err != nil {
+		if strings.Contains(err.Error(), "timeout") {
+			return c.PageRulesList()
+		}
 		return records, err
 	}
 
@@ -80,6 +84,9 @@ func (c *Cloudflare) PageRulesUpdate(rule PageRule) (err error) {
 	}
 	raw, err := util.PUT(u, body, header)
 	if err != nil {
+		if strings.Contains(err.Error(), "timeout") {
+			return c.PageRulesUpdate(rule)
+		}
 		return err
 	}
 

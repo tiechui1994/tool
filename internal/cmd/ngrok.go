@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -53,7 +54,7 @@ func configUsage() {
 	fmt.Printf(temp, buf.String())
 }
 
-func uploadlog(lg string) (links map[string]string, err error) {
+func uploadNgrokLog(lg string) (links map[string]string, err error) {
 	links = make(map[string]string)
 	defer func() {
 		if len(links) > 0 {
@@ -117,9 +118,66 @@ func uploadlog(lg string) (links map[string]string, err error) {
 	}
 }
 
+func uploadCpolarLog(lg string) (links map[string]string, err error) {
+	links = make(map[string]string)
+	defer func() {
+		if len(links) > 0 {
+			var buf bytes.Buffer
+			en := json.NewEncoder(&buf)
+			en.SetIndent("", " ")
+			en.Encode(links)
+			fmt.Println("data: ", buf.String())
+			u := "https://jobs.tiechui1994.tk/api/mongo?key=cpolar"
+			body := map[string]interface{}{"ttl": 28800, "value": links}
+			util.POST(u, body, nil)
+		}
+	}()
+
+	re := regexp.MustCompile(`{("Type":"NewTunnel".*)}`)
+	handle := func(raw string) {
+		raw = strings.ReplaceAll(raw, "\\", "")
+		tokens := re.FindAllString(raw, 1)
+
+		if len(tokens) == 1 {
+			var stu struct {
+				Type    string
+				Payload struct {
+					TunnelName string
+					Url        string
+					LocalAddr  string
+				}
+			}
+			json.Unmarshal([]byte(tokens[0]), &stu)
+			if stu.Payload.TunnelName == "ssh" {
+				re := regexp.MustCompile(`tcp://([^:]+?):([0-9]+)`)
+				tokens := re.FindAllStringSubmatch(stu.Payload.Url, 1)
+				links["ssh"] = fmt.Sprintf("ssh root@%s -p %s", tokens[0][0], tokens[0][1])
+			} else {
+				links[stu.Payload.TunnelName] = stu.Payload.Url
+			}
+		}
+	}
+
+	fifo, err := os.Open(lg)
+	if err != nil {
+		return links, fmt.Errorf("invalid log file path")
+	}
+
+	reader := bufio.NewReader(fifo)
+	for {
+		str, err := reader.ReadString('\n')
+		if err != nil {
+			return links, err
+		}
+
+		handle(str)
+	}
+}
+
 func main() {
 	var (
-		file, lg string
+		file, lg      string
+		ngrok, cpolar bool
 	)
 	app := cli.NewApp()
 
@@ -137,9 +195,19 @@ func main() {
 				},
 				cli.StringFlag{
 					Name:        "log,l",
-					Usage:       "ngrok log file",
+					Usage:       "log file",
 					Required:    true,
 					Destination: &lg,
+				},
+				cli.BoolFlag{
+					Name:        "ngrok,n",
+					Usage:       "type ngrok",
+					Destination: &ngrok,
+				},
+				cli.BoolFlag{
+					Name:        "cpolar,c",
+					Usage:       "type cpolar",
+					Destination: &cpolar,
 				},
 			},
 			Action: func(c *cli.Context) error {
@@ -161,14 +229,27 @@ func main() {
 					return err
 				}
 
+				if !cpolar && !ngrok {
+					fmt.Println("param --ngrok or --cpolar must be set")
+					return fmt.Errorf("ngrok or cpolar")
+				}
+
 				if _, err := os.Stat(lg); os.IsNotExist(err) {
 					fmt.Println("param --log=xxx must be set")
 					return err
 				}
 
-				links, err := uploadlog(lg)
-				if err != nil && err != io.EOF {
-					return err
+				var links map[string]string
+				if cpolar {
+					links, err = uploadCpolarLog(lg)
+					if err != nil && err != io.EOF {
+						return err
+					}
+				} else if ngrok {
+					links, err = uploadNgrokLog(lg)
+					if err != nil && err != io.EOF {
+						return err
+					}
 				}
 
 				cl := cloudflare.Cloudflare{
@@ -190,7 +271,7 @@ func main() {
 						if len(rule.Targets) == 0 || len(rule.Actions) == 0 {
 							continue
 						}
-						
+
 						if strings.HasPrefix(rule.Targets[0].Constraint.Value, dns.Domain) {
 							exist = true
 							if rule.Actions[0].ID == "forwarding_url" {
