@@ -10,6 +10,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/urfave/cli"
 	"gopkg.in/yaml.v2"
@@ -178,6 +179,7 @@ func main() {
 	var (
 		file, lg      string
 		ngrok, cpolar bool
+		wait          int
 	)
 	app := cli.NewApp()
 
@@ -209,6 +211,11 @@ func main() {
 					Usage:       "type cpolar",
 					Destination: &cpolar,
 				},
+				cli.IntFlag{
+					Name:        "wait,w",
+					Usage:       "wait seconds before upload",
+					Destination: &wait,
+				},
 			},
 			Action: func(c *cli.Context) error {
 				var cfg config
@@ -233,6 +240,8 @@ func main() {
 					fmt.Println("param --ngrok or --cpolar must be set")
 					return fmt.Errorf("ngrok or cpolar")
 				}
+
+				time.Sleep(time.Duration(wait) * time.Second)
 
 				if _, err := os.Stat(lg); os.IsNotExist(err) {
 					fmt.Println("param --log=xxx must be set")
