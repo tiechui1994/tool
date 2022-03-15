@@ -2,6 +2,7 @@ package log
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/sirupsen/logrus"
@@ -25,6 +26,10 @@ type Event struct {
 
 func (e *Event) Type() string {
 	return e.LogLevel.String()
+}
+
+func SetOutput(out io.Writer)  {
+	logrus.SetOutput(out)
 }
 
 func Infoln(format string, v ...interface{}) {

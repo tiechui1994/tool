@@ -299,9 +299,36 @@ func SignHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(raw)
 }
 
+func UserHandler(w http.ResponseWriter, r *http.Request) {
+	u := "https://www.natfrp.com/cgi/user/info"
+	header := map[string]string{
+		"accept":     "application/json, text/plain, */*",
+		"referer":    "https://www.natfrp.com/tunnel/",
+		"user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.99 Safari/537.36",
+	}
+
+	raw, err := util.GET(u, header)
+	if err != nil {
+		io.WriteString(w, `{"code":401}`)
+		log.Errorln("get code: %v", err)
+		return
+	}
+
+	var response struct {
+		Code int `json:"code"`
+		Data struct {
+			Sign json.RawMessage `json:"sign"`
+		} `json:"data"`
+	}
+	json.Unmarshal(raw, &response)
+	raw, _ = json.Marshal(response)
+	w.Write(raw)
+}
+
 func Server() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ajax/sign", SignHandler)
+	mux.HandleFunc("/ajax/user", UserHandler)
 	server := http.Server{
 		Addr:    ":1234",
 		Handler: mux,

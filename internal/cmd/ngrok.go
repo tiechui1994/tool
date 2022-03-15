@@ -16,6 +16,7 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/tiechui1994/tool/cloudflare"
+	"github.com/tiechui1994/tool/log"
 	"github.com/tiechui1994/tool/util"
 )
 
@@ -177,38 +178,39 @@ func uploadCpolarLog(lg string) (links map[string]string, err error) {
 
 func main() {
 	var (
-		file, lg      string
-		ngrok, cpolar bool
+		cfgfile, lg   string
+		ngrok, cpolar string
 		wait          int
 	)
 	app := cli.NewApp()
 
+	app.Flags = []cli.Flag{
+		cli.StringFlag{
+			Name:        "log,l",
+			Usage:       "log file",
+			Destination: &lg,
+		},
+	}
+
 	app.Commands = []cli.Command{
 		{
-			Name:    "start",
-			Aliases: []string{"up"},
-			Usage:   "start ngrok worker",
+			Name:  "start",
+			Usage: "start ngrok worker",
 			Flags: []cli.Flag{
 				cli.StringFlag{
-					Name:        "file,f",
+					Name:        "config",
 					Usage:       "cloudflare yaml config file",
 					Required:    true,
-					Destination: &file,
+					Destination: &cfgfile,
 				},
 				cli.StringFlag{
-					Name:        "log,l",
-					Usage:       "log file",
-					Required:    true,
-					Destination: &lg,
-				},
-				cli.BoolFlag{
 					Name:        "ngrok,n",
-					Usage:       "type ngrok",
+					Usage:       "type ngrok log file",
 					Destination: &ngrok,
 				},
-				cli.BoolFlag{
+				cli.StringFlag{
 					Name:        "cpolar,c",
-					Usage:       "type cpolar",
+					Usage:       "type cpolar log file",
 					Destination: &cpolar,
 				},
 				cli.IntFlag{
@@ -218,10 +220,15 @@ func main() {
 				},
 			},
 			Action: func(c *cli.Context) error {
+				if len(lg) > 0 {
+					os.Stdout, _ = os.Create(lg)
+					log.SetOutput(os.Stdout)
+				}
+
 				var cfg config
-				data, err := ioutil.ReadFile(file)
+				data, err := ioutil.ReadFile(cfgfile)
 				if err != nil {
-					fmt.Println("param --file=xxx must be set")
+					fmt.Println("param --config=xxx must be set")
 					return err
 				}
 
@@ -236,26 +243,21 @@ func main() {
 					return err
 				}
 
-				if !cpolar && !ngrok {
-					fmt.Println("param --ngrok or --cpolar must be set")
+				if cpolar == "" && ngrok == "" {
+					fmt.Println("param --ngrok=FILE or --cpolar=FILE must be set")
 					return fmt.Errorf("ngrok or cpolar")
 				}
 
 				time.Sleep(time.Duration(wait) * time.Second)
 
-				if _, err := os.Stat(lg); os.IsNotExist(err) {
-					fmt.Println("param --log=xxx must be set")
-					return err
-				}
-
 				var links map[string]string
-				if cpolar {
-					links, err = uploadCpolarLog(lg)
+				if len(cpolar) > 0 {
+					links, err = uploadCpolarLog(cpolar)
 					if err != nil && err != io.EOF {
 						return err
 					}
-				} else if ngrok {
-					links, err = uploadNgrokLog(lg)
+				} else if len(ngrok) > 0 {
+					links, err = uploadNgrokLog(ngrok)
 					if err != nil && err != io.EOF {
 						return err
 					}
@@ -330,6 +332,9 @@ func main() {
 			Aliases: []string{"k"},
 			Usage:   "kill ngrok worker",
 			Action: func(c *cli.Context) error {
+				if len(lg) > 0 {
+					os.Stdout, _ = os.Create(lg)
+				}
 				return nil
 			},
 		},
