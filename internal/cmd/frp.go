@@ -19,9 +19,13 @@ import (
 	"github.com/tiechui1994/tool/util"
 )
 
-var first bool
-var token string
-var next time.Time
+var (
+	first bool
+	token string
+	next  time.Time
+
+	nodes []Node
+)
 
 func random(length int) string {
 	str := "01234567890abcdefghijklmnopqrstuvwxyz"
@@ -128,10 +132,12 @@ func main() {
 			break
 		}
 
-		nodes, err := Nodes()
-		if err != nil {
-			log.Errorln("get nodes failed: %v", err)
-			return err
+		if len(nodes) == 0 {
+			nodes, err = Nodes()
+			if err != nil {
+				log.Errorln("get nodes failed: %v", err)
+				return err
+			}
 		}
 
 		u, _ := url.Parse("https://www.natfrp.com/")
@@ -140,7 +146,8 @@ func main() {
 		log.Infoln("nodes: %v, %v", nodes, cookie.Value)
 
 		for i := range nodes {
-			err = Auth(nodes[i], ip)
+			body := []string{"name=" + nodes[i].Name, "ip=" + ip}
+			_, err = util.GET("http://127.0.0.1:1234/ajax/auth?"+strings.Join(body, "&"), nil)
 			if err == nil {
 				log.Infoln("auth (type:%v, name:%v, remote:%v) suceess", nodes[i].Type,
 					nodes[i].Name, nodes[i].Remote)
@@ -234,40 +241,6 @@ func LoginCheck() error {
 	return nil
 }
 
-func Auth(node Node, ip string) error {
-	body := []string{
-		"id=" + strconv.Itoa(node.ID),
-		"ip=" + ip,
-	}
-
-	header := map[string]string{
-		"content-type": "application/x-www-form-urlencoded",
-		"accept":       "application/json",
-		"referer":      "https://www.natfrp.com/tunnel/",
-		"origin":       "https://www.natfrp.com",
-		"user-agent":   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.99 Safari/537.36",
-	}
-	raw, err := util.POST("https://www.natfrp.com/cgi/tunnel/auth", strings.Join(body, "&"), header)
-	if err != nil {
-		return err
-	}
-
-	var response struct {
-		Code int    `json:"code"`
-		Data string `json:"data"`
-	}
-	err = json.Unmarshal(raw, &response)
-	if err != nil {
-		return err
-	}
-	if response.Code != 200 {
-		fmt.Println(string(raw))
-		return util.CodeError(response.Code)
-	}
-
-	return nil
-}
-
 func SignHandler(w http.ResponseWriter, r *http.Request) {
 	header := map[string]string{
 		"accept":     "application/json, text/plain, */*",
@@ -325,10 +298,69 @@ func UserHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(raw)
 }
 
+func AuthHandler(w http.ResponseWriter, r *http.Request) {
+	var err error
+	defer func() {
+		if err != nil {
+			w.WriteHeader(400)
+			io.WriteString(w, fmt.Sprintf(`{"error":"%v"}`, err.Error()))
+		}
+	}()
+
+	values := r.URL.Query()
+	name := values.Get("name")
+	ip := values.Get("ip")
+	body := []string{
+		"ip=" + ip,
+	}
+
+	for _, node := range nodes {
+		if node.Name == name {
+			body = append(body, "id="+strconv.Itoa(node.ID))
+			goto update
+		}
+	}
+
+	err = fmt.Errorf("invalid name")
+	return
+
+update:
+	header := map[string]string{
+		"content-type": "application/x-www-form-urlencoded",
+		"accept":       "application/json",
+		"referer":      "https://www.natfrp.com/tunnel/",
+		"origin":       "https://www.natfrp.com",
+		"user-agent":   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.99 Safari/537.36",
+	}
+
+	var raw []byte
+	raw, err = util.POST("https://www.natfrp.com/cgi/tunnel/auth", strings.Join(body, "&"), header)
+	if err != nil {
+		return
+	}
+
+	var response struct {
+		Code int    `json:"code"`
+		Data string `json:"data"`
+	}
+	err = json.Unmarshal(raw, &response)
+	if err != nil {
+		return
+	}
+	if response.Code != 200 {
+		if response.Code == 404 {
+			nodes, _ = Nodes()
+		}
+		err = util.CodeError(response.Code)
+		return
+	}
+}
+
 func Server() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ajax/sign", SignHandler)
 	mux.HandleFunc("/ajax/user", UserHandler)
+	mux.HandleFunc("/ajax/auth", AuthHandler)
 	server := http.Server{
 		Addr:    ":1234",
 		Handler: mux,

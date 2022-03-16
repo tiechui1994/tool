@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -160,6 +161,12 @@ func uploadCpolarLog(lg string) (links map[string]string, err error) {
 		}
 	}
 
+	newfile := "/tmp/cpolar.log"
+	err = exec.Command("bash", "-c", fmt.Sprintf("grep -E 'NewTunnel' %v > %v", lg, newfile)).Run()
+	if err != nil {
+		return links, fmt.Errorf("invalid log file path")
+	}
+
 	fifo, err := os.Open(lg)
 	if err != nil {
 		return links, fmt.Errorf("invalid log file path")
@@ -174,6 +181,64 @@ func uploadCpolarLog(lg string) (links map[string]string, err error) {
 
 		handle(str)
 	}
+}
+
+func update(cl cloudflare.Cloudflare, links map[string]string, cfg config) error {
+	rules, err := cl.PageRulesList()
+	if err != nil {
+		fmt.Println("Get PageRule List Failed:", err)
+		return err
+	}
+
+	for _, dns := range cfg.DNS {
+		exist := false
+		for _, rule := range rules {
+			if len(rule.Targets) == 0 || len(rule.Actions) == 0 {
+				continue
+			}
+
+			if strings.HasPrefix(rule.Targets[0].Constraint.Value, dns.Domain) {
+				exist = true
+				if rule.Actions[0].ID == "forwarding_url" {
+					val := rule.Actions[0].Value.(map[string]interface{})
+					val["status_code"] = 301
+					val["url"] = links[dns.Ngrok] + "/$1"
+					rule.Actions[0].Value = val
+				}
+
+				err = cl.PageRulesUpdate(rule)
+			}
+		}
+
+		if !exist {
+			rule := cloudflare.PageRule{
+				Targets: []cloudflare.Target{
+					{
+						Target: "url",
+					},
+				},
+				Actions: []cloudflare.Action{
+					{
+						ID: "forwarding_url",
+						Value: cloudflare.ActionRedirect{
+							Url:        links[dns.Ngrok] + "/$1",
+							StatusCode: 301,
+						},
+					},
+				},
+			}
+			rule.Targets[0].Constraint.Operator = "matches"
+			rule.Targets[0].Constraint.Value = dns.Ngrok + "/*"
+			err = cl.PageRulesCreate(rule)
+		}
+
+		if err != nil {
+			fmt.Println("Update PageRule Failed:", err)
+			return err
+		}
+	}
+
+	return nil
 }
 
 func main() {
@@ -225,7 +290,10 @@ func main() {
 					log.SetOutput(os.Stdout)
 				}
 
-				var cfg config
+				var (
+					cfg   config
+					links map[string]string
+				)
 				data, err := ioutil.ReadFile(cfgfile)
 				if err != nil {
 					fmt.Println("param --config=xxx must be set")
@@ -248,9 +316,15 @@ func main() {
 					return fmt.Errorf("ngrok or cpolar")
 				}
 
-				time.Sleep(time.Duration(wait) * time.Second)
+				cl := cloudflare.Cloudflare{
+					AuthEmail: cfg.Email,
+					AuthKey:   cfg.Key,
+					ZoneID:    cfg.Zoneid,
+					UserID:    cfg.Userid,
+				}
 
-				var links map[string]string
+				time.Sleep(time.Duration(wait) * time.Second)
+			again:
 				if len(cpolar) > 0 {
 					links, err = uploadCpolarLog(cpolar)
 					if err != nil && err != io.EOF {
@@ -262,66 +336,10 @@ func main() {
 						return err
 					}
 				}
-
-				cl := cloudflare.Cloudflare{
-					AuthEmail: cfg.Email,
-					AuthKey:   cfg.Key,
-					ZoneID:    cfg.Zoneid,
-					UserID:    cfg.Userid,
-				}
-
-				rules, err := cl.PageRulesList()
-				if err != nil {
-					fmt.Println("Get PageRule List Failed:", err)
-					return err
-				}
-
-				for _, dns := range cfg.DNS {
-					exist := false
-					for _, rule := range rules {
-						if len(rule.Targets) == 0 || len(rule.Actions) == 0 {
-							continue
-						}
-
-						if strings.HasPrefix(rule.Targets[0].Constraint.Value, dns.Domain) {
-							exist = true
-							if rule.Actions[0].ID == "forwarding_url" {
-								val := rule.Actions[0].Value.(map[string]interface{})
-								val["status_code"] = 301
-								val["url"] = links[dns.Ngrok] + "/$1"
-								rule.Actions[0].Value = val
-							}
-
-							err = cl.PageRulesUpdate(rule)
-						}
-					}
-
-					if !exist {
-						rule := cloudflare.PageRule{
-							Targets: []cloudflare.Target{
-								{
-									Target: "url",
-								},
-							},
-							Actions: []cloudflare.Action{
-								{
-									ID: "forwarding_url",
-									Value: cloudflare.ActionRedirect{
-										Url:        links[dns.Ngrok] + "/$1",
-										StatusCode: 301,
-									},
-								},
-							},
-						}
-						rule.Targets[0].Constraint.Operator = "matches"
-						rule.Targets[0].Constraint.Value = dns.Ngrok + "/*"
-						err = cl.PageRulesCreate(rule)
-					}
-
-					if err != nil {
-						fmt.Println("Update PageRule Failed:", err)
-						return err
-					}
+				if err == nil {
+					update(cl, links, cfg)
+					time.Sleep(30 * time.Minute)
+					goto again
 				}
 
 				return nil
