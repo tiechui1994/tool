@@ -57,7 +57,7 @@ func configUsage() {
 	fmt.Printf(temp, buf.String())
 }
 
-func uploadNgrokLog(lg string) (links map[string]string, err error) {
+func uploadNgrokLog(lg string) (links map[string]string) {
 	links = make(map[string]string)
 	defer func() {
 		if len(links) > 0 {
@@ -88,14 +88,19 @@ func uploadNgrokLog(lg string) (links map[string]string, err error) {
 
 	fifo, err := os.Open(lg)
 	if err != nil {
-		return links, fmt.Errorf("invalid log file path")
+		log.Errorln("invalid ngrok log file path")
+		return links
 	}
 
 	buf := make([]byte, 8192)
 	for {
 		n, err := fifo.Read(buf)
 		if err != nil {
-			return links, err
+			if err == io.EOF {
+				return links
+			}
+			log.Errorln("ngrok read failed: %v", err)
+			return links
 		}
 
 		var temp []byte
@@ -121,7 +126,7 @@ func uploadNgrokLog(lg string) (links map[string]string, err error) {
 	}
 }
 
-func uploadCpolarLog(lg string) (links map[string]string, err error) {
+func uploadCpolarLog(lg string) (links map[string]string) {
 	links = make(map[string]string)
 	defer func() {
 		if len(links) > 0 {
@@ -162,21 +167,29 @@ func uploadCpolarLog(lg string) (links map[string]string, err error) {
 	}
 
 	newfile := "/tmp/cpolar.log"
-	err = exec.Command("bash", "-c", fmt.Sprintf("grep -E 'NewTunnel' %v > %v", lg, newfile)).Run()
+	cmd := fmt.Sprintf("grep -E 'NewTunnel' %v > %v", lg, newfile)
+	err := exec.Command("bash", "-c", cmd).Run()
 	if err != nil {
-		return links, fmt.Errorf("invalid log file path")
+		log.Errorln("cmd(%v) failed: %v", cmd, err)
+		return links
 	}
 
-	fifo, err := os.Open(lg)
+	fifo, err := os.Open(newfile)
 	if err != nil {
-		return links, fmt.Errorf("invalid log file path")
+		log.Errorln("invalid cpolar log file path")
+		return links
 	}
 
 	reader := bufio.NewReader(fifo)
 	for {
 		str, err := reader.ReadString('\n')
 		if err != nil {
-			return links, err
+			if err == io.EOF {
+				return links
+			}
+
+			log.Errorln("cpolar ReadString: %v", err)
+			return links
 		}
 
 		handle(str)
@@ -326,23 +339,16 @@ func main() {
 				time.Sleep(time.Duration(wait) * time.Second)
 			again:
 				if len(cpolar) > 0 {
-					links, err = uploadCpolarLog(cpolar)
-					if err != nil && err != io.EOF {
-						return err
-					}
+					links = uploadCpolarLog(cpolar)
 				} else if len(ngrok) > 0 {
-					links, err = uploadNgrokLog(ngrok)
-					if err != nil && err != io.EOF {
-						return err
-					}
+					links = uploadNgrokLog(ngrok)
 				}
-				if err == nil {
+				if len(links) > 0 {
 					update(cl, links, cfg)
-					time.Sleep(30 * time.Minute)
-					goto again
 				}
 
-				return nil
+				time.Sleep(30 * time.Minute)
+				goto again
 			},
 		},
 		{
