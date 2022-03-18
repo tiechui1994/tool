@@ -22,6 +22,7 @@ import (
 var (
 	first bool
 	token string
+	count int
 	next  time.Time
 
 	nodes []Node
@@ -200,7 +201,8 @@ func Nodes() ([]Node, error) {
 
 func LoginCheck() error {
 	if next.IsZero() || time.Now().After(next) {
-		next = time.Now().Add(60*time.Minute + time.Duration(rand.Int31n(300))*time.Second)
+		next = time.Now().Add(time.Duration(count%3+1)*60*time.Minute + time.Duration(rand.Int31n(600))*time.Second)
+		count += 1
 	} else {
 		return nil
 	}

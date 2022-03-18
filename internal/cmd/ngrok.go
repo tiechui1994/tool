@@ -79,7 +79,7 @@ func uploadNgrokLog(lg string) (links map[string]string) {
 			if stu["name"] == "ssh" {
 				re := regexp.MustCompile(`tcp://([^:]+?):([0-9]+)`)
 				tokens := re.FindAllStringSubmatch(stu["url"].(string), 1)
-				links["ssh"] = fmt.Sprintf("ssh root@%s -p %s", tokens[0][0], tokens[0][1])
+				links["ssh"] = fmt.Sprintf("ssh root@%s -p %s", tokens[0][1], tokens[0][2])
 			} else {
 				links[stu["name"].(string)] = stu["url"].(string)
 			}
@@ -159,7 +159,7 @@ func uploadCpolarLog(lg string) (links map[string]string) {
 			if stu.Payload.TunnelName == "ssh" {
 				re := regexp.MustCompile(`tcp://([^:]+?):([0-9]+)`)
 				tokens := re.FindAllStringSubmatch(stu.Payload.Url, 1)
-				links["ssh"] = fmt.Sprintf("ssh root@%s -p %s", tokens[0][0], tokens[0][1])
+				links["ssh"] = fmt.Sprintf("ssh root@%s -p %s", tokens[0][1], tokens[0][2])
 			} else {
 				links[stu.Payload.TunnelName] = stu.Payload.Url
 			}
