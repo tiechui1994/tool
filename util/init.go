@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 	"unsafe"
@@ -59,46 +60,63 @@ var (
 	requestInterceptor  []func(*http.Request)
 	responseInterceptor []func(*http.Response)
 
-	jar     http.CookieJar
-	jarsync chan struct{}
-	agent   string
-	confdir string
-	cookie  = "cookie"
+	agent  string
+	cookie = "cookie"
+)
 
-	dnss = []string{
+type localClient struct {
+	*http.Client
+
+	once sync.Once // set once dns
+	dns  []string
+
+	jar  http.CookieJar
+	dir  string        // file jar dir
+	sync chan struct{} // sync file jar
+}
+
+var client localClient
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
+
+	client.jar, _ = cookiejar.New(nil)
+	client.dns = []string{
 		"8.8.8.8:53", "8.8.4.4:53",
 		"114.114.114.114:53",
 		"223.5.5.5:53", "223.6.6.6:53",
 		"112.124.47.27:53", "114.215.126.16:53",
 		"208.67.222.222:53", "208.67.220.220:53",
 	}
-)
 
-func init() {
-	rand.Seed(time.Now().UnixNano())
-	jar, _ = cookiejar.New(nil)
-
-	resolver := net.Resolver{
-		PreferGo: false,
+	resolver := &net.Resolver{
+		PreferGo: true, // 表示使用 Go 的 DNS
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 			d := net.Dialer{
 				Timeout: time.Millisecond * time.Duration(10000),
 			}
 
-			conn, err := d.DialContext(ctx, network, dnss[int(rand.Int31n(int32(len(dnss))))])
+			dns := client.dns[int(rand.Int31n(int32(len(client.dns))))]
+			conn, err := d.DialContext(ctx, network, dns)
 			return conn, err
 		},
 	}
-	http.DefaultClient = &http.Client{
+	client.Client = &http.Client{
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				d := net.Dialer{
-					Resolver:  &resolver,
+					Resolver:  resolver,
 					Timeout:   30 * time.Second,
 					KeepAlive: 5 * time.Minute,
 				}
-				conn, err := d.Dial(network, addr)
+			retry:
+				conn, err := d.Dial("tcp4", addr)
 				if err != nil {
+					if val, ok := err.(*net.OpError); ok &&
+						strings.Contains(val.Err.Error(), "no suitable address found") {
+						goto retry
+					}
+
 					return nil, err
 				}
 				return newTimeoutConn(conn, 60*time.Second, 300*time.Second), nil
@@ -107,54 +125,84 @@ func init() {
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: true,
 			},
-			MaxIdleConns:          100,
-			MaxIdleConnsPerHost:   100,
-			IdleConnTimeout:       50 * time.Second,
-			ResponseHeaderTimeout: time.Second * 60,
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 100,
 		},
-		Jar: jar,
+		Jar: client.jar,
 	}
 }
 
-func RegisterLocalJar() {
-	jarsync = make(chan struct{})
+func (c *localClient) setFileJar() {
+	c.sync = make(chan struct{})
 	home := os.Getenv("HOME")
 	if home == "" {
 		home = "/tmp"
 	}
 
-	confdir = filepath.Join(home, ".config/tool")
-	os.MkdirAll(confdir, 0775)
+	c.dir = filepath.Join(home, ".config/tool")
+	os.MkdirAll(c.dir, 0775)
 
 	localjar := unserialize()
 	if localjar != nil {
-		jar = (*cookiejar.Jar)(unsafe.Pointer(localjar))
-		http.DefaultClient.Jar = jar
+		jar := (*cookiejar.Jar)(unsafe.Pointer(localjar))
+		client.Jar = jar
 	}
-
 	go func() {
 		timer := time.NewTicker(5 * time.Second)
 		for {
 			select {
 			case <-timer.C:
-				cookjar := jar.(*cookiejar.Jar)
+				cookjar := client.jar.(*cookiejar.Jar)
 				serialize(cookjar)
-			case <-jarsync:
-				cookjar := jar.(*cookiejar.Jar)
+			case <-c.sync:
+				cookjar := client.jar.(*cookiejar.Jar)
 				serialize(cookjar)
 			}
 		}
 	}()
 }
 
-func GetCookie(url *url.URL, name string) *http.Cookie {
-	for _, c := range jar.Cookies(url) {
+func (c *localClient) syncFileJar() {
+	if c.sync != nil {
+		c.sync <- struct{}{}
+	}
+}
+
+func (c *localClient) getCookie(url *url.URL, name string) *http.Cookie {
+	for _, c := range c.Jar.Cookies(url) {
 		if c != nil && c.Name == name {
 			return c
 		}
 	}
 
 	return nil
+}
+
+func (c *localClient) setDns(dns []string) {
+	c.once.Do(func() {
+		var value []string
+		for _, v := range dns {
+			if strings.HasSuffix(v, ":53") {
+				value = append(value, v)
+			}
+		}
+
+		if len(value) > 0 {
+			client.dns = value
+		}
+	})
+}
+
+func RegisterDNS(dns []string) {
+	client.setDns(dns)
+}
+
+func RegisterFileJar() {
+	client.setFileJar()
+}
+
+func GetCookie(url *url.URL, name string) *http.Cookie {
+	return client.getCookie(url, name)
 }
 
 func UserAgent(args ...int) string {
@@ -173,14 +221,12 @@ func UserAgent(args ...int) string {
 	return agent
 }
 
-func SyncCookieJar() {
-	if jarsync != nil {
-		jarsync <- struct{}{}
-	}
+func SyncJar() {
+	client.syncFileJar()
 }
 
-func ConfDir() string {
-	return confdir
+func JarDir() string {
+	return client.dir
 }
 
 func LogRequest(f func(*http.Request)) {
@@ -213,18 +259,18 @@ func ReadFile(filepath string, data interface{}) error {
 }
 
 func serialize(jar *cookiejar.Jar) {
-	oldpath := filepath.Join(confdir, "."+cookie+".json")
+	oldpath := filepath.Join(JarDir(), "."+cookie+".json")
 	localjar := (*Jar)(unsafe.Pointer(jar))
 	fd, _ := os.Create(oldpath)
 	json.NewEncoder(fd).Encode(localjar)
 	fd.Sync()
 
-	os.Rename(oldpath, filepath.Join(confdir, cookie+".json"))
+	os.Rename(oldpath, filepath.Join(JarDir(), cookie+".json"))
 }
 
 func unserialize() *Jar {
 	var localjar Jar
-	fd, _ := os.Open(filepath.Join(confdir, cookie+".json"))
+	fd, _ := os.Open(filepath.Join(JarDir(), cookie+".json"))
 	err := json.NewDecoder(fd).Decode(&localjar)
 	if err != nil {
 		return nil
