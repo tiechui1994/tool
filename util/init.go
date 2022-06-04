@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 	"unsafe"
@@ -97,8 +98,14 @@ func init() {
 					Timeout:   30 * time.Second,
 					KeepAlive: 5 * time.Minute,
 				}
-				conn, err := d.Dial(network, addr)
+			retry:
+				conn, err := d.Dial("tcp4", addr)
 				if err != nil {
+					if val, ok := err.(*net.OpError); ok &&
+						strings.Contains(val.Err.Error(), "no suitable address found") {
+						goto retry
+					}
+
 					return nil, err
 				}
 				return newTimeoutConn(conn, 60*time.Second, 300*time.Second), nil
@@ -107,10 +114,8 @@ func init() {
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: true,
 			},
-			MaxIdleConns:          100,
-			MaxIdleConnsPerHost:   100,
-			IdleConnTimeout:       50 * time.Second,
-			ResponseHeaderTimeout: time.Second * 60,
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 100,
 		},
 		Jar: jar,
 	}
