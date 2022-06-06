@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -46,7 +45,7 @@ func Request(method, u string, body interface{}, header map[string]string) (json
 
 	request.Header.Set("user-agent", UserAgent())
 
-	response, err := http.DefaultClient.Do(request)
+	response, err := client.Do(request)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -102,6 +101,7 @@ func SOCKET(u string, header map[string]string) (conn *websocket.Conn, raw json.
 		NetDialContext:    (&net.Dialer{}).DialContext,
 		HandshakeTimeout:  45 * time.Second,
 		EnableCompression: true,
+		Jar:               client.Jar,
 	}
 
 	head := make(http.Header)
@@ -109,15 +109,6 @@ func SOCKET(u string, header map[string]string) (conn *websocket.Conn, raw json.
 		head.Set(key, val)
 	}
 	head.Set("user-agent", UserAgent())
-
-	uu, _ := url.Parse(u)
-	if cookies := jar.Cookies(uu); len(cookies) > 0 {
-		cookie := make([]string, 0, len(cookies))
-		for _, v := range cookies {
-			cookie = append(cookie, v.String())
-		}
-		head.Set("cookie", strings.Join(cookie, "; "))
-	}
 
 	if strings.HasPrefix(u, "https") {
 		u = "wss" + u[5:]
@@ -150,7 +141,7 @@ func File(u, method string, body io.Reader, header map[string]string) (io io.Rea
 	}
 	request.Header.Set("user-agent", UserAgent())
 
-	response, err := http.DefaultClient.Do(request)
+	response, err := client.Do(request)
 	if err != nil {
 		return io, err
 	}
