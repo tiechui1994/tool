@@ -79,14 +79,15 @@ func init() {
 	rand.Seed(time.Now().UnixNano())
 	jar, _ = cookiejar.New(nil)
 
-	resolver := net.Resolver{
-		PreferGo: false,
+	resolver := &net.Resolver{
+		PreferGo: true, // 表示使用 Go 的 DNS
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 			d := net.Dialer{
 				Timeout: time.Millisecond * time.Duration(10000),
 			}
 
-			conn, err := d.DialContext(ctx, network, dnss[int(rand.Int31n(int32(len(dnss))))])
+			dns := dnss[int(rand.Int31n(int32(len(dnss))))]
+			conn, err := d.DialContext(ctx, network, dns)
 			return conn, err
 		},
 	}
@@ -94,7 +95,7 @@ func init() {
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				d := net.Dialer{
-					Resolver:  &resolver,
+					Resolver:  resolver,
 					Timeout:   30 * time.Second,
 					KeepAlive: 5 * time.Minute,
 				}
@@ -118,6 +119,12 @@ func init() {
 			MaxIdleConnsPerHost: 100,
 		},
 		Jar: jar,
+	}
+}
+
+func RegisterDNS(dns []string) {
+	if len(dns) > 0 {
+		dnss = dns
 	}
 }
 
