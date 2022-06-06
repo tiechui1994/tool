@@ -205,6 +205,10 @@ func GetCookie(url *url.URL, name string) *http.Cookie {
 	return client.getCookie(url, name)
 }
 
+func CheckRedirect(fun func(req *http.Request, via []*http.Request) error) {
+	client.CheckRedirect = fun
+}
+
 func UserAgent(args ...int) string {
 	if agent != "" {
 		return agent
