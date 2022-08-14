@@ -1,856 +1,586 @@
 package aliyun
 
 import (
-	"bytes"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"io"
-	"log"
-	"mime/multipart"
-	"net/textproto"
-	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strconv"
+	"sort"
 	"strings"
 	"sync"
-	"time"
 
+	"github.com/tiechui1994/tool/aliyun/teambition"
 	"github.com/tiechui1994/tool/util"
 )
 
-const (
-	acc = "https://account.teambition.com"
-	tcs = "https://tcs.teambition.net"
-	www = "https://www.teambition.com"
-)
-
-var (
-	escape = func() func(name string) string {
-		replace := strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
-		return func(name string) string {
-			return replace.Replace(name)
-		}
-	}()
-	ext = map[string]string{
-		".bmp":  "image/bmp",
-		".gif":  "image/gif",
-		".ico":  "image/vnd.microsoft.icon",
-		".jpeg": "image/jpeg",
-		".jpg":  "image/jpeg",
-		".png":  "image/png",
-		".svg":  "image/svg+xml",
-		".tif":  "image/tiff",
-		".webp": "image/webp",
-
-		".bz":  "application/x-bzip",
-		".bz2": "application/x-bzip2",
-		".gz":  "application/gzip",
-		".rar": "application/vnd.rar",
-		".tar": "application/x-tar",
-		".zip": "application/zip",
-		".7z":  "application/x-7z-compressed",
-
-		".sh":  "application/x-sh",
-		".jar": "application/java-archive",
-		".pdf": "application/pdf",
-
-		".doc":  "application/msword",
-		".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-		".ppt":  "application/vnd.ms-powerpoint",
-		".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-		".xls":  "application/vnd.ms-excel",
-		".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-		".xml":  "application/xml",
-
-		".3gp":  "audio/3gpp",
-		".3g2":  "audio/3gpp2",
-		".wav":  "audio/wav",
-		".weba": "audio/webm",
-		".oga":  "audio/ogg",
-		".mp3":  "audio/mpeg",
-		".aac":  "audio/aac",
-
-		".mp4":  "video/mp4",
-		".avi":  "video/x-msvideo",
-		".mpeg": "video/mpeg",
-		".webm": "video/webm",
-
-		".htm":  "text/html",
-		".html": "text/html",
-		".js":   "text/javascript",
-		".json": "application/json",
-		".txt":  "text/plain",
-		".text": "text/plain",
-		".key":  "text/plain",
-		".pem":  "text/plain",
-		".cert": "text/plain",
-		".csr":  "text/plain",
-		".cfg":  "text/plain",
-		".go":   "text/plain",
-		".java": "text/plain",
-		".yml":  "text/plain",
-		".md":   "text/plain",
-		".s":    "text/plain",
-		".c":    "text/plain",
-		".cpp":  "text/plain",
-		".h":    "text/plain",
-		".bin":  "application/octet-stream",
-	}
-	extType = func() func(string) string {
-		return func(s string) string {
-			if val, ok := ext[s]; ok {
-				return val
-			}
-			return "application/octet-stream"
-		}
-	}()
-
-	header = map[string]string{
-		"content-type": "application/json",
+func FindProjectDir(path, orgid string) (c teambition.Collection, err error) {
+	path = strings.TrimSpace(path)
+	if !strings.HasPrefix(path, "/") {
+		return c, errors.New("invalid path")
 	}
 
-	cookies = "TEAMBITION_SESSIONID=xxx;TEAMBITION_SESSIONID.sig=xxx;TB_ACCESS_TOKEN=xxx"
-)
-
-//=====================================  login  =====================================
-
-func Login(clientid, pubkey, token, email, phone, pwd string) (access string, err error) {
-	key, _ := base64.StdEncoding.DecodeString(pubkey)
-	oeap := New(HASH_SHA1, string(key), "")
-
-	password := oeap.Encrypt([]byte(pwd))
-
-	body := map[string]string{
-		"password":      password,
-		"client_id":     clientid,
-		"response_type": "session",
-		"publicKey":     pubkey,
-		"token":         token,
-	}
-
-	var u string
-	if email != "" {
-		u = "/api/login/email"
-		body["email"] = email
-	} else {
-		u = "/api/login/phone"
-		body["phone"] = phone
-	}
-
-	data, err := util.POST(acc+u, body, header)
+	tokens := strings.Split(path[1:], "/")
+	projects, err := teambition.Projects(orgid)
 	if err != nil {
-		if _, ok := err.(util.CodeError); ok {
-			log.Println("login", string(data))
+		return c, err
+	}
+
+	var project teambition.Project
+	exist := false
+	for _, p := range projects {
+		if p.Name == tokens[0] {
+			exist = true
+			project = p
+			break
 		}
-		return access, err
 	}
 
-	var result struct {
-		AbnormalLogin      string `json:"abnormalLogin"`
-		HasGoogleTwoFactor bool   `json:"hasGoogleTwoFactor"`
-		Token              string `json:"token"`
+	if !exist {
+		return c, errors.New("no exist project")
 	}
 
-	err = json.Unmarshal(data, &result)
-	if err != nil {
-		return access, err
-	}
-
-	if result.HasGoogleTwoFactor {
-		err = TwoFactor(clientid, token, result.Token)
+	tokens = tokens[1:]
+	rootid := project.RootCollectionId
+	for _, token := range tokens {
+		collections, err := teambition.Collections(rootid, project.ProjectId)
 		if err != nil {
-			return access, err
+			return c, err
+		}
+
+		exist := false
+		for _, coll := range collections {
+			if coll.Title == token {
+				c = coll
+				rootid = coll.Nodeid
+				exist = true
+				break
+			}
+		}
+
+		if !exist {
+			return c, errors.New("no exist path: " + token)
 		}
 	}
 
-	return result.Token, nil
+	return c, nil
 }
 
-func TwoFactor(clientid, token, verify string) error {
-	var code string
-	fmt.Printf("Input Auth Code:")
-	fmt.Scanf("%v", &code)
-
-	body := map[string]string{
-		"authcode":      code,
-		"client_id":     clientid,
-		"response_type": "session",
-		"token":         token,
-		"verify":        verify,
+func FindProjectFile(path, orgid string) (w teambition.Work, err error) {
+	path = strings.TrimSpace(path)
+	if !strings.HasPrefix(path, "/") {
+		return w, errors.New("invalid path")
 	}
-	u := acc + "/api/login/two-factor"
-	data, err := util.POST(u, body, header)
+
+	dir, name := filepath.Split(path)
+	dir = dir[:len(dir)-1]
+	c, err := FindProjectDir(dir, orgid)
 	if err != nil {
-		if _, ok := err.(util.CodeError); ok {
-			log.Println("two-factor", string(data))
-			return err
+		return w, err
+	}
+
+	works, err := teambition.Works(c.Nodeid, c.ProjectId)
+	if err != nil {
+		return w, err
+	}
+
+	for _, work := range works {
+		if work.FileName == name {
+			return work, nil
+		}
+	}
+
+	return w, errors.New("not exist file:" + name)
+}
+
+type ProjectFs struct {
+	Name  string
+	Orgid string
+
+	mux        sync.Mutex
+	projectid  string
+	rootcollid string
+	token      string
+	root       *FileNode
+	pwd        string
+}
+
+func NewProject(name, orgid string) (*ProjectFs, error) {
+	p := ProjectFs{Name: name, Orgid: orgid, pwd: "/"}
+
+	list, err := teambition.Projects(p.Orgid)
+	if err != nil {
+		fmt.Println(err, p.Orgid)
+		return nil, err
+	}
+
+	for _, item := range list {
+		if item.Name == p.Name {
+			p.projectid = item.ProjectId
+			p.rootcollid = item.RootCollectionId
+		}
+	}
+
+	if p.rootcollid == "" && p.projectid == "" {
+		return nil, errors.New("invalid name")
+	}
+
+	p.token, err = teambition.GetToken(p.projectid, p.rootcollid)
+	if err != nil {
+		return nil, err
+	}
+
+	p.root = &FileNode{
+		Type:   Node_Dir,
+		Name:   "/",
+		NodeId: p.rootcollid,
+		Child:  make([]*FileNode, 0, 10),
+	}
+	return &p, nil
+}
+
+func (p *ProjectFs) projectPath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path[0] != '/' {
+		return "", errors.New("invalid path")
+	}
+
+	if strings.HasSuffix(path, "/") {
+		path = path[:len(path)-1]
+	}
+
+	if strings.HasPrefix(path, "/"+p.Name) {
+		path = path[len(p.Name)+1:]
+	}
+
+	return path, nil
+}
+
+func (p *ProjectFs) fetchCollections(rootid string, paths []string, private ...interface{}) (list []*FileNode, err error) {
+	list = make([]*FileNode, 0, 10)
+	colls, err := teambition.Collections(rootid, p.projectid)
+	if err == nil {
+		for _, coll := range colls {
+			node := &FileNode{
+				Type:     Node_Dir,
+				Name:     coll.Title,
+				NodeId:   coll.Nodeid,
+				ParentId: coll.ParentId,
+				Updated:  coll.Updated,
+				Created:  coll.Created,
+				Child:    make([]*FileNode, 0, 10),
+				Private:  private,
+			}
+			if len(paths) > 0 && node.Name == paths[0] {
+				node.Child, err = p.fetchCollections(node.NodeId, paths[1:], private)
+				if err != nil {
+					return list, err
+				}
+			}
+			list = append(list, node)
+		}
+	}
+
+	return list, err
+}
+
+func (p *ProjectFs) fetchWorks(rootid string, private ...interface{}) (list []*FileNode, err error) {
+	list = make([]*FileNode, 0, 10)
+	works, err := teambition.Works(rootid, p.projectid)
+	if err == nil {
+		for _, work := range works {
+			node := &FileNode{
+				Type:     Node_File,
+				Name:     work.FileName,
+				NodeId:   work.Nodeid,
+				ParentId: work.ParentId,
+				Url:      work.DownloadUrl,
+				Size:     work.FileSize,
+				Updated:  work.Updated,
+				Created:  work.Created,
+				Private:  private,
+			}
+			list = append(list, node)
+		}
+	}
+
+	return list, err
+}
+
+func (p *ProjectFs) find(path string) (node *FileNode, prefix string, exist bool, err error) {
+	newpath, err := p.projectPath(path)
+	if err != nil {
+		return node, prefix, exist, err
+	}
+
+	subpaths := strings.Split(newpath[1:], "/")
+
+	node = p.root
+	child := p.root.Child
+
+	for idx, subpath := range subpaths {
+		// subpath
+		if val, ok := search(child, subpath); ok {
+			node = val
+			child = val.Child
+			if idx == len(subpaths)-1 {
+				exist = true
+				return node, "/" + strings.Join(subpaths, "/"), exist, nil
+			}
+			continue
 		}
 
+		// subpath not exist
+		exist = false
+		if idx == 0 {
+			return node, "", exist, nil
+		}
+
+		return node, "/" + strings.Join(subpaths[:idx], "/"), exist, nil
+	}
+
+	return node, "", false, errors.New("invalid path")
+}
+
+func (p *ProjectFs) mkdir(path string) (node *FileNode, err error) {
+	newpath, err := p.projectPath(path)
+	if err != nil {
+		return node, err
+	}
+
+	// query path
+	accnode, prefix, exist, err := p.find(newpath)
+	if err != nil {
+		return node, err
+	}
+	if exist {
+		accnode.Child, err = p.fetchWorks(accnode.NodeId)
+		return accnode, err
+	}
+
+	p.mux.Lock()
+	defer p.mux.Unlock()
+
+	// sync accnode
+	subpath := strings.Split(newpath[len(prefix)+1:], "/")
+	accnode.Child, err = p.fetchCollections(accnode.NodeId, subpath)
+	if err != nil {
+		return node, err
+	}
+
+	// query again
+	accnode, prefix, exist, err = p.find(newpath)
+	if err != nil {
+		return node, err
+	}
+	if exist {
+		accnode.Child, err = p.fetchWorks(accnode.NodeId)
+		return accnode, err
+	}
+
+	// new path
+	parent := accnode
+	subpath = strings.Split(newpath[len(prefix)+1:], "/")
+	for _, token := range subpath {
+		cnode, err := teambition.CreateCollection(parent.NodeId, p.projectid, token)
+		if err != nil {
+			return node, err
+		}
+
+		curnode := &FileNode{
+			Type:     Node_Dir,
+			Name:     token,
+			ParentId: cnode.ParentId,
+			NodeId:   cnode.Nodeid,
+			Updated:  cnode.Updated,
+			Created:  cnode.Created,
+		}
+		parent = curnode
+	}
+
+	return parent, nil
+}
+
+func (p *ProjectFs) fileupload(path, target string) error {
+	targetNode, err := p.mkdir(target)
+	if err != nil {
 		return err
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+
+	filenode, exist := targetNode.Search(info.Name())
+	if exist && filenode.Size == int(info.Size()) {
+		return nil
+	}
+	if exist {
+		err = teambition.Archive(filenode.NodeId)
+		if err != nil {
+			return err
+		}
+	}
+
+	upload, err := teambition.UploadProjectFile(p.token, path)
+	if err != nil {
+		return err
+	}
+
+	_, err = teambition.CreateWork(targetNode.NodeId, upload)
+	return err
+}
+
+func (p *ProjectFs) Rename(before, after, dir string) error {
+	node, _, exist, err := p.find(dir)
+	if err != nil {
+		return err
+	}
+	if !exist {
+		return errors.New("not exist")
+	}
+
+	works, err := p.fetchWorks(node.NodeId)
+	if err != nil {
+		return err
+	}
+	if val, exist := search(works, before); exist {
+		return teambition.RenameWork(val.NodeId, after)
+	}
+
+	collections, err := p.fetchCollections(node.NodeId, nil)
+	if err != nil {
+		return err
+	}
+	if val, exist := search(collections, before); exist {
+		return teambition.RenameCollection(val.NodeId, after)
 	}
 
 	return nil
 }
 
-func LoginParams() (clientid, token, publickey string, err error) {
-	u := acc + "/login"
-	raw, err := util.GET(u, nil)
+func (p *ProjectFs) Move(src, dst string) error {
+	srcnode, _, exist, err := p.find(src)
 	if err != nil {
-		return clientid, token, publickey, err
+		return err
+	}
+	if !exist {
+		return errors.New("not found")
 	}
 
-	reaccout := regexp.MustCompile(`<script id="accounts-config" type="application/json">(.*?)</script>`)
-	republic := regexp.MustCompile(`<script id="accounts-ssr-props" type="application/react-ssr-props">(.*?)</script>`)
+	dstnode, err := p.mkdir(dst)
+	if err != nil {
+		return err
+	}
 
-	str := strings.Replace(string(raw), "\n", "", -1)
-	rawa := reaccout.FindAllStringSubmatch(str, 1)
-	rawp := republic.FindAllStringSubmatch(str, 1)
-	if len(rawa) > 0 && len(rawa[0]) == 2 && len(rawp) > 0 && len(rawp[0]) == 2 {
-		var config struct {
-			TOKEN     string
-			CLIENT_ID string
+	if srcnode.Type == Node_File {
+		return teambition.MoveWork(srcnode.NodeId, dstnode.NodeId)
+	}
+
+	return teambition.MoveCollection(srcnode.NodeId, dstnode.NodeId)
+}
+
+func (p *ProjectFs) Copy(src, dst string) error {
+	srcnode, _, exist, err := p.find(src)
+	if err != nil {
+		return err
+	}
+	if !exist {
+		return errors.New("not found")
+	}
+
+	dstnode, err := p.mkdir(dst)
+	if err != nil {
+		return err
+	}
+
+	c := teambition.Collection{
+		Nodeid:     dstnode.NodeId,
+		ParentId:   dstnode.ParentId,
+		ProjectId:  p.projectid,
+		ObjectType: teambition.OBJECT_COLLECTION,
+	}
+
+	if srcnode.Type == Node_File {
+		return teambition.CopyWork(srcnode.NodeId, c)
+	}
+
+	return teambition.CopyCollection(srcnode.NodeId, c)
+}
+
+func (p *ProjectFs) Delete(path string) error {
+	node, _, exist, err := p.find(path)
+	if err != nil {
+		return err
+	}
+	if !exist {
+		return nil
+	}
+
+	if node.Type == Node_File {
+		return teambition.DeleteWork(node.NodeId)
+	}
+
+	return teambition.DeleteCollection(node.NodeId)
+}
+
+func (p *ProjectFs) Upload(path string, target string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+
+	// file
+	if !info.IsDir() {
+		return p.fileupload(path, target)
+	}
+
+	// dir
+	absdir, _ := filepath.Abs(path)
+	dirpaths := make(map[string][]string)
+	curdir := ""
+	filepath.Walk(absdir, func(path string, info os.FileInfo, err error) error {
+		if info.IsDir() {
+			curdir = path
+			return nil
 		}
-		err = json.Unmarshal([]byte(rawa[0][1]), &config)
+
+		dirpaths[curdir] = append(dirpaths[curdir], path)
+		return nil
+	})
+
+	wg := sync.WaitGroup{}
+	count := 0
+	for dir, files := range dirpaths {
+		target := filepath.Join(target, dir[len(absdir):])
+		for _, file := range files {
+			count++
+			wg.Add(1)
+			f := file
+			go func() {
+				defer wg.Done()
+				p.fileupload(f, target)
+			}()
+			if count == 5 {
+				wg.Wait()
+				count = 0
+			}
+		}
+	}
+
+	if count > 0 {
+		wg.Wait()
+	}
+
+	return nil
+}
+
+func (p *ProjectFs) Download(srcpath, targetdir string) error {
+	newpath, err := p.projectPath(srcpath)
+	if err != nil {
+		return err
+	}
+
+	var tokens []string
+
+	// query first
+	accnode, prefix, exist, err := p.find(newpath)
+	if err != nil {
+		return err
+	}
+	if exist {
+		goto download
+	}
+
+	// sync dirs
+	p.mux.Lock()
+	tokens = strings.Split(newpath[len(prefix)+1:], "/")
+	accnode.Child, err = p.fetchCollections(accnode.NodeId, tokens)
+	if err != nil {
+		p.mux.Unlock()
+		return err
+	}
+
+	p.mux.Unlock()
+
+	// query second
+	accnode, prefix, exist, err = p.find(newpath)
+	if err != nil {
+		return err
+	}
+	if exist {
+		goto download
+	}
+
+	// sync files
+	p.mux.Lock()
+	p.fetchWorks(accnode.NodeId, accnode.Child)
+	p.mux.Unlock()
+
+	// query again
+	accnode, prefix, exist, err = p.find(newpath)
+	if err != nil || !exist {
+		if err == nil {
+			err = errors.New("not exist path")
+		}
+		return err
+	}
+	goto download
+
+download:
+	if accnode.Type == Node_File {
+		fd, err := os.Create(filepath.Join(targetdir, accnode.Name))
 		if err != nil {
-			return
+			return err
 		}
 
-		var public struct {
-			Fsm struct {
-				Config struct {
-					Pub struct {
-						Algorithm string `json:"algorithm"`
-						PublicKey string `json:"publicKey"`
-					} `json:"pub"`
-				} `json:"config"`
-			} `json:"fsm"`
-		}
-
-		pub, _ := url.QueryUnescape(rawp[0][1])
-		err = json.Unmarshal([]byte(pub), &public)
+		reader, err := util.File(accnode.Url, "GET", nil, nil)
 		if err != nil {
-			return
+			return err
 		}
 
-		return config.CLIENT_ID, config.TOKEN, public.Fsm.Config.Pub.PublicKey, nil
+		buffer := make([]byte, 8*1024*1024)
+		_, err = io.CopyBuffer(fd, reader, buffer)
+		return err
 	}
-
-	return clientid, token, publickey, errors.New("api change update")
+	return teambition.ArchiveProject(p.token, accnode.NodeId, p.projectid, accnode.Name, targetdir)
 }
 
-//=====================================  user  =====================================
-type Role struct {
-	RoleId         string   `json:"_id"`
-	OrganizationId string   `json:"_organizationId"`
-	Level          int      `json:"level"`
-	Permissions    []string `json:"-"`
-}
-
-// Organization 角色
-func Roles() (list []Role, err error) {
-	ts := int(time.Now().UnixNano() / 1e6)
-	values := []string{
-		"type=organization",
-		"_=" + strconv.Itoa(ts),
-	}
-	u := www + "/api/v2/roles?" + strings.Join(values, "&")
-	raw, err := util.GET(u, header)
-	if err != nil {
-		return list, err
-	}
-
-	var result struct {
-		Result struct {
-			Roles []Role `json:"roles"`
-		} `json:"result"`
-	}
-	err = json.Unmarshal(raw, &result)
-	if err != nil {
-		return list, err
-	}
-
-	return result.Result.Roles, nil
-}
-
-type Org struct {
-	OrganizationId      string `json:"_id"`
-	Name                string `json:"name"`
-	DefaultCollectionId string `json:"_defaultCollectionId"`
-	IsPublic            bool   `json:"isPublic"`
-	Projects            []Project
-}
-
-func Orgs(orgid string) (org Org, err error) {
-	u := www + "/api/organizations/" + orgid
-	data, err := util.GET(u, header)
-	if err != nil {
-		return org, err
-	}
-
-	err = json.Unmarshal(data, &org)
-	if err != nil {
-		return org, err
-	}
-
-	return org, nil
-}
-
-type MeConfig struct {
-	IsAdmin bool   `json:"isAdmin"`
-	OrgId   string `json:"tenantId"`
-	User    struct {
-		ID     string `json:"id"`
-		Email  string `json:"email"`
-		Name   string `json:"name"`
-		OpenId string `json:"openId"`
-	}
-}
-
-func Batches() (me MeConfig, err error) {
-	u := www + "/uiless/api/sdk/batch?scope[]=me"
-	data, err := util.GET(u, header)
-	if err != nil {
-		return me, err
-	}
-	var result struct {
-		Result struct {
-			Me MeConfig `json:"me"`
-		} `json:"result"`
-	}
-
-	err = json.Unmarshal(data, &result)
-	return result.Result.Me, err
-}
-
-//=====================================  project  =====================================
-type UploadInfo struct {
-	FileKey      string `json:"fileKey"`
-	FileName     string `json:"fileName"`
-	FileType     string `json:"fileType"`
-	FileSize     int    `json:"fileSize"`
-	FileCategory string `json:"fileCategory"`
-	Source       string `json:"source"`
-	DownloadUrl  string `json:"downloadUrl"`
-}
-
-func UploadProjectFile(token, path string) (upload UploadInfo, err error) {
-	fd, err := os.Open(path)
-	if err != nil {
-		return upload, err
-	}
-
-	info, _ := fd.Stat()
-
-	var body bytes.Buffer
-	w := multipart.NewWriter(&body)
-
-	w.WriteField("name", info.Name())
-	w.WriteField("type", extType(filepath.Ext(info.Name())))
-	w.WriteField("size", fmt.Sprintf("%v", info.Size()))
-	w.WriteField("lastModifiedDate", info.ModTime().Format("Mon, 02 Jan 2006 15:04:05 GMT+0800 (China Standard Time)"))
-
-	h := make(textproto.MIMEHeader)
-	h.Set("Content-Disposition",
-		fmt.Sprintf(`form-data; name="%s"; filename="%s"`,
-			escape("file"), escape(info.Name())))
-	h.Set("Content-Type", extType(filepath.Ext(info.Name())))
-	writer, _ := w.CreatePart(h)
-	io.Copy(writer, fd)
-
-	w.Close()
-
-	u := tcs + "/upload"
-	header := map[string]string{
-		"Authorization": "Bearer " + token,
-		"Content-Type":  w.FormDataContentType(),
-	}
-
-	data, err := util.POST(u, &body, header)
-	if err != nil {
-		return upload, err
-	}
-
-	err = json.Unmarshal(data, &upload)
-	if err != nil {
-		return upload, err
-	}
-
-	return upload, err
-}
-
-func UploadProjectFileChunk(token, path string) (upload UploadInfo, err error) {
-	fd, err := os.Open(path)
-	if err != nil {
-		return upload, err
-	}
-
-	info, _ := fd.Stat()
-
-	u := tcs + "/upload/chunk"
-	header := map[string]string{
-		"Authorization": "Bearer " + token,
-		"Content-Type":  "application/json",
-	}
-	bin := fmt.Sprintf(`{"fileName":"%v","fileSize":%v,"lastUpdated":"%v"}`,
-		info.Name(), info.Size(), info.ModTime().Format("2006-01-02T15:04:05.00Z"))
-	data, err := util.POST(u, bin, header)
-	if err != nil {
-		return upload, err
-	}
-
-	fmt.Println("chunk", string(data), err)
-
-	var result struct {
-		UploadInfo
-		ChunkSize int `json:"chunkSize"`
-		Chunks    int `json:"chunks"`
-	}
-
-	err = json.Unmarshal(data, &result)
-	if err != nil {
-		return upload, err
-	}
-
-	var wg sync.WaitGroup
-	wg.Add(result.Chunks)
-	for i := 1; i <= result.Chunks; i++ {
-		idx := i
-		go func(idx int) {
-			defer wg.Done()
-			data := make([]byte, result.ChunkSize)
-			n, _ := fd.ReadAt(data, int64((idx-1)*result.ChunkSize))
-			data = data[:n]
-
-			u := tcs + fmt.Sprintf("/upload/chunk/%v?chunk=%v&chunks=%v", result.FileKey, idx, result.Chunks)
-			header := map[string]string{
-				"Authorization": "Bearer " + token,
-				"Content-Type":  "application/octet-stream",
-			}
-			data, err = util.POST(u, bytes.NewBuffer(data), header)
-			if err != nil {
-				fmt.Println("chunk", idx, err)
-			}
-		}(idx)
-	}
-
-	wg.Wait()
-
-	u = tcs + fmt.Sprintf("/upload/chunk/%v", result.FileKey)
-	header = map[string]string{
-		"Content-Length": "0",
-		"Authorization":  "Bearer " + token,
-		"Content-Type":   "application/json",
-	}
-	data, err = util.POST(u, nil, header)
-
-	fmt.Println("merge", string(data), err)
-
-	if err != nil {
-		return upload, err
-	}
-
-	err = json.Unmarshal(data, &result)
-	if err != nil {
-		return upload, err
-	}
-
-	upload = result.UploadInfo
-	return upload, err
-}
-
-type Project struct {
-	ProjectId        string `json:"_id"`
-	Name             string `json:"name"`
-	OrganizationId   string `json:"_organizationId"`
-	RootCollectionId string `json:"_rootCollectionId"`
-}
-
-// 注: 这个 orgid 比较特殊, 它是一个特殊的 orgid
-func Projects(orgid string) (list []Project, err error) {
-	ts := int(time.Now().UnixNano() / 1e6)
-	values := []string{
-		"pageSize=20",
-		"_organizationId=" + orgid,
-		"selectBy=joined",
-		"orderBy=name",
-		"pageToken=",
-		"_=" + strconv.Itoa(ts),
-	}
-
-	u := www + "/api/v2/projects?" + strings.Join(values, "&")
-	data, err := util.GET(u, header)
-	if err != nil {
-		return list, err
-	}
-
-	var result struct {
-		Result []Project `json:"result"`
-	}
-
-	err = json.Unmarshal(data, &result)
-	if err != nil {
-		return list, err
-	}
-
-	return result.Result, nil
-}
-
-func ArchiveProject(token string, nodeid, projectid, name, targetdir string) (err error) {
-	values := []string{
-		"_collectionIds=" + nodeid,
-		"_workIds=",
-		"zipName=" + name,
-	}
-
-	u := www + "/api/projects/" + projectid + "/download-info?" + strings.Join(values, "&")
-	data, err := util.GET(u, header)
+func (p *ProjectFs) Cwd(dir string) error {
+	path, err := filepath.Rel(p.pwd, dir)
 	if err != nil {
 		return err
 	}
 
-	type item struct {
-		Directories  []item   `json:"directories"`
-		DownloadUrls []string `json:"downloadUrls"`
-		Name         string   `json:"name"`
-	}
-	var result struct {
-		Directories  []item   `json:"directories"`
-		DownloadUrls []string `json:"downloadUrls"`
-		ZipName      string   `json:"zipName"`
-	}
-	err = json.Unmarshal(data, &result)
-	if err != nil {
-		return err
-	}
-
-	value := url.Values{}
-	var dfs func(prefix string, it []item)
-	dfs = func(prefix string, it []item) {
-		for idx, item := range it {
-			key := prefix + fmt.Sprintf(`[%d][name]`, idx)
-			value.Set(key, item.Name)
-
-			keyprefix := prefix + fmt.Sprintf("[%d][directories]", idx)
-			dfs(keyprefix, item.Directories)
-
-			for _, val := range item.DownloadUrls {
-				key := prefix + fmt.Sprintf("[%d][downloadUrls][]", idx)
-				value.Set(key, val)
-			}
-		}
-
-	}
-
-	dfs("directories", result.Directories)
-	for _, val := range result.DownloadUrls {
-		key := "downloadUrls[]"
-		value.Set(key, val)
-	}
-	value.Set("zipName", result.ZipName)
-
-	u = "https://tcs.teambition.net/archive?Signature=" + token
-	header = map[string]string{
-		"content-type": "application/x-www-form-urlencoded",
-	}
-
-	fd, err := os.Create(filepath.Join(targetdir, name+".zip"))
-	if err != nil {
-		return err
-	}
-
-	reader, err := util.File(u, "POST", bytes.NewBufferString(value.Encode()), header)
-	if err != nil {
-		return err
-	}
-
-	buffer := make([]byte, 8*1024*1024)
-	_, err = io.CopyBuffer(fd, reader, buffer)
-	return err
+	p.pwd = path
+	return nil
 }
 
-const (
-	OBJECT_COLLECTION = "collection"
-	OBJECT_WORK       = "work"
-)
-
-type Collection struct {
-	Nodeid          string `json:"_id"`
-	Pinyin          string `json:"pinyin"`
-	Title           string `json:"title"`
-	ParentId        string `json:"_parentId"`
-	ProjectId       string `json:"_projectId"`
-	ObjectType      string `json:"objectType"`
-	CollectionCount int    `json:"collectionCount"`
-	WorkCount       int    `json:"workCount"`
-	Updated         string `json:"updated"`
-	Created         string `json:"created"`
-}
-
-type Work struct {
-	Nodeid      string `json:"_id"`
-	FileKey     string `json:"fileKey"`
-	FileName    string `json:"fileName"`
-	FileSize    int    `json:"fileSize"`
-	DownloadUrl string `json:"downloadUrl"`
-	ProjectId   string `json:"_projectId"`
-	ParentId    string `json:"_parentId"`
-	ObjectType  string `json:"objectType"`
-	Updated     string `json:"updated"`
-	Created     string `json:"created"`
-}
-
-func Collections(nodeid, projectid string) (list []Collection, err error) {
-	ts := int(time.Now().UnixNano() / 1e6)
-	values := []string{
-		"_parentId=" + nodeid,
-		"_projectId=" + projectid,
-		"order=updatedDesc",
-		"count=50",
-		"page=1",
-		"_=" + strconv.Itoa(ts),
-	}
-
-	u := www + "/api/collections?" + strings.Join(values, "&")
-	data, err := util.GET(u, header)
+func (p *ProjectFs) List(dir string) ([]*FileNode, error) {
+	node, _, exist, err := p.find(dir)
 	if err != nil {
-		return list, err
+		return nil, err
+	}
+	if !exist {
+		return nil, errors.New("not exist dir")
 	}
 
-	err = json.Unmarshal(data, &list)
-	if err != nil {
-		return list, err
+	works := make([]*FileNode, 0, 0)
+	dirs := make([]*FileNode, 0, 0)
+	works, err = p.fetchWorks(node.NodeId)
+	dirs, err = p.fetchCollections(node.NodeId, nil)
+
+	list := make([]*FileNode, 0, len(works)+len(dir))
+	for _, val := range works {
+		list = append(list, val)
+	}
+	for _, val := range dirs {
+		list = append(list, val)
 	}
 
+	sort.SliceStable(list, func(i, j int) bool {
+		return list[i].Updated < list[j].Updated
+	})
 	return list, nil
-}
-
-func Works(nodeid, projectid string) (list []Work, err error) {
-	ts := int(time.Now().UnixNano() / 1e6)
-	values := []string{
-		"_parentId=" + nodeid,
-		"_projectId=" + projectid,
-		"order=updatedDesc",
-		"count=50",
-		"page=1",
-		"_=" + strconv.Itoa(ts),
-	}
-
-	u := www + "/api/works?" + strings.Join(values, "&")
-	data, err := util.GET(u, header)
-	if err != nil {
-		return list, err
-	}
-
-	err = json.Unmarshal(data, &list)
-	if err != nil {
-		return list, err
-	}
-
-	return list, nil
-}
-
-func CreateWork(nodeid string, upload UploadInfo) (w Work, err error) {
-	type file struct {
-		UploadInfo
-		InvolveMembers []interface{} `json:"involveMembers"`
-		Visible        string        `json:"visible"`
-		ParentId       string        `json:"_parentId"`
-	}
-
-	var body struct {
-		Works    []file `json:"works"`
-		ParentId string `json:"_parentId"`
-	}
-	body.Works = []file{{
-		UploadInfo: upload,
-		Visible:    "members",
-		ParentId:   nodeid,
-	}}
-	body.ParentId = nodeid
-
-	u := www + "/api/works"
-
-	raw, err := util.POST(u, body, header)
-	if err != nil {
-		return w, err
-	}
-
-	err = json.Unmarshal(raw, &w)
-
-	return w, err
-}
-
-func CreateCollection(nodeid, projectid, name string) (c Collection, err error) {
-	var body struct {
-		CollectionType string        `json:"collectionType"`
-		Color          string        `json:"color"`
-		Created        string        `json:"created"`
-		Description    string        `json:"description"`
-		ObjectType     string        `json:"objectType"`
-		RecentWorks    []interface{} `json:"recentWorks"`
-		SubCount       interface{}   `json:"subCount"`
-		Title          string        `json:"title"`
-		Updated        string        `json:"updated"`
-		WorkCount      int           `json:"workCount"`
-		CreatorId      string        `json:"_creatorId"`
-		ParentId       string        `json:"_parentId"`
-		ProjectId      string        `json:"_projectId"`
-	}
-
-	body.Color = "blue"
-	body.ObjectType = "collection"
-	body.Title = name
-	body.ParentId = nodeid
-	body.ProjectId = projectid
-
-	u := www + "/api/collections"
-	raw, err := util.POST(u, body, header)
-	if err != nil {
-		return c, err
-	}
-
-	err = json.Unmarshal(raw, &c)
-	return c, err
-}
-
-func DeleteWork(nodeid string) error {
-	u := www + "/api/works/" + nodeid
-	_, err := util.DELETE(u, header)
-
-	return err
-}
-
-func DeleteCollection(nodeid string) error {
-	u := www + "/api/collections/" + nodeid
-	_, err := util.DELETE(u, header)
-
-	return err
-}
-
-func RenameWork(nodeid string, title string) error {
-	u := www + "/api/works/" + nodeid
-	_, err := util.PUT(u, map[string]string{"fileName": title}, header)
-
-	return err
-}
-
-func RenameCollection(nodeid string, title string) error {
-	u := www + "/api/collections/" + nodeid
-	_, err := util.PUT(u, map[string]string{"title": title}, header)
-
-	return err
-}
-
-func MoveWork(nodeid, dstParentNodeid string) error {
-	u := www + "/api/works/" + nodeid + "/move"
-	_, err := util.PUT(u, map[string]string{"_parentId": dstParentNodeid}, header)
-
-	return err
-}
-
-func MoveCollection(nodeid, dstParentNodeid string) error {
-	u := www + "/api/collections/" + nodeid + "/move"
-	_, err := util.PUT(u, map[string]string{"_parentId": dstParentNodeid}, header)
-
-	return err
-}
-
-func CopyWork(nodeid string, dstParentCollection Collection) error {
-	body := map[string]interface{}{
-		"_parentId": map[string]interface{}{
-			"_id":        dstParentCollection.Nodeid,
-			"_parentId":  dstParentCollection.ParentId,
-			"_projectId": dstParentCollection.ProjectId,
-		},
-	}
-	u := www + "/api/works/" + nodeid + "/fork"
-	_, err := util.PUT(u, body, header)
-
-	return err
-}
-
-func CopyCollection(nodeid string, dstParentCollection Collection) error {
-	body := map[string]interface{}{
-		"_parentId": map[string]interface{}{
-			"_id":        dstParentCollection.Nodeid,
-			"_parentId":  dstParentCollection.ParentId,
-			"_projectId": dstParentCollection.ProjectId,
-		},
-	}
-	u := www + "/api/collections/" + nodeid + "/fork"
-
-	_, err := util.PUT(u, body, header)
-
-	return err
-}
-
-func Archive(nodeid string) (err error) {
-	body := `{}`
-	u := www + "api/works/" + nodeid + "/archive"
-	_, err = util.POST(u, body, header)
-	return err
-}
-
-type ArchiveInfo struct {
-	ObjectType string `json:"boundToObjectType"`
-	Created    string `json:"created"`
-	Title      string `json:"subTitle"`
-	ProjectId  string `json:"_projectId"`
-	NodeId     string `json:"_boundToObjectId"`
-}
-
-func GetArchives(projectid, objectType string) (list []ArchiveInfo, err error) {
-	ts := int(time.Now().UnixNano() / 1e6)
-	values := []string{
-		"objectType=" + objectType,
-		"count=100",
-		"page=1",
-		"_=" + strconv.Itoa(ts),
-	}
-	u := www + "/api/projects/" + projectid + "/archives?" + strings.Join(values, "&")
-
-	data, err := util.GET(u, header)
-	if err != nil {
-		return list, err
-	}
-
-	err = json.Unmarshal(data, &list)
-	return list, err
-}
-
-// token
-func GetToken(projectid, rootid string) (token string, err error) {
-	u := www + "/project/" + projectid + "/works/" + rootid
-	header := map[string]string{
-		"accept": "text/html",
-	}
-	data, err := util.GET(u, header)
-	if err != nil {
-		return token, err
-	}
-
-	str := strings.Replace(string(data), "\n", "", -1)
-	reconfig := regexp.MustCompile(`<span\s+id="teambition-config".*?>(.*)</span>`)
-	raw := reconfig.FindAllStringSubmatch(str, 1)
-	if len(raw) == 1 && len(raw[0]) == 2 {
-		var result struct {
-			UserInfo struct {
-				StrikerAuth string `json:"strikerAuth"`
-			} `json:"userInfo"`
-		}
-		config, _ := url.QueryUnescape(html.UnescapeString(raw[0][1]))
-		err = json.Unmarshal([]byte(config), &result)
-		if err != nil {
-			return token, err
-		}
-
-		return result.UserInfo.StrikerAuth[7:], nil
-	}
-
-	return token, errors.New("no tokens")
 }

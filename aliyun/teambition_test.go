@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"text/template"
+
+	"github.com/tiechui1994/tool/aliyun/teambition"
 )
 
 func TestList(t *testing.T) {
@@ -70,11 +72,11 @@ func TestOrgs(t *testing.T) {
 		return
 	}
 
-	orgs := []Org{
+	orgs := []teambition.Org{
 		{
 			OrganizationId: "111111",
 			Name:           "java",
-			Projects: []Project{
+			Projects: []teambition.Project{
 				{
 					ProjectId: "122122112",
 					Name:      "j112212ava-1",
@@ -88,7 +90,7 @@ func TestOrgs(t *testing.T) {
 		{
 			OrganizationId: "222",
 			Name:           "c++",
-			Projects: []Project{
+			Projects: []teambition.Project{
 				{
 					ProjectId: "2222222222",
 					Name:      "c++-99",

@@ -2,20 +2,23 @@ package aliyun
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/tiechui1994/tool/aliyun/aliyundrive"
 )
 
-func FindDriveDrive(path string, accesstoken Token) (file File, err error) {
+func FindDriveDrive(path string, accesstoken aliyundrive.Token) (file aliyundrive.File, err error) {
 	path = strings.TrimSpace(path)
 	if !strings.HasPrefix(path, "/") {
 		return file, errors.New("invalid path")
 	}
 
 	tokens := strings.Split(path[1:], "/")
-	files, err := Files("root", accesstoken)
+	files, err := aliyundrive.Files("root", accesstoken)
 	if err != nil {
 		return file, err
 	}
@@ -36,7 +39,7 @@ func FindDriveDrive(path string, accesstoken Token) (file File, err error) {
 	tokens = tokens[1:]
 	rootid := file.FileID
 	for _, token := range tokens {
-		files, err := Files(rootid, accesstoken)
+		files, err := aliyundrive.Files(rootid, accesstoken)
 		if err != nil {
 			return file, err
 		}
@@ -62,12 +65,12 @@ func FindDriveDrive(path string, accesstoken Token) (file File, err error) {
 type DriveFs struct {
 	mux         sync.Mutex
 	rootid      string
-	accesstoken Token
+	accesstoken aliyundrive.Token
 	root        *FileNode
 	pwd         string
 }
 
-func NewDriveFs(accesstoken Token) (*DriveFs) {
+func NewDriveFs(accesstoken aliyundrive.Token) *DriveFs {
 	p := DriveFs{rootid: "root", accesstoken: accesstoken, pwd: "/"}
 
 	p.root = &FileNode{
@@ -96,6 +99,10 @@ func (d *DriveFs) find(path string) (node *FileNode, prefix string, exist bool, 
 	newpath, err := d.projectPath(path)
 	if err != nil {
 		return node, prefix, exist, err
+	}
+
+	if path == "/" {
+		return d.root, "/", true, nil
 	}
 
 	subpaths := strings.Split(newpath[1:], "/")
@@ -129,11 +136,11 @@ func (d *DriveFs) find(path string) (node *FileNode, prefix string, exist bool, 
 
 func (d *DriveFs) fetchDirs(rootid string, paths []string, private ...interface{}) (list []*FileNode, err error) {
 	list = make([]*FileNode, 0, 10)
-	files, err := Files(rootid, d.accesstoken)
+	files, err := aliyundrive.Files(rootid, d.accesstoken)
 	if err == nil {
 		for _, file := range files {
-			var _type int
-			if file.Type == TYPE_FILE {
+			var _type Type
+			if file.Type == aliyundrive.TYPE_FILE {
 				_type = Node_File
 			} else {
 				_type = Node_Dir
@@ -163,11 +170,11 @@ func (d *DriveFs) fetchDirs(rootid string, paths []string, private ...interface{
 
 func (d *DriveFs) fetchFiles(rootid string, private ...interface{}) (list []*FileNode, err error) {
 	list = make([]*FileNode, 0, 10)
-	files, err := Files(rootid, d.accesstoken)
+	files, err := aliyundrive.Files(rootid, d.accesstoken)
 	if err == nil {
 		for _, file := range files {
-			var _type int
-			if file.Type == TYPE_FILE {
+			var _type Type
+			if file.Type == aliyundrive.TYPE_FILE {
 				_type = Node_File
 			} else {
 				_type = Node_Dir
@@ -228,7 +235,7 @@ func (d *DriveFs) mkdir(path string) (node *FileNode, err error) {
 	parent := accnode
 	subpath = strings.Split(newpath[len(prefix)+1:], "/")
 	for _, token := range subpath {
-		upload, err := CreateDirectory(token, parent.NodeId, d.accesstoken)
+		upload, err := aliyundrive.CreateDirectory(token, parent.NodeId, d.accesstoken)
 		if err != nil {
 			return node, err
 		}
@@ -261,13 +268,13 @@ func (d *DriveFs) fileupload(path, target string) error {
 		return nil
 	}
 	if exist {
-		err = Delete([]File{{FileID: filenode.NodeId}}, d.accesstoken)
+		err = aliyundrive.Delete([]aliyundrive.File{{FileID: filenode.NodeId}}, d.accesstoken)
 		if err != nil {
 			return err
 		}
 	}
 
-	_, err = UploadFile(path, targetNode.NodeId, d.accesstoken)
+	_, err = aliyundrive.UploadFile(path, targetNode.NodeId, d.accesstoken)
 	return err
 }
 
@@ -285,7 +292,7 @@ func (d *DriveFs) Rename(before, after, dir string) error {
 		return err
 	}
 	if val, exist := search(files, before); exist {
-		return Rename(after, val.NodeId, d.accesstoken)
+		return aliyundrive.Rename(after, val.NodeId, d.accesstoken)
 	}
 
 	dirs, err := d.fetchDirs(node.NodeId, nil)
@@ -293,7 +300,7 @@ func (d *DriveFs) Rename(before, after, dir string) error {
 		return err
 	}
 	if val, exist := search(dirs, before); exist {
-		return Rename(after, val.NodeId, d.accesstoken)
+		return aliyundrive.Rename(after, val.NodeId, d.accesstoken)
 	}
 
 	return nil
@@ -313,11 +320,11 @@ func (d *DriveFs) Move(src, dst string) error {
 		return err
 	}
 
-	files := []File{{
+	files := []aliyundrive.File{{
 		FileID:  srcnode.NodeId,
 		DriveID: d.accesstoken.DriveID,
 	}}
-	return Move(dstnode.NodeId, files, d.accesstoken)
+	return aliyundrive.Move(dstnode.NodeId, files, d.accesstoken)
 }
 
 func (d *DriveFs) Copy(src, dst string) error {
@@ -359,13 +366,13 @@ func (d *DriveFs) Delete(path string) error {
 	}
 
 remove:
-	file := []File{
+	file := []aliyundrive.File{
 		{
 			FileID:  node.NodeId,
 			DriveID: d.accesstoken.DriveID,
 		},
 	}
-	return Delete(file, d.accesstoken)
+	return aliyundrive.Delete(file, d.accesstoken)
 }
 
 func (d *DriveFs) Download(srcpath, targetdir string) error {
@@ -408,6 +415,7 @@ func (d *DriveFs) Download(srcpath, targetdir string) error {
 	d.mux.Lock()
 	accnode.Child, err = d.fetchFiles(accnode.NodeId, accnode.Child)
 	if err != nil {
+		d.mux.Unlock()
 		return err
 	}
 	d.mux.Unlock()
@@ -422,7 +430,7 @@ func (d *DriveFs) Download(srcpath, targetdir string) error {
 	}
 
 download:
-	file := File{
+	file := aliyundrive.File{
 		Size:    accnode.Size,
 		FileID:  accnode.NodeId,
 		Name:    accnode.Name,
@@ -430,7 +438,7 @@ download:
 		DriveID: d.accesstoken.DriveID,
 	}
 
-	return Download(file, 10, targetdir, d.accesstoken)
+	return aliyundrive.Download(file, 10, targetdir, d.accesstoken)
 }
 
 func (d *DriveFs) Upload(path, target string) error {
@@ -482,4 +490,56 @@ func (d *DriveFs) Upload(path, target string) error {
 	}
 
 	return nil
+}
+
+func (d *DriveFs) List(path string) ([]*FileNode, error) {
+	newpath, err := d.projectPath(path)
+	if err != nil {
+		return nil, err
+	}
+
+	// 已经存在
+	accnode, prefix, exist, err := d.find(path)
+	if err != nil {
+		return nil, err
+	}
+	// SYNC
+	d.mux.Lock()
+	accnode.Child, err = d.fetchFiles(accnode.NodeId, accnode.Child)
+	if err != nil {
+		d.mux.Unlock()
+		return nil, err
+	}
+	d.mux.Unlock()
+	if exist {
+		return accnode.Child, nil
+	}
+
+	// SYNC
+	d.mux.Lock()
+	tokens := strings.Split(newpath[len(prefix)+1:], "/")
+	accnode.Child, err = d.fetchDirs(accnode.NodeId, tokens)
+	if err != nil {
+		d.mux.Unlock()
+		return nil, err
+	}
+	d.mux.Unlock()
+
+	// FIND
+	accnode, _, exist, err = d.find(newpath)
+	if err != nil {
+		return nil, err
+	}
+	if !exist {
+		return nil, fmt.Errorf("no found")
+	}
+
+	d.mux.Lock()
+	accnode.Child, err = d.fetchFiles(accnode.NodeId, accnode.Child)
+	if err != nil {
+		d.mux.Unlock()
+		return nil, err
+	}
+	d.mux.Unlock()
+	return accnode.Child, nil
 }

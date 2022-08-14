@@ -1,4 +1,4 @@
-package aliyun
+package aliyundrive
 
 import (
 	"crypto/md5"
@@ -23,6 +23,12 @@ import (
 
 const (
 	yunpan = "https://api.aliyundrive.com"
+)
+
+var (
+	header = map[string]string{
+		"content-type": "application/json",
+	}
 )
 
 func calProof(accesstoken string, path string) string {

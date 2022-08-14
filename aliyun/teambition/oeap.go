@@ -1,4 +1,4 @@
-package aliyun
+package teambition
 
 import (
 	"crypto/md5"
