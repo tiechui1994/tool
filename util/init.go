@@ -127,6 +127,7 @@ func init() {
 			},
 			MaxIdleConns:        100,
 			MaxIdleConnsPerHost: 100,
+			Proxy: http.ProxyFromEnvironment,
 		},
 		Jar: client.jar,
 	}
