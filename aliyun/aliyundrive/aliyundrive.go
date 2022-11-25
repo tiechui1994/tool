@@ -62,7 +62,6 @@ type Token struct {
 	UserID       string `json:"user_id"`
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
-	ExpiresIn    int    `json:"expires_in"`
 }
 
 func Refresh(refresh string) (token Token, err error) {
@@ -336,11 +335,9 @@ func UploadFile(path, fileid string, token Token) (id string, err error) {
 		return upload.FileID, nil
 	}
 
-	data = make([]byte, m10)
-	for _, part := range upload.PartInfoList {
-		info := part
-		n, _ := fd.ReadAt(data, int64((info.PartNumber-1)*m10))
-		_, err = util.PUT(info.UploadUrl, data[:n], nil)
+	for k := 0; k < len(upload.PartInfoList); k += 1 {
+		info := upload.PartInfoList[k]
+		err = uploadFilePart(info.UploadUrl, fd, int64((info.PartNumber-1)*m10), m10)
 		if err != nil {
 			return upload.FileID, err
 		}
@@ -359,6 +356,24 @@ func UploadFile(path, fileid string, token Token) (id string, err error) {
 	}
 	_, err = util.POST(u, body, header)
 	return upload.FileID, err
+}
+
+func uploadFilePart(uploadUrl string, file *os.File, start, length int64) error {
+	data := make([]byte, length)
+	n, _ := file.ReadAt(data, start)
+
+	count := 0
+again:
+	_, err := util.PUT(uploadUrl, data[:n], nil)
+	if err != nil && count < 4 {
+		count += 1
+		goto again
+	}
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func CreateDirectory(name, fileid string, token Token) (upload UploadFolderInfo, err error) {
