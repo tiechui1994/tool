@@ -21,7 +21,7 @@ func (err CodeError) Error() string {
 	return http.StatusText(int(err))
 }
 
-func Request(method, u string, body interface{}, header map[string]string) (json.RawMessage, http.Header, error) {
+func Request(method, u string, body interface{}, header map[string]string, retry int) (json.RawMessage, http.Header, error) {
 	var reader io.Reader
 	if body != nil {
 		switch body := body.(type) {
@@ -45,7 +45,15 @@ func Request(method, u string, body interface{}, header map[string]string) (json
 
 	request.Header.Set("user-agent", UserAgent())
 
+	try := 0
+try:
 	response, err := client.Do(request)
+	if err != nil && try < retry {
+		log.Errorln("path:%v err:%v. try again", request.URL.Path, err)
+		try += 1
+		time.Sleep(time.Second * time.Duration(try))
+		goto try
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -75,23 +83,27 @@ func Request(method, u string, body interface{}, header map[string]string) (json
 	return raw, response.Header, err
 }
 
-func POST(u string, body interface{}, header map[string]string) (raw json.RawMessage, err error) {
-	raw, _, err = Request("POST", u, body, header)
+func POST(u string, body interface{}, header map[string]string, retry ...int) (raw json.RawMessage, err error) {
+	retry = append(retry, 0)
+	raw, _, err = Request("POST", u, body, header, retry[0])
 	return raw, err
 }
 
-func PUT(u string, body interface{}, header map[string]string) (raw json.RawMessage, err error) {
-	raw, _, err = Request("PUT", u, body, header)
+func PUT(u string, body interface{}, header map[string]string, retry ...int) (raw json.RawMessage, err error) {
+	retry = append(retry, 0)
+	raw, _, err = Request("PUT", u, body, header, retry[0])
 	return raw, err
 }
 
-func GET(u string, header map[string]string) (raw json.RawMessage, err error) {
-	raw, _, err = Request("GET", u, nil, header)
+func GET(u string, header map[string]string, retry ...int) (raw json.RawMessage, err error) {
+	retry = append(retry, 0)
+	raw, _, err = Request("GET", u, nil, header, retry[0])
 	return raw, err
 }
 
-func DELETE(u string, header map[string]string) (raw json.RawMessage, err error) {
-	raw, _, err = Request("DELETE", u, nil, header)
+func DELETE(u string, header map[string]string, retry ...int) (raw json.RawMessage, err error) {
+	retry = append(retry, 0)
+	raw, _, err = Request("DELETE", u, nil, header, retry[0])
 	return raw, err
 }
 
