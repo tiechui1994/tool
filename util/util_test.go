@@ -11,7 +11,7 @@ func init() {
 }
 
 func TestGET(t *testing.T) {
-	GET("https://blog.tiechui1994.tk", nil)
+	GET("https://www.tiechui1994.tk", nil, 3)
 }
 
 func TestLogRequest(t *testing.T) {

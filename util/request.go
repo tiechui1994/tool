@@ -22,6 +22,8 @@ func (err CodeError) Error() string {
 }
 
 func Request(method, u string, body interface{}, header map[string]string, retry int) (json.RawMessage, http.Header, error) {
+	try := 0
+try:
 	var reader io.Reader
 	if body != nil {
 		switch body := body.(type) {
@@ -45,8 +47,6 @@ func Request(method, u string, body interface{}, header map[string]string, retry
 
 	request.Header.Set("user-agent", UserAgent())
 
-	try := 0
-try:
 	response, err := client.Do(request)
 	if err != nil && try < retry {
 		log.Errorln("path:%v err:%v. try again", request.URL.Path, err)
