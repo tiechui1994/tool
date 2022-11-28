@@ -100,7 +100,7 @@ func Upload(file *File, token string) (err error) {
 	}
 	u := endpoint + "/v2/now/files"
 
-	raw, err := util.POST(u, data, header)
+	raw, err := util.POST(u, util.WithBody(data),  util.WithHeader(header))
 	if err != nil {
 		return err
 	}
@@ -149,7 +149,7 @@ func Deploy(files []File, token string) error {
 	}
 
 	u := endpoint + "/v12/now/deployments"
-	raw, err := util.POST(u, body, header)
+	raw, err := util.POST(u,  util.WithBody(body), util.WithHeader(header))
 	if err != nil {
 		return err
 	}
@@ -191,13 +191,7 @@ func packagejson(root string) {
 			}
 		}()
 
-		count := 0
-	try:
-		raw, err := util.GET("https://dmmcy0pwk6bqi.cloudfront.net/"+hash, nil)
-		if err != nil && count < 3 {
-			count++
-			goto try
-		}
+		raw, err := util.GET("https://dmmcy0pwk6bqi.cloudfront.net/"+hash, util.WithRetry(3))
 		if err != nil {
 			return
 		}

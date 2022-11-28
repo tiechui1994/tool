@@ -64,7 +64,7 @@ func WriteCode(code, file string) {
 
 func GetCode1() string {
 	u := "http://idea.94goo.com"
-	data, err := util.GET(u, nil)
+	data, err := util.GET(u)
 	if err != nil {
 		log.Infoln("idea.94goo.com: %v", err)
 		return ""
@@ -80,7 +80,7 @@ func GetCode1() string {
 }
 
 func GetCode2() (token, username, password string) {
-	data, err := util.GET("http://vrg123.com/", nil)
+	data, err := util.GET("http://vrg123.com/")
 	if err != nil {
 		log.Infoln("%v", err)
 		return token, username, password

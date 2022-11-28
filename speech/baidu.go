@@ -1,13 +1,13 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
-	"net/http"
 	"net/url"
+
+	"github.com/tiechui1994/tool/util"
 )
 
 /**
@@ -29,25 +29,14 @@ func ConvertText(text string, filename string) (err error) {
 	values.Set("method", "TRADIONAL")
 
 	u := "https://developer.baidu.com/vcast/getVcastInfo"
-	request, err := http.NewRequest("POST", u, bytes.NewBufferString(values.Encode()))
-	if err != nil {
-		log.Printf("NewRequest Failed: %v", err)
-		return err
+	header := map[string]string{
+		"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+		"Accept":       "application/json, text/javascript, */*; q=0.01",
+		"Cookie":       COOKIE,
 	}
 
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-	request.Header.Set("Accept", "application/json, text/javascript, */*; q=0.01")
-	request.Header.Set("Cookie", COOKIE)
-	response, err := http.DefaultClient.Do(request)
+	data, err := util.POST(u, util.WithBody(values.Encode()), util.WithHeader(header))
 	if err != nil {
-		log.Printf("Do Failed: %v", err)
-		return err
-	}
-	defer response.Body.Close()
-
-	data, err := ioutil.ReadAll(response.Body)
-	if err != nil {
-		log.Printf("ReadAll Failed: %v", err)
 		return err
 	}
 
@@ -57,7 +46,11 @@ func ConvertText(text string, filename string) (err error) {
 		Status string `json:"status"`
 	}
 
-	json.Unmarshal(data, &res)
+	err = json.Unmarshal(data, &res)
+	if err != nil {
+		return err
+	}
+
 	if res.Status != "success" {
 		log.Printf("failed: %v", string(data))
 		return fmt.Errorf("")
@@ -67,25 +60,10 @@ func ConvertText(text string, filename string) (err error) {
 }
 
 func Download(u string, filename string) (err error) {
-	request, err := http.NewRequest("GET", u, nil)
+	data, err := util.GET(u)
 	if err != nil {
-		log.Printf("NewRequest Failed: %v", err)
 		return err
 	}
 
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		log.Printf("Do Failed: %v", err)
-		return err
-	}
-
-	data, err := ioutil.ReadAll(response.Body)
-	if err != nil {
-		log.Printf("ReadAll Failed: %v", err)
-		return err
-	}
-
-	ioutil.WriteFile(filename+".mp3", data, 0666)
-
-	return nil
+	return ioutil.WriteFile(filename+".mp3", data, 0666)
 }

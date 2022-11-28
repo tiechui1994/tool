@@ -74,7 +74,7 @@ func Refresh(refresh string) (token Token, err error) {
 		"content-type": "application/json",
 	}
 
-	raw, err := util.POST(u, body, header)
+	raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
 	if err != nil {
 		return token, err
 	}
@@ -108,7 +108,7 @@ type File struct {
 	Extension string `json:"file_extension"`
 }
 
-func Files(fileid string, token Token) (list []File, err error) {
+func Files(parentFileID string, token Token) (list []File, err error) {
 	u := yunpan + "/v2/file/list"
 	header := map[string]string{
 		"accept":        "application/json",
@@ -134,12 +134,15 @@ func Files(fileid string, token Token) (list []File, err error) {
 	body.OrderBy = "updated_at"
 	body.OrderDirection = "DESC"
 	body.Limit = 100
-	body.ParentFileID = fileid
+	body.ParentFileID = parentFileID
 	body.UrlExpireSec = 1600
 	body.ImageUrlProcess = "image/resize,w_1920/format,jpeg"
 	body.ImageThumbnailProcess = "image/resize,w_400/format,jpeg"
 	body.VideoThumbnailProcess = "video/snapshot,t_0,f_jpg,ar_auto,w_800"
-	raw, err := util.POST(u, body, header)
+	raw, err := util.POST(u,
+		util.WithHeader(header),
+		util.WithBody(body),
+		util.WithRetry(3))
 	if err != nil {
 		return list, err
 	}
@@ -171,7 +174,7 @@ func FileInfo(fileid string, token Token) (file File, err error) {
 
 	body.DriveID = token.DriveID
 	body.FileID = fileid
-	raw, err := util.POST(u, body, header)
+	raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
 	if err != nil {
 		return file, err
 	}
@@ -228,7 +231,7 @@ func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, arg
 	}
 
 	if filetype == TYPE_FOLDER {
-		raw, err := util.POST(u, body, header)
+		raw, err := util.POST(u, util.WithHeader(header), util.WithBody(body))
 		if err != nil {
 			return upload, err
 		}
@@ -267,7 +270,7 @@ func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, arg
 			"content_hash":      sha1sum,
 		}
 
-		raw, err := util.POST(u, body, header)
+		raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
 		if err != nil {
 			return upload, err
 		}
@@ -283,7 +286,7 @@ func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, arg
 	body["pre_hash"] = args["pre_hash"]
 	body["size"] = args["size"]
 	body["part_info_list"] = args["part_info_list"]
-	raw, err := util.POST(u, body, header)
+	raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
 	if err != nil {
 		// pre_hash match
 		if val, ok := err.(util.CodeError); ok && val == http.StatusConflict {
@@ -354,7 +357,7 @@ func UploadFile(path, fileid string, token Token) (id string, err error) {
 		"file_id":   upload.FileID,
 		"upload_id": upload.UploadID,
 	}
-	_, err = util.POST(u, body, header)
+	_, err = util.POST(u, util.WithBody(body), util.WithHeader(header), util.WithRetry(3))
 	return upload.FileID, err
 }
 
@@ -362,13 +365,7 @@ func uploadFilePart(uploadUrl string, file *os.File, start, length int64) error 
 	data := make([]byte, length)
 	n, _ := file.ReadAt(data, start)
 
-	count := 0
-again:
-	_, err := util.PUT(uploadUrl, data[:n], nil)
-	if err != nil && count < 4 {
-		count += 1
-		goto again
-	}
+	_, err := util.PUT(uploadUrl, util.WithBody(data[:n]) , util.WithRetry(3))
 	if err != nil {
 		return err
 	}
@@ -400,7 +397,7 @@ func Batch(requests []batchRequest, token Token) error {
 		"requests": requests,
 		"resource": "file",
 	}
-	_, err := util.POST(u, body, header)
+	_, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
 	return err
 }
 
@@ -478,7 +475,7 @@ func Rename(name, fileid string, token Token) error {
 		"name":            name,
 	}
 
-	_, err := util.POST(u, body, header)
+	_, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
 	return err
 }
 
@@ -501,7 +498,7 @@ func GetDownloadUrl(file File, token Token) (du DownloadUrl, err error) {
 		"authorization": "Bearer " + token.AccessToken,
 		"content-type":  "application/json",
 	}
-	raw, err := util.POST(u, body, header)
+	raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
 	if err != nil {
 		return du, err
 	}
@@ -555,7 +552,7 @@ func Download(file File, parallel int, dir string, token Token) error {
 				"referer":    "https://www.aliyundrive.com/",
 				"range":      fmt.Sprintf("bytes=%v-%v", from, to),
 			}
-			raw, err := util.GET(du.Url, header)
+			raw, err := util.GET(du.Url, util.WithHeader(header))
 			if err != nil {
 				log.Errorln("idx:%v, error:%v", i, err)
 				if strings.Contains(err.Error(), "Forbidden") && retry <= 3 {
@@ -611,7 +608,7 @@ func Share(fileidlist []string, token Token) (share ShareInfo, err error) {
 		"file_id_list": fileidlist,
 	}
 
-	raw, err := util.POST(u, body, header)
+	raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
 	if err != nil {
 		return share, err
 	}
@@ -634,7 +631,7 @@ func ShareList(token Token) (list []ShareInfo, err error) {
 		"order_direction":  "DESC",
 	}
 
-	raw, err := util.POST(u, body, header)
+	raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
 	if err != nil {
 		return list, err
 	}
@@ -691,7 +688,7 @@ func Search(fileid string, token Token) (list []File, err error) {
 	body.ImageThumbnailProcess = "image/resize,w_400/format,jpeg"
 	body.VideoThumbnailProcess = "video/snapshot,t_0,f_jpg,ar_auto,w_1000"
 	body.Query = "type = \"file\""
-	raw, err := util.POST(u, body, header)
+	raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
 	if err != nil {
 		return list, err
 	}
@@ -732,20 +729,19 @@ func Create(checkmode, name, filetype, fileid string, token Token, appendargs ma
 		}
 	}
 
-	raw, err := util.POST(u, body, header)
+	raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
 	if err != nil {
 		// pre_hash match
 		if val, ok := err.(util.CodeError); ok && val == http.StatusConflict {
 			if len(path) == 0 {
 				return upload, errors.New("invliad path")
 			}
-			buf := make([]byte, 10*1024*1024)
 			sh := sha1.New()
 			fd, err := os.Open(path[0])
 			if err != nil {
 				return upload, err
 			}
-			_, err = io.CopyBuffer(sh, fd, buf)
+			_, err = io.CopyBuffer(sh, fd,  make([]byte, 10*1024*1024))
 			if err != nil {
 				return upload, err
 			}
@@ -769,7 +765,7 @@ func Create(checkmode, name, filetype, fileid string, token Token, appendargs ma
 }
 
 func UploadImage(path string, token Token) error {
-	imageupload := func(path string) error {
+	imageUpload := func(path string) error {
 		info, err := os.Stat(path)
 		if err != nil {
 			return err
@@ -813,7 +809,7 @@ func UploadImage(path string, token Token) error {
 			info := part
 			data := make([]byte, m10)
 			fd.ReadAt(data, int64((info.PartNumber-1)*m10))
-			util.PUT(info.UploadUrl, data, nil)
+			util.PUT(info.UploadUrl, util.WithBody(data), util.WithRetry(2))
 		}
 
 		return nil
@@ -849,7 +845,7 @@ func UploadImage(path string, token Token) error {
 		wg.Add(1)
 		go func(path string) {
 			defer wg.Done()
-			imageupload(path)
+			imageUpload(path)
 		}(path)
 
 		if count == 5 {

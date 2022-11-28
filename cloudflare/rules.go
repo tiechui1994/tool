@@ -43,7 +43,7 @@ func (c *Cloudflare) PageRulesList() (records []PageRule, err error) {
 		"Content-Type": "application/json",
 	}
 
-	raw, err := util.GET(u, header)
+	raw, err := util.GET(u, util.WithHeader(header))
 	if err != nil {
 		if strings.Contains(err.Error(), "timeout") {
 			return c.PageRulesList()
@@ -82,7 +82,7 @@ func (c *Cloudflare) PageRulesUpdate(rule PageRule) (err error) {
 		"actions": rule.Actions,
 		"status":  rule.Status,
 	}
-	raw, err := util.PUT(u, body, header)
+	raw, err := util.PUT(u, util.WithBody(body), util.WithHeader(header))
 	if err != nil {
 		if strings.Contains(err.Error(), "timeout") {
 			return c.PageRulesUpdate(rule)
@@ -115,7 +115,7 @@ func (c *Cloudflare) PageRulesDelete(rule PageRule) (err error) {
 		"Content-Type": "application/json",
 	}
 
-	_, err = util.DELETE(u, header)
+	_, err = util.DELETE(u, util.WithHeader(header))
 	if err != nil {
 		return err
 	}
@@ -135,7 +135,7 @@ func (c *Cloudflare) PageRulesCreate(rule PageRule) (err error) {
 		"actions": rule.Actions,
 		"status":  "active",
 	}
-	raw, err := util.POST(u, body, header)
+	raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
 	if err != nil {
 		return err
 	}

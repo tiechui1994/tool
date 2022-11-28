@@ -27,7 +27,7 @@ var (
 	grouppath string
 )
 
-func InitParams(c string, s time.Duration)  {
+func InitParams(c string, s time.Duration) {
 	cookie = c
 	sleep = s
 }
@@ -35,7 +35,7 @@ func InitParams(c string, s time.Duration)  {
 // CSRF-Token
 func CsrfToken() (err error) {
 	u := endpoint
-	data, _ := util.GET(u, map[string]string{"Cookie": cookie})
+	data, _ := util.GET(u, util.WithHeader(map[string]string{"Cookie": cookie}))
 	re := regexp.MustCompile(`meta name="csrf-token" content="(.*?)"`)
 	tokens := re.FindStringSubmatch(string(data))
 	if len(tokens) == 2 {
@@ -50,7 +50,7 @@ func CsrfToken() (err error) {
 func Resources() (err error) {
 	u := endpoint + "/api/v3/internal/my_resources"
 
-	data, err := util.GET(u, map[string]string{"X-CSRF-Token": token})
+	data, err := util.GET(u, util.WithHeader(map[string]string{"X-CSRF-Token": token}))
 	if err != nil {
 		log.Errorln("my resources:%v", err)
 		return err
@@ -81,8 +81,9 @@ func ForceSync(project string) (err error) {
 	values.Set("authenticity_token", token)
 
 	u := endpoint + "/" + grouppath + "/" + project + "/force_sync_project"
-	data, err := util.POST(u, bytes.NewBufferString(values.Encode()),
-		map[string]string{"X-CSRF-Token": token})
+	data, err := util.POST(u,
+		util.WithBody(bytes.NewBufferString(values.Encode())),
+		util.WithHeader(map[string]string{"X-CSRF-Token": token}))
 	if len(data) == 0 {
 		log.Infoln("sync [%v] .... ", project)
 		time.Sleep(sleep * time.Second)
@@ -115,7 +116,9 @@ func Mark() (err error) {
 		"X-CSRF-Token": token,
 		"Content-Type": "application/json;charset=UTF-8",
 	}
-	data, err := util.PUT(u, bytes.NewBufferString(body), header)
+	data, err := util.PUT(u,
+		util.WithBody(bytes.NewBufferString(body)),
+		util.WithHeader(header))
 	if err != nil {
 		return err
 	}

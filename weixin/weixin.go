@@ -75,11 +75,10 @@ func PersitMaterialList(token, mtype string, offset, count int) (list interface{
 		"offset": offset,
 		"count":  count,
 	}
-
 	header := map[string]string{
 		"content-type": "application/json",
 	}
-	raw, err := util.POST(u, &body, header)
+	raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +131,7 @@ func AddPersitNews(token string, article Article) (id string, err error) {
 		"articles": []Article{article},
 	}
 
-	raw, err := util.POST(u, &body, nil)
+	raw, err := util.POST(u, util.WithBody(body))
 	if err != nil {
 		return id, err
 	}
@@ -165,7 +164,7 @@ func UpdatePersitNews(token, mdediaid string, index int, article Article) (err e
 		"articles": article,
 	}
 
-	raw, err := util.POST(u, &body, nil)
+	raw, err := util.POST(u, util.WithBody(body))
 	if err != nil {
 		return err
 	}
@@ -194,7 +193,7 @@ func GetPersitNews(token, mediaid string) (artice []Article, err error) {
 	body := map[string]string{
 		"media_id": mediaid,
 	}
-	raw, err := util.POST(u, body, nil)
+	raw, err := util.POST(u, util.WithBody(body))
 	if err != nil {
 		return artice, err
 	}
@@ -245,7 +244,7 @@ func UploadNewsImage(token, filename string) (url string, err error) {
 	header := map[string]string{
 		"content-type": w.FormDataContentType(),
 	}
-	raw, err := util.POST(u, &body, header)
+	raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
 	if err != nil {
 		return url, err
 	}
@@ -302,7 +301,7 @@ func AddPersitMaterial(token, mtype, filename string, args ...map[string]string)
 	header := map[string]string{
 		"content-type": w.FormDataContentType(),
 	}
-	raw, err := util.POST(u, &body, header)
+	raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
 	if err != nil {
 		return url, err
 	}
@@ -337,7 +336,7 @@ func Token(appid, secret string) (token TokenInfo, err error) {
 		"secret=" + secret,
 	}
 	u := weixin + "/cgi-bin/token?" + strings.Join(value, "&")
-	raw, err := util.GET(u, nil)
+	raw, err := util.GET(u)
 	if err != nil {
 		return
 	}

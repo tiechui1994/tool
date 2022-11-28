@@ -30,7 +30,7 @@ func SpeedTest(proxy string) (delay int, err error) {
 		"url=http://www.gstatic.com/generate_204",
 	}
 	u := endpoint + "/proxies/" + proxy + "/delay?" + strings.Join(values, "&")
-	raw, err := util.GET(u, nil)
+	raw, err := util.GET(u)
 	if err != nil {
 		log.Errorln("proxy: [%v], error: %v", proxy, err)
 		return delay, err
@@ -65,7 +65,7 @@ type Provider struct {
 
 func Providers() (val Provider, err error) {
 	u := endpoint + "/providers/proxies"
-	raw, err := util.GET(u, nil)
+	raw, err := util.GET(u)
 	if err != nil {
 		log.Errorln("error: %v", err)
 		return val, err
@@ -91,7 +91,7 @@ type Proxy struct {
 
 func Proxys() (val []Proxy, err error) {
 	u := endpoint + "/proxies"
-	raw, err := util.GET(u, nil)
+	raw, err := util.GET(u)
 	if err != nil {
 		log.Errorln("error: %v", err)
 		return val, err
@@ -117,10 +117,10 @@ func Proxys() (val []Proxy, err error) {
 
 func SetProxy(provider, proxy string) {
 	u := endpoint + "/proxies/" + provider
-	body := map[string]string{
-		"name": proxy,
-	}
-	_, err := util.PUT(u, body, nil)
+	_, err := util.PUT(u,
+		util.WithBody(map[string]string{
+			"name": proxy,
+		}))
 	if err != nil {
 		log.Errorln("error: %v", err)
 	}

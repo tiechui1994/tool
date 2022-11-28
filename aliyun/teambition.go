@@ -535,7 +535,7 @@ download:
 			return err
 		}
 
-		reader, err := util.File(accnode.Url, "GET", nil, nil)
+		reader, err := util.File(accnode.Url, "GET")
 		if err != nil {
 			return err
 		}

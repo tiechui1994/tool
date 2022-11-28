@@ -60,9 +60,8 @@ func BuildAuthorizeUri() (uri string, err error) {
 	body.Prompt = "consent"
 	body.AccessType = "offline"
 
-	bin, _ := json.Marshal(body)
 	u := google + "/oauthplayground/buildAuthorizeUri"
-	data, err := util.POST(u, bytes.NewBuffer(bin), nil)
+	data, err := util.POST(u, util.WithBody(body))
 	if err != nil {
 		log.Errorln("BuildAuthorizeUri:", err)
 		return uri, err
@@ -93,10 +92,9 @@ func ExchangeAuthCode(code string) error {
 
 	body.Code = code
 	body.TokenUri = config.tokenuri
-	bin, _ := json.Marshal(body)
 	u := google + "/oauthplayground/exchangeAuthCode"
 
-	raw, err := util.POST(u, bytes.NewBuffer(bin), nil)
+	raw, err := util.POST(u,  util.WithBody(body))
 	if err != nil {
 		log.Errorln("ExchangeAuthCode:", err)
 		return err
@@ -134,10 +132,9 @@ func RefreshAccessToken() error {
 
 	body.RefreshToken = config.RefreshToken
 	body.TokenUri = config.tokenuri
-	bin, _ := json.Marshal(body)
 	u := google + "/oauthplayground/refreshAccessToken"
 
-	raw, err := util.POST(u, bytes.NewBuffer(bin), nil)
+	raw, err := util.POST(u, util.WithBody(body))
 	if err != nil {
 		log.Errorln("RefreshAccessToken: %v", err)
 		return err
@@ -243,7 +240,7 @@ func Files() (files []File, err error) {
 	header := map[string]string{
 		"Authorization": "Bearer " + config.AccessToken,
 	}
-	raw, err := util.GET(u, header)
+	raw, err := util.GET(u, util.WithHeader(header))
 	if err != nil {
 		log.Infoln("%v", string(raw))
 		return nil, err

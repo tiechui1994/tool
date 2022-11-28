@@ -1,7 +1,6 @@
 package util
 
 import (
-	"bytes"
 	"encoding/json"
 	"io"
 	"io/ioutil"
@@ -21,36 +20,25 @@ func (err CodeError) Error() string {
 	return http.StatusText(int(err))
 }
 
-func Request(method, u string, body interface{}, header map[string]string, retry int) (json.RawMessage, http.Header, error) {
-	try := 0
-try:
-	var reader io.Reader
-	if body != nil {
-		switch body := body.(type) {
-		case io.Reader:
-			reader = body
-		case string:
-			reader = strings.NewReader(body)
-		case []byte:
-			reader = bytes.NewReader(body)
-		default:
-			bin, _ := json.Marshal(body)
-			log.Infoln("body:%s", string(bin))
-			reader = bytes.NewReader(bin)
-		}
+func Request(method, u string, opts ...Option) (json.RawMessage, http.Header, error) {
+	options := defaultOptions()
+	for _, opt := range opts {
+		opt.apply(options)
 	}
 
-	request, _ := http.NewRequest(method, u, reader)
-	for k, v := range header {
+	try := 0
+try:
+	request, _ := http.NewRequestWithContext(options.ctx, method, u, options.body)
+	for k, v := range options.header {
 		request.Header.Set(k, v)
 	}
 
 	request.Header.Set("user-agent", UserAgent())
 
 	response, err := client.Do(request)
-	if err != nil && try < retry {
-		log.Errorln("path:%v err:%v. try again", request.URL.Path, err)
+	if err != nil && try < options.retry {
 		try += 1
+		log.Errorln("path:%v err:%v. try again", request.URL.Path, err)
 		time.Sleep(time.Second * time.Duration(try))
 		goto try
 	}
@@ -58,10 +46,8 @@ try:
 		return nil, nil, err
 	}
 
-	if len(requestInterceptor) > 0 {
-		for _, f := range requestInterceptor {
-			f(request)
-		}
+	if options.BeforeRequest != nil {
+		options.BeforeRequest(request)
 	}
 
 	raw, err := ioutil.ReadAll(response.Body)
@@ -69,10 +55,8 @@ try:
 		return nil, nil, err
 	}
 
-	if len(responseInterceptor) > 0 {
-		for _, f := range responseInterceptor {
-			f(response)
-		}
+	if options.AfterResponse != nil {
+		options.AfterResponse(response)
 	}
 
 	if response.StatusCode >= 400 {
@@ -83,27 +67,23 @@ try:
 	return raw, response.Header, err
 }
 
-func POST(u string, body interface{}, header map[string]string, retry ...int) (raw json.RawMessage, err error) {
-	retry = append(retry, 0)
-	raw, _, err = Request("POST", u, body, header, retry[0])
+func POST(u string, opts ...Option) (raw json.RawMessage, err error) {
+	raw, _, err = Request("POST", u, opts...)
 	return raw, err
 }
 
-func PUT(u string, body interface{}, header map[string]string, retry ...int) (raw json.RawMessage, err error) {
-	retry = append(retry, 0)
-	raw, _, err = Request("PUT", u, body, header, retry[0])
+func PUT(u string, opts ...Option) (raw json.RawMessage, err error) {
+	raw, _, err = Request("PUT", u, opts...)
 	return raw, err
 }
 
-func GET(u string, header map[string]string, retry ...int) (raw json.RawMessage, err error) {
-	retry = append(retry, 0)
-	raw, _, err = Request("GET", u, nil, header, retry[0])
+func GET(u string, opts ...Option) (raw json.RawMessage, err error) {
+	raw, _, err = Request("PUT", u, opts...)
 	return raw, err
 }
 
-func DELETE(u string, header map[string]string, retry ...int) (raw json.RawMessage, err error) {
-	retry = append(retry, 0)
-	raw, _, err = Request("DELETE", u, nil, header, retry[0])
+func DELETE(u string, opts ...Option) (raw json.RawMessage, err error) {
+	raw, _, err = Request("DELETE", u, opts...)
 	return raw, err
 }
 
@@ -144,18 +124,29 @@ func SOCKET(u string, header map[string]string) (conn *websocket.Conn, raw json.
 	return conn, raw, nil
 }
 
-func File(u, method string, body io.Reader, header map[string]string) (io io.Reader, err error) {
-	request, _ := http.NewRequest(method, u, body)
-	if header != nil {
-		for k, v := range header {
-			request.Header.Set(k, v)
-		}
+func File(u, method string, opts ...Option) (io io.Reader, err error) {
+	options := defaultOptions()
+	for _, opt := range opts {
+		opt.apply(options)
+	}
+
+	try := 0
+try:
+	request, _ := http.NewRequestWithContext(options.ctx, method, u, options.body)
+	for k, v := range options.header {
+		request.Header.Set(k, v)
 	}
 	request.Header.Set("user-agent", UserAgent())
 
 	response, err := client.Do(request)
+	if err != nil && try < options.retry {
+		try += 1
+		log.Errorln("path:%v err:%v. try again", request.URL.Path, err)
+		time.Sleep(time.Second * time.Duration(try))
+		goto try
+	}
 	if err != nil {
-		return io, err
+		return nil, err
 	}
 
 	if response.StatusCode != 200 {

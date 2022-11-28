@@ -142,7 +142,7 @@ func Login(clientid, pubkey, token, email, phone, pwd string) (access string, er
 		body["phone"] = phone
 	}
 
-	data, err := util.POST(acc+u, body, header)
+	data, err := util.POST(acc+u, util.WithBody(body), util.WithHeader(header))
 	if err != nil {
 		if _, ok := err.(util.CodeError); ok {
 			log.Println("login", string(data))
@@ -184,7 +184,7 @@ func TwoFactor(clientid, token, verify string) error {
 		"verify":        verify,
 	}
 	u := acc + "/drive/login/two-factor"
-	data, err := util.POST(u, body, header)
+	data, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
 	if err != nil {
 		if _, ok := err.(util.CodeError); ok {
 			log.Println("two-factor", string(data))
@@ -199,7 +199,7 @@ func TwoFactor(clientid, token, verify string) error {
 
 func LoginParams() (clientid, token, publickey string, err error) {
 	u := acc + "/login"
-	raw, err := util.GET(u, nil)
+	raw, err := util.GET(u)
 	if err != nil {
 		return clientid, token, publickey, err
 	}
@@ -259,7 +259,7 @@ func Roles() (list []Role, err error) {
 		"_=" + strconv.Itoa(ts),
 	}
 	u := www + "/drive/v2/roles?" + strings.Join(values, "&")
-	raw, err := util.GET(u, header)
+	raw, err := util.GET(u, util.WithHeader(header))
 	if err != nil {
 		return list, err
 	}
@@ -287,7 +287,7 @@ type Org struct {
 
 func Orgs(orgid string) (org Org, err error) {
 	u := www + "/drive/organizations/" + orgid
-	data, err := util.GET(u, header)
+	data, err := util.GET(u, util.WithHeader(header))
 	if err != nil {
 		return org, err
 	}
@@ -313,7 +313,7 @@ type MeConfig struct {
 
 func Batches() (me MeConfig, err error) {
 	u := www + "/uiless/drive/sdk/batch?scope[]=me"
-	data, err := util.GET(u, header)
+	data, err := util.GET(u, util.WithHeader(header))
 	if err != nil {
 		return me, err
 	}
@@ -370,7 +370,7 @@ func UploadProjectFile(token, path string) (upload UploadInfo, err error) {
 		"Content-Type":  w.FormDataContentType(),
 	}
 
-	data, err := util.POST(u, &body, header)
+	data, err := util.POST(u, util.WithBody(&body), util.WithHeader(header))
 	if err != nil {
 		return upload, err
 	}
@@ -398,7 +398,7 @@ func UploadProjectFileChunk(token, path string) (upload UploadInfo, err error) {
 	}
 	bin := fmt.Sprintf(`{"fileName":"%v","fileSize":%v,"lastUpdated":"%v"}`,
 		info.Name(), info.Size(), info.ModTime().Format("2006-01-02T15:04:05.00Z"))
-	data, err := util.POST(u, bin, header)
+	data, err := util.POST(u, util.WithBody(bin), util.WithHeader(header))
 	if err != nil {
 		return upload, err
 	}
@@ -431,7 +431,7 @@ func UploadProjectFileChunk(token, path string) (upload UploadInfo, err error) {
 				"Authorization": "Bearer " + token,
 				"Content-Type":  "application/octet-stream",
 			}
-			data, err = util.POST(u, bytes.NewBuffer(data), header)
+			data, err = util.POST(u, util.WithBody(data), util.WithHeader(header))
 			if err != nil {
 				fmt.Println("chunk", idx, err)
 			}
@@ -446,7 +446,7 @@ func UploadProjectFileChunk(token, path string) (upload UploadInfo, err error) {
 		"Authorization":  "Bearer " + token,
 		"Content-Type":   "application/json",
 	}
-	data, err = util.POST(u, nil, header)
+	data, err = util.POST(u,  util.WithHeader(header))
 
 	fmt.Println("merge", string(data), err)
 
@@ -483,7 +483,7 @@ func Projects(orgid string) (list []Project, err error) {
 	}
 
 	u := www + "/drive/v2/projects?" + strings.Join(values, "&")
-	data, err := util.GET(u, header)
+	data, err := util.GET(u, util.WithHeader(header))
 	if err != nil {
 		return list, err
 	}
@@ -508,7 +508,7 @@ func ArchiveProject(token string, nodeid, projectid, name, targetdir string) (er
 	}
 
 	u := www + "/drive/projects/" + projectid + "/download-info?" + strings.Join(values, "&")
-	data, err := util.GET(u, header)
+	data, err := util.GET(u, util.WithHeader(header))
 	if err != nil {
 		return err
 	}
@@ -563,7 +563,9 @@ func ArchiveProject(token string, nodeid, projectid, name, targetdir string) (er
 		return err
 	}
 
-	reader, err := util.File(u, "POST", bytes.NewBufferString(value.Encode()), header)
+	reader, err := util.File(u, "POST",
+		util.WithBody(value.Encode()),
+		util.WithHeader(header))
 	if err != nil {
 		return err
 	}
@@ -616,7 +618,7 @@ func Collections(nodeid, projectid string) (list []Collection, err error) {
 	}
 
 	u := www + "/drive/collections?" + strings.Join(values, "&")
-	data, err := util.GET(u, header)
+	data, err := util.GET(u, util.WithHeader(header))
 	if err != nil {
 		return list, err
 	}
@@ -641,7 +643,7 @@ func Works(nodeid, projectid string) (list []Work, err error) {
 	}
 
 	u := www + "/drive/works?" + strings.Join(values, "&")
-	data, err := util.GET(u, header)
+	data, err := util.GET(u, util.WithHeader(header))
 	if err != nil {
 		return list, err
 	}
@@ -675,7 +677,7 @@ func CreateWork(nodeid string, upload UploadInfo) (w Work, err error) {
 
 	u := www + "/drive/works"
 
-	raw, err := util.POST(u, body, header)
+	raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
 	if err != nil {
 		return w, err
 	}
@@ -709,7 +711,7 @@ func CreateCollection(nodeid, projectid, name string) (c Collection, err error) 
 	body.ProjectId = projectid
 
 	u := www + "/drive/collections"
-	raw, err := util.POST(u, body, header)
+	raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
 	if err != nil {
 		return c, err
 	}
@@ -720,42 +722,50 @@ func CreateCollection(nodeid, projectid, name string) (c Collection, err error) 
 
 func DeleteWork(nodeid string) error {
 	u := www + "/drive/works/" + nodeid
-	_, err := util.DELETE(u, header)
+	_, err := util.DELETE(u, util.WithHeader(header))
 
 	return err
 }
 
 func DeleteCollection(nodeid string) error {
 	u := www + "/drive/collections/" + nodeid
-	_, err := util.DELETE(u, header)
+	_, err := util.DELETE(u, util.WithHeader(header))
 
 	return err
 }
 
 func RenameWork(nodeid string, title string) error {
 	u := www + "/drive/works/" + nodeid
-	_, err := util.PUT(u, map[string]string{"fileName": title}, header)
+	_, err := util.PUT(u,
+		util.WithBody(map[string]string{"fileName": title}),
+		util.WithHeader(header))
 
 	return err
 }
 
 func RenameCollection(nodeid string, title string) error {
 	u := www + "/drive/collections/" + nodeid
-	_, err := util.PUT(u, map[string]string{"title": title}, header)
+	_, err := util.PUT(u,
+		util.WithBody(map[string]string{"title": title}),
+		util.WithHeader(header))
 
 	return err
 }
 
 func MoveWork(nodeid, dstParentNodeid string) error {
 	u := www + "/drive/works/" + nodeid + "/move"
-	_, err := util.PUT(u, map[string]string{"_parentId": dstParentNodeid}, header)
+	_, err := util.PUT(u,
+		util.WithBody(map[string]string{"_parentId": dstParentNodeid}),
+		util.WithHeader(header))
 
 	return err
 }
 
 func MoveCollection(nodeid, dstParentNodeid string) error {
 	u := www + "/drive/collections/" + nodeid + "/move"
-	_, err := util.PUT(u, map[string]string{"_parentId": dstParentNodeid}, header)
+	_, err := util.PUT(u,
+		util.WithBody(map[string]string{"_parentId": dstParentNodeid}),
+		util.WithHeader(header))
 
 	return err
 }
@@ -769,7 +779,7 @@ func CopyWork(nodeid string, dstParentCollection Collection) error {
 		},
 	}
 	u := www + "/drive/works/" + nodeid + "/fork"
-	_, err := util.PUT(u, body, header)
+	_, err := util.PUT(u, util.WithBody(body), util.WithHeader(header))
 
 	return err
 }
@@ -784,7 +794,7 @@ func CopyCollection(nodeid string, dstParentCollection Collection) error {
 	}
 	u := www + "/drive/collections/" + nodeid + "/fork"
 
-	_, err := util.PUT(u, body, header)
+	_, err := util.PUT(u, util.WithBody(body), util.WithHeader(header))
 
 	return err
 }
@@ -792,7 +802,7 @@ func CopyCollection(nodeid string, dstParentCollection Collection) error {
 func Archive(nodeid string) (err error) {
 	body := `{}`
 	u := www + "drive/works/" + nodeid + "/archive"
-	_, err = util.POST(u, body, header)
+	_, err = util.POST(u, util.WithBody(body), util.WithHeader(header))
 	return err
 }
 
@@ -814,7 +824,7 @@ func GetArchives(projectid, objectType string) (list []ArchiveInfo, err error) {
 	}
 	u := www + "/drive/projects/" + projectid + "/archives?" + strings.Join(values, "&")
 
-	data, err := util.GET(u, header)
+	data, err := util.GET(u, util.WithHeader(header))
 	if err != nil {
 		return list, err
 	}
@@ -829,7 +839,7 @@ func GetToken(projectid, rootid string) (token string, err error) {
 	header := map[string]string{
 		"accept": "text/html",
 	}
-	data, err := util.GET(u, header)
+	data, err := util.GET(u, util.WithHeader(header))
 	if err != nil {
 		return token, err
 	}

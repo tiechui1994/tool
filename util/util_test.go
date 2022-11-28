@@ -11,9 +11,9 @@ func init() {
 }
 
 func TestGET(t *testing.T) {
-	GET("https://www.tiechui1994.tk", nil, 3)
+	GET("https://www.tiechui1994.tk", WithRetry(2))
 }
 
 func TestLogRequest(t *testing.T) {
-	GET("https://www.natfrp.com/cgi/tunnel/auth", nil)
+	GET("https://www.natfrp.com/cgi/tunnel/auth")
 }

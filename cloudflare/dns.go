@@ -53,7 +53,7 @@ func (c *Cloudflare) DnsList(page int, _type string) (records []DnsRecord, err e
 		"Content-Type": "application/json",
 	}
 
-	raw, err := util.GET(u+"?"+strings.Join(values, "&"), header)
+	raw, err := util.GET(u+"?"+strings.Join(values, "&"), util.WithHeader(header))
 	if err != nil {
 		return records, err
 	}
@@ -93,7 +93,7 @@ func (c *Cloudflare) DnsUpdate(record DnsRecord) error {
 		"proxied": record.Proxied,
 	}
 
-	raw, err := util.PUT(u, body, header)
+	raw, err := util.PUT(u, util.WithBody(body), util.WithHeader(header))
 	if err != nil {
 		return err
 	}
@@ -122,7 +122,7 @@ func (c *Cloudflare) DnsDelete(record DnsRecord) error {
 		"Content-Type": "application/json",
 	}
 
-	_, err := util.DELETE(u, header)
+	_, err := util.DELETE(u, util.WithHeader(header))
 	if err != nil {
 		return err
 	}
@@ -146,7 +146,7 @@ func (c *Cloudflare) DnsCreate(_type, name, content string, ttl int, proxied boo
 		"proxied": proxied,
 	}
 
-	raw, err := util.POST(u, body, header)
+	raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
 	if err != nil {
 		return err
 	}

@@ -57,9 +57,6 @@ type Jar struct {
 }
 
 var (
-	requestInterceptor  []func(*http.Request)
-	responseInterceptor []func(*http.Response)
-
 	agent  string
 	cookie = "cookie"
 )
@@ -127,7 +124,7 @@ func init() {
 			},
 			MaxIdleConns:        100,
 			MaxIdleConnsPerHost: 100,
-			Proxy: http.ProxyFromEnvironment,
+			Proxy:               http.ProxyFromEnvironment,
 		},
 		Jar: client.jar,
 	}
@@ -232,14 +229,6 @@ func SyncJar() {
 
 func JarDir() string {
 	return client.dir
-}
-
-func LogRequest(f func(*http.Request)) {
-	requestInterceptor = append(requestInterceptor, f)
-}
-
-func LogResponse(f func(*http.Response)) {
-	responseInterceptor = append(responseInterceptor, f)
 }
 
 func WriteFile(filepath string, data interface{}) error {
