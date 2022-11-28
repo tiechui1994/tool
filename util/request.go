@@ -68,22 +68,22 @@ try:
 }
 
 func POST(u string, opts ...Option) (raw json.RawMessage, err error) {
-	raw, _, err = Request("POST", u, opts...)
+	raw, _, err = Request(http.MethodPost, u, opts...)
 	return raw, err
 }
 
 func PUT(u string, opts ...Option) (raw json.RawMessage, err error) {
-	raw, _, err = Request("PUT", u, opts...)
+	raw, _, err = Request(http.MethodPut, u, opts...)
 	return raw, err
 }
 
 func GET(u string, opts ...Option) (raw json.RawMessage, err error) {
-	raw, _, err = Request("PUT", u, opts...)
+	raw, _, err = Request(http.MethodGet, u, opts...)
 	return raw, err
 }
 
 func DELETE(u string, opts ...Option) (raw json.RawMessage, err error) {
-	raw, _, err = Request("DELETE", u, opts...)
+	raw, _, err = Request(http.MethodDelete, u, opts...)
 	return raw, err
 }
 
