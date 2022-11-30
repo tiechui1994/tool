@@ -2,6 +2,7 @@ package util
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
@@ -10,14 +11,23 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-
-	"github.com/tiechui1994/tool/log"
 )
 
-type CodeError int
+type CodeError struct {
+	Method  string
+	URL     string
+	Code    int
+	Message string
+}
 
 func (err CodeError) Error() string {
-	return http.StatusText(int(err))
+	if err.Message == "" {
+		return fmt.Sprintf("%v %q : status: %v", err.Method, err.URL,
+			http.StatusText(err.Code))
+	} else  {
+		return fmt.Sprintf("%v %q : (status:%v, message:%v)", err.Method, err.URL,
+			http.StatusText(err.Code), err.Message)
+	}
 }
 
 func Request(method, u string, opts ...Option) (json.RawMessage, http.Header, error) {
@@ -38,7 +48,6 @@ try:
 	response, err := client.Do(request)
 	if err != nil && try < options.retry {
 		try += 1
-		log.Errorln("path:%v err:%v. try again", request.URL.Path, err)
 		time.Sleep(time.Second * time.Duration(try))
 		goto try
 	}
@@ -60,8 +69,7 @@ try:
 	}
 
 	if response.StatusCode >= 400 {
-		log.Errorln("path:%v code:%v data:%v", request.URL.Path, response.StatusCode, string(raw))
-		return raw, response.Header, CodeError(response.StatusCode)
+		return raw, response.Header, CodeError{method,u, response.StatusCode, string(raw)}
 	}
 
 	return raw, response.Header, err
@@ -118,7 +126,7 @@ func SOCKET(u string, header map[string]string) (conn *websocket.Conn, raw json.
 	}
 
 	if response.StatusCode >= 400 {
-		return conn, raw, CodeError(response.StatusCode)
+		return conn, raw, CodeError{http.MethodGet,u, response.StatusCode,""}
 	}
 
 	return conn, raw, nil
@@ -141,7 +149,6 @@ try:
 	response, err := client.Do(request)
 	if err != nil && try < options.retry {
 		try += 1
-		log.Errorln("path:%v err:%v. try again", request.URL.Path, err)
 		time.Sleep(time.Second * time.Duration(try))
 		goto try
 	}
@@ -150,7 +157,7 @@ try:
 	}
 
 	if response.StatusCode != 200 {
-		return io, CodeError(response.StatusCode)
+		return io,  CodeError{method,u, response.StatusCode,""}
 	}
 
 	return response.Body, err

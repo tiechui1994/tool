@@ -7,8 +7,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-
-	"github.com/tiechui1994/tool/log"
 )
 
 type httpOptions struct {
@@ -61,14 +59,11 @@ func WithBody(body interface{}) Option {
 		case io.Reader:
 			o.body = body
 		case string:
-			log.Infoln("body:%s", body)
 			o.body = strings.NewReader(body)
 		case []byte:
-			log.Infoln("body:%s", body)
 			o.body = bytes.NewReader(body)
 		default:
 			bin, _ := json.Marshal(body)
-			log.Infoln("body:%s", string(bin))
 			o.body = bytes.NewReader(bin)
 		}
 	})
