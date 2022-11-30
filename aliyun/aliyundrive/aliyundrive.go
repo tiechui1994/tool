@@ -334,18 +334,23 @@ func UploadFile(path, fileid string, token Token) (id string, err error) {
 		return id, err
 	}
 
+	log.Infoln("upload file=%q fileid=%v prehash=%v", path, upload.FileID, prehash)
 	if upload.RapidUpload {
+		log.Infoln("upload file=%q has exist")
 		return upload.FileID, nil
 	}
 
+	log.Infoln("upload file=%q chunks: %d", path, len(upload.PartInfoList))
 	for k := 0; k < len(upload.PartInfoList); k += 1 {
 		info := upload.PartInfoList[k]
+		log.Infoln("upload file=%q chunk: %d, size: %d", path, info.PartNumber, m10)
 		err = uploadFilePart(info.UploadUrl, fd, int64((info.PartNumber-1)*m10), m10)
 		if err != nil {
 			return upload.FileID, err
 		}
 	}
 
+	log.Infoln("upload file=%q complete", path)
 	u := yunpan + "/v2/file/complete"
 	header := map[string]string{
 		"accept":        "application/json",
@@ -365,7 +370,7 @@ func uploadFilePart(uploadUrl string, file *os.File, start, length int64) error 
 	data := make([]byte, length)
 	n, _ := file.ReadAt(data, start)
 
-	_, err := util.PUT(uploadUrl, util.WithBody(data[:n]) , util.WithRetry(3))
+	_, err := util.PUT(uploadUrl, util.WithBody(data[:n]), util.WithRetry(3))
 	if err != nil {
 		return err
 	}
@@ -531,15 +536,17 @@ func Download(file File, parallel int, dir string, token Token) error {
 		return err
 	}
 
+	log.Infoln("download file=%q size=%v sha1=%v ", file.Name, file.Size, file.Hash)
 	var group util.Group
 	var wg sync.WaitGroup
 	count := 0
-	log.Infoln("batch: %v", batch)
+	log.Infoln("download file=%q parallel=%v batch %v", file.Name, parallel, batch)
 	for i := uint(0); i < batch; i++ {
 		wg.Add(1)
 		count += 1
 		go func(idx uint) {
 			defer wg.Done()
+			log.Infoln("download file=%q batch index %v", file.Name, idx)
 			retry := 1
 		again:
 			from := idx * m32
@@ -554,10 +561,10 @@ func Download(file File, parallel int, dir string, token Token) error {
 			}
 			raw, err := util.GET(du.Url, util.WithHeader(header))
 			if err != nil {
-				log.Errorln("idx:%v, error:%v", i, err)
 				if strings.Contains(err.Error(), "Forbidden") && retry <= 3 {
 					retry += 1
 					val, err, _ := group.Do("url", func() (interface{}, error) {
+						log.Errorln("download file=%q batch index %v error: %v", i, err)
 						return GetDownloadUrl(file, token)
 					})
 					if err == nil {
@@ -568,6 +575,7 @@ func Download(file File, parallel int, dir string, token Token) error {
 				}
 				return
 			}
+			log.Infoln("download file=%q batch index %v success", file.Name, idx)
 			fd.WriteAt(raw, int64(from))
 			fd.Sync()
 		}(i)
@@ -580,6 +588,7 @@ func Download(file File, parallel int, dir string, token Token) error {
 	if count > 0 {
 		wg.Wait()
 	}
+	log.Infoln("download file=%q complete", file.Name)
 
 	return nil
 }
@@ -741,7 +750,7 @@ func Create(checkmode, name, filetype, fileid string, token Token, appendargs ma
 			if err != nil {
 				return upload, err
 			}
-			_, err = io.CopyBuffer(sh, fd,  make([]byte, 10*1024*1024))
+			_, err = io.CopyBuffer(sh, fd, make([]byte, 10*1024*1024))
 			if err != nil {
 				return upload, err
 			}

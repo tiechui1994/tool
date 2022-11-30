@@ -38,6 +38,7 @@ type FileNode struct {
 	Child    []*FileNode `json:"child,omitempty"`
 	Url      string      `json:"url,omitempty"`
 	Size     int         `json:"size,omitempty"`
+	Hash     string      `json:"hash,omitempty"`
 	Private  interface{} `json:"private,omitempty"`
 }
 

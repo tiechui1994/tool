@@ -153,6 +153,7 @@ func (d *DriveFs) fetchDirs(rootid string, paths []string, private ...interface{
 				Url:      file.Url,
 				Size:     file.Size,
 				Child:    make([]*FileNode, 0, 10),
+				Hash:     file.Hash,
 				Private:  private,
 			}
 			if len(paths) > 0 && node.Name == paths[0] && node.Type == Node_Dir {
@@ -186,6 +187,7 @@ func (d *DriveFs) fetchFiles(rootid string, private ...interface{}) (list []*Fil
 				ParentId: file.ParentID,
 				Url:      file.Url,
 				Size:     file.Size,
+				Hash:     file.Hash,
 				Private:  private,
 			}
 			list = append(list, node)
@@ -436,6 +438,7 @@ download:
 		Name:    accnode.Name,
 		Url:     accnode.Url,
 		DriveID: d.accesstoken.DriveID,
+		Hash:    accnode.Hash,
 	}
 
 	return aliyundrive.Download(file, 10, targetdir, d.accesstoken)
