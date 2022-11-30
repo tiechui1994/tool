@@ -289,7 +289,7 @@ func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, arg
 	raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
 	if err != nil {
 		// pre_hash match
-		if val, ok := err.(util.CodeError); ok && val == http.StatusConflict {
+		if val, ok := err.(util.CodeError); ok && val.Code == http.StatusConflict {
 			return directCreate()
 		}
 		return upload, err
@@ -732,7 +732,7 @@ func Create(checkmode, name, filetype, fileid string, token Token, appendargs ma
 	raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
 	if err != nil {
 		// pre_hash match
-		if val, ok := err.(util.CodeError); ok && val == http.StatusConflict {
+		if val, ok := err.(util.CodeError); ok && val.Code == http.StatusConflict {
 			if len(path) == 0 {
 				return upload, errors.New("invliad path")
 			}
