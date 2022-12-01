@@ -82,13 +82,13 @@ func NewDriveFs(accesstoken aliyundrive.Token) *DriveFs {
 	return &p
 }
 
-func (d *DriveFs) projectPath(path string) (string, error) {
+func (d *DriveFs) handlePath(path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path[0] != '/' {
 		return "", errors.New("invalid path")
 	}
 
-	if strings.HasSuffix(path, "/") {
+	if len(path) > 1 && strings.HasSuffix(path, "/") {
 		path = path[:len(path)-1]
 	}
 
@@ -96,7 +96,7 @@ func (d *DriveFs) projectPath(path string) (string, error) {
 }
 
 func (d *DriveFs) find(path string) (node *FileNode, prefix string, exist bool, err error) {
-	newpath, err := d.projectPath(path)
+	path, err = d.handlePath(path)
 	if err != nil {
 		return node, prefix, exist, err
 	}
@@ -105,7 +105,7 @@ func (d *DriveFs) find(path string) (node *FileNode, prefix string, exist bool, 
 		return d.root, "/", true, nil
 	}
 
-	subpaths := strings.Split(newpath[1:], "/")
+	subpaths := strings.Split(path[1:], "/")
 
 	node = d.root
 	child := d.root.Child
@@ -198,13 +198,13 @@ func (d *DriveFs) fetchFiles(rootid string, private ...interface{}) (list []*Fil
 }
 
 func (d *DriveFs) mkdir(path string) (node *FileNode, err error) {
-	newpath, err := d.projectPath(path)
+	path, err = d.handlePath(path)
 	if err != nil {
 		return node, err
 	}
 
 	// query path
-	accnode, prefix, exist, err := d.find(newpath)
+	accnode, prefix, exist, err := d.find(path)
 	if err != nil {
 		return node, err
 	}
@@ -217,14 +217,14 @@ func (d *DriveFs) mkdir(path string) (node *FileNode, err error) {
 	defer d.mux.Unlock()
 
 	// sync accnode
-	subpath := strings.Split(newpath[len(prefix)+1:], "/")
+	subpath := strings.Split(path[len(prefix)+1:], "/")
 	accnode.Child, err = d.fetchDirs(accnode.NodeId, subpath)
 	if err != nil {
 		return node, err
 	}
 
 	// query again
-	accnode, prefix, exist, err = d.find(newpath)
+	accnode, prefix, exist, err = d.find(path)
 	if err != nil {
 		return node, err
 	}
@@ -235,7 +235,7 @@ func (d *DriveFs) mkdir(path string) (node *FileNode, err error) {
 
 	// new path
 	parent := accnode
-	subpath = strings.Split(newpath[len(prefix)+1:], "/")
+	subpath = strings.Split(path[len(prefix)+1:], "/")
 	for _, token := range subpath {
 		upload, err := aliyundrive.CreateDirectory(token, parent.NodeId, d.accesstoken)
 		if err != nil {
@@ -334,13 +334,13 @@ func (d *DriveFs) Copy(src, dst string) error {
 }
 
 func (d *DriveFs) Delete(path string) error {
-	newpath, err := d.projectPath(path)
+	path, err := d.handlePath(path)
 	if err != nil {
 		return err
 	}
 
 	var tokens []string
-	node, prefix, exist, err := d.find(newpath)
+	node, prefix, exist, err := d.find(path)
 	if err != nil {
 		return err
 	}
@@ -350,7 +350,7 @@ func (d *DriveFs) Delete(path string) error {
 
 	// sync dirs
 	d.mux.Lock()
-	tokens = strings.Split(newpath[len(prefix)+1:], "/")
+	tokens = strings.Split(path[len(prefix)+1:], "/")
 	node.Child, err = d.fetchDirs(node.NodeId, tokens)
 	if err != nil {
 		d.mux.Unlock()
@@ -359,7 +359,7 @@ func (d *DriveFs) Delete(path string) error {
 	d.mux.Unlock()
 
 	// query second
-	node, prefix, exist, err = d.find(newpath)
+	node, prefix, exist, err = d.find(path)
 	if err != nil {
 		return err
 	}
@@ -378,7 +378,7 @@ remove:
 }
 
 func (d *DriveFs) Download(srcpath, targetdir string) error {
-	newpath, err := d.projectPath(srcpath)
+	path, err := d.handlePath(srcpath)
 	if err != nil {
 		return err
 	}
@@ -386,7 +386,7 @@ func (d *DriveFs) Download(srcpath, targetdir string) error {
 	var tokens []string
 
 	// query first
-	accnode, prefix, exist, err := d.find(newpath)
+	accnode, prefix, exist, err := d.find(path)
 	if err != nil {
 		return err
 	}
@@ -396,7 +396,7 @@ func (d *DriveFs) Download(srcpath, targetdir string) error {
 
 	// sync dirs
 	d.mux.Lock()
-	tokens = strings.Split(newpath[len(prefix)+1:], "/")
+	tokens = strings.Split(path[len(prefix)+1:], "/")
 	accnode.Child, err = d.fetchDirs(accnode.NodeId, tokens)
 	if err != nil {
 		d.mux.Unlock()
@@ -405,7 +405,7 @@ func (d *DriveFs) Download(srcpath, targetdir string) error {
 	d.mux.Unlock()
 
 	// query second
-	accnode, prefix, exist, err = d.find(newpath)
+	accnode, prefix, exist, err = d.find(path)
 	if err != nil {
 		return err
 	}
@@ -423,7 +423,7 @@ func (d *DriveFs) Download(srcpath, targetdir string) error {
 	d.mux.Unlock()
 
 	// query again
-	accnode, prefix, exist, err = d.find(newpath)
+	accnode, prefix, exist, err = d.find(path)
 	if err != nil || !exist {
 		if err == nil {
 			err = errors.New("not exist path")
@@ -496,16 +496,16 @@ func (d *DriveFs) Upload(path, target string) error {
 }
 
 func (d *DriveFs) List(path string) ([]*FileNode, error) {
-	newpath, err := d.projectPath(path)
+	path, err := d.handlePath(path)
 	if err != nil {
 		return nil, err
 	}
 
-	// 已经存在
 	accnode, prefix, exist, err := d.find(path)
 	if err != nil {
 		return nil, err
 	}
+
 	// SYNC
 	d.mux.Lock()
 	accnode.Child, err = d.fetchFiles(accnode.NodeId, accnode.Child)
@@ -520,7 +520,7 @@ func (d *DriveFs) List(path string) ([]*FileNode, error) {
 
 	// SYNC
 	d.mux.Lock()
-	tokens := strings.Split(newpath[len(prefix)+1:], "/")
+	tokens := strings.Split(path[len(prefix)+1:], "/")
 	accnode.Child, err = d.fetchDirs(accnode.NodeId, tokens)
 	if err != nil {
 		d.mux.Unlock()
@@ -529,12 +529,16 @@ func (d *DriveFs) List(path string) ([]*FileNode, error) {
 	d.mux.Unlock()
 
 	// FIND
-	accnode, _, exist, err = d.find(newpath)
+	accnode, _, exist, err = d.find(path)
 	if err != nil {
 		return nil, err
 	}
 	if !exist {
 		return nil, fmt.Errorf("no found")
+	}
+
+	if exist && accnode.Type == Node_File {
+		return []*FileNode{accnode}, nil
 	}
 
 	d.mux.Lock()
