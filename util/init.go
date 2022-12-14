@@ -63,6 +63,7 @@ var (
 
 type localClient struct {
 	*http.Client
+	proxy func(*http.Request) (*url.URL, error)
 
 	once sync.Once // set once dns
 	dns  []string
@@ -77,6 +78,7 @@ var client localClient
 func init() {
 	rand.Seed(time.Now().UnixNano())
 
+	client.proxy = http.ProxyFromEnvironment
 	client.jar, _ = cookiejar.New(nil)
 	client.dns = []string{
 		"8.8.8.8:53", "8.8.4.4:53",
@@ -124,7 +126,7 @@ func init() {
 			},
 			MaxIdleConns:        100,
 			MaxIdleConnsPerHost: 100,
-			Proxy:               http.ProxyFromEnvironment,
+			Proxy:               client.proxy,
 		},
 		Jar: client.jar,
 	}
@@ -191,12 +193,20 @@ func (c *localClient) setDns(dns []string) {
 	})
 }
 
+func (c *localClient) setProxy(proxy func(*http.Request) (*url.URL, error)) {
+	c.proxy = proxy
+}
+
 func RegisterDNS(dns []string) {
 	client.setDns(dns)
 }
 
 func RegisterFileJar() {
 	client.setFileJar()
+}
+
+func RegisterProxy(proxy func(*http.Request) (*url.URL, error)) {
+	client.setProxy(proxy)
 }
 
 func GetCookie(url *url.URL, name string) *http.Cookie {
