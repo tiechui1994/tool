@@ -44,12 +44,12 @@ type Article struct {
 	Content string `json:"content"`
 	Digest  string `json:"digest"`
 
-	ThumbMediaID     string `json:"thumb_media_id"`
-	ShowCoverPic     int    `json:"show_cover_pic"`
-	ContentSourceUrl string `json:"content_source_url"`
+	ContentSourceUrl   string `json:"content_source_url"`
+	ThumbMediaID       string `json:"thumb_media_id"`
+	NeedOpenComment    int    `json:"need_open_comment"`
+	OnlyFansCanComment int    `json:"only_fans_can_comment"`
 
-	Url      string `json:"url"`
-	ThumbUrl string `json:"thumb_url"`
+	Url string `json:"url"`
 }
 
 type wxerror struct {
@@ -120,99 +120,6 @@ func PersitMaterialList(token, mtype string, offset, count int) (list interface{
 
 		return result.Item, nil
 	}
-}
-
-func AddPersitNews(token string, article Article) (id string, err error) {
-	value := []string{
-		"access_token=" + token,
-	}
-	u := weixin + "/cgi-bin/material/add_news?" + strings.Join(value, "&")
-	body := map[string]interface{}{
-		"articles": []Article{article},
-	}
-
-	raw, err := util.POST(u, util.WithBody(body))
-	if err != nil {
-		return id, err
-	}
-
-	var result struct {
-		wxerror
-		MediaID string `json:"media_id"`
-	}
-	err = json.Unmarshal(raw, &result)
-	if err != nil {
-		return id, err
-	}
-
-	if result.isError() {
-		err = result.wxerror
-		return
-	}
-
-	return result.MediaID, nil
-}
-
-func UpdatePersitNews(token, mdediaid string, index int, article Article) (err error) {
-	value := []string{
-		"access_token=" + token,
-	}
-	u := weixin + "/cgi-bin/material/update_news?" + strings.Join(value, "&")
-	body := map[string]interface{}{
-		"media_id": mdediaid,
-		"index":    index,
-		"articles": article,
-	}
-
-	raw, err := util.POST(u, util.WithBody(body))
-	if err != nil {
-		return err
-	}
-
-	var result struct {
-		wxerror
-	}
-	err = json.Unmarshal(raw, &result)
-	if err != nil {
-		return err
-	}
-
-	if result.isError() {
-		err = result.wxerror
-		return
-	}
-
-	return nil
-}
-
-func GetPersitNews(token, mediaid string) (artice []Article, err error) {
-	value := []string{
-		"access_token=" + token,
-	}
-	u := weixin + "/cgi-bin/material/get_material?" + strings.Join(value, "&")
-	body := map[string]string{
-		"media_id": mediaid,
-	}
-	raw, err := util.POST(u, util.WithBody(body))
-	if err != nil {
-		return artice, err
-	}
-
-	var result struct {
-		wxerror
-		NewsItem []Article `json:"news_item"`
-	}
-	err = json.Unmarshal(raw, &result)
-	if err != nil {
-		return artice, err
-	}
-
-	if result.isError() {
-		err = result.wxerror
-		return
-	}
-
-	return result.NewsItem, nil
 }
 
 func UploadNewsImage(token, filename string) (url string, err error) {
@@ -356,4 +263,97 @@ func Token(appid, secret string) (token TokenInfo, err error) {
 	}
 
 	return result.TokenInfo, nil
+}
+
+func AddDraft(token string, article Article) (id string, err error) {
+	value := []string{
+		"access_token=" + token,
+	}
+	u := weixin + "/cgi-bin/draft/add?" + strings.Join(value, "&")
+	body := map[string]interface{}{
+		"articles": []Article{article},
+	}
+
+	raw, err := util.POST(u, util.WithBody(body))
+	if err != nil {
+		return id, err
+	}
+
+	var result struct {
+		wxerror
+		MediaID string `json:"media_id"`
+	}
+	err = json.Unmarshal(raw, &result)
+	if err != nil {
+		return id, err
+	}
+
+	if result.isError() {
+		err = result.wxerror
+		return
+	}
+
+	return result.MediaID, nil
+}
+
+func GetDraft(token, mediaid string) (artice []Article, err error) {
+	value := []string{
+		"access_token=" + token,
+	}
+	u := weixin + "/cgi-bin/draft/get?" + strings.Join(value, "&")
+	body := map[string]string{
+		"media_id": mediaid,
+	}
+	raw, err := util.POST(u, util.WithBody(body))
+	if err != nil {
+		return artice, err
+	}
+
+	var result struct {
+		wxerror
+		NewsItem []Article `json:"news_item"`
+	}
+	err = json.Unmarshal(raw, &result)
+	if err != nil {
+		return artice, err
+	}
+
+	if result.isError() {
+		err = result.wxerror
+		return
+	}
+
+	return result.NewsItem, nil
+}
+
+func UpdateDraft(token, mdediaid string, index int, article Article) (err error) {
+	value := []string{
+		"access_token=" + token,
+	}
+	u := weixin + "/cgi-bin/draft/update?" + strings.Join(value, "&")
+	body := map[string]interface{}{
+		"media_id": mdediaid,
+		"index":    index,
+		"articles": article,
+	}
+
+	raw, err := util.POST(u, util.WithBody(body))
+	if err != nil {
+		return err
+	}
+
+	var result struct {
+		wxerror
+	}
+	err = json.Unmarshal(raw, &result)
+	if err != nil {
+		return err
+	}
+
+	if result.isError() {
+		err = result.wxerror
+		return
+	}
+
+	return nil
 }
