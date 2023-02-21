@@ -6,18 +6,16 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"mime"
-	"path/filepath"
 	"strings"
 )
 
 func randomBoundary() string {
-	var buf [4]byte
+	var buf [8]byte
 	_, err := io.ReadFull(rand.Reader, buf[:])
 	if err != nil {
 		panic(err)
 	}
-	return hex.EncodeToString(buf[:])
+	return "------------------------" + hex.EncodeToString(buf[:])
 }
 
 var quoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
@@ -48,7 +46,7 @@ func uploadFile(fields map[string]interface{}) (reader io.Reader, contentType st
 	parts := make([]io.Reader, 0)
 	CRLF := "\r\n"
 
-	fieldBoundary := "------------------------" + boundary + CRLF
+	fieldBoundary := "--" + boundary + CRLF
 
 	for k, v := range fields {
 		parts = append(parts, strings.NewReader(fieldBoundary))
@@ -69,11 +67,9 @@ func uploadFile(fields map[string]interface{}) (reader io.Reader, contentType st
 			continue
 		case fs.File:
 			stat, _ := val.Stat()
-			contentType := mime.TypeByExtension(filepath.Ext(stat.Name()))
 			header := strings.Join([]string{
 				fmt.Sprintf(`Content-Disposition: form-data; name="%s"; filename="%s"`, escapeQuotes(k), escapeQuotes(stat.Name())),
-				fmt.Sprintf(`Content-Type: %s`, contentType),
-				fmt.Sprintf(`Content-Length: %d`, stat.Size()),
+				fmt.Sprintf(`Content-Type: %s`, "application/octet-stream"),
 			}, CRLF)
 			parts = append(
 				parts,
@@ -86,7 +82,7 @@ func uploadFile(fields map[string]interface{}) (reader io.Reader, contentType st
 		}
 	}
 
-	finishBoundary := "------------------------" + boundary + "------------------------" + CRLF
+	finishBoundary := "--" + boundary + "--" + CRLF
 	parts = append(parts, strings.NewReader(finishBoundary))
 	totalSize += len(finishBoundary)
 

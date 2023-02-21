@@ -1,11 +1,8 @@
 package weixin
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
-	"mime/multipart"
 	"os"
 	"strings"
 
@@ -18,6 +15,7 @@ const (
 	MediaImage = "image"
 	MediaVideo = "video"
 	MediaVoice = "voice"
+	MediaThumb = "thumb"
 	MediaNews  = "news"
 )
 
@@ -65,7 +63,7 @@ func (e wxerror) isError() bool {
 	return e.Code != 0
 }
 
-func PersitMaterialList(token, mtype string, offset, count int) (list interface{}, err error) {
+func PersistMaterialList(token, mtype string, offset, count int) (list interface{}, err error) {
 	value := []string{
 		"access_token=" + token,
 	}
@@ -122,8 +120,8 @@ func PersitMaterialList(token, mtype string, offset, count int) (list interface{
 	}
 }
 
-func UploadNewsImage(token, filename string) (url string, err error) {
-	info, err := os.Stat(filename)
+func UploadImage(token, filename string) (url string, err error) {
+	fd, err := os.Open(filename)
 	if err != nil {
 		return url, err
 	}
@@ -132,26 +130,19 @@ func UploadNewsImage(token, filename string) (url string, err error) {
 		"access_token=" + token,
 	}
 	u := weixin + "/cgi-bin/media/uploadimg?" + strings.Join(value, "&")
-	var body bytes.Buffer
-	w := multipart.NewWriter(&body)
-	writer, err := w.CreateFormFile("media", info.Name())
-	if err != nil {
-		return url, err
-	}
-	reader, err := os.Open(filename)
-	if err != nil {
-		return url, err
-	}
-	_, err = io.Copy(writer, reader)
+
+	reader, contentType, contentLen, err := uploadFile(map[string]interface{}{
+		"media": fd,
+	})
 	if err != nil {
 		return url, err
 	}
 
-	w.Close()
 	header := map[string]string{
-		"content-type": w.FormDataContentType(),
+		"Content-Type":   contentType,
+		"Content-Length": fmt.Sprintf("%v", contentLen),
 	}
-	raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
+	raw, err := util.POST(u, util.WithBody(reader), util.WithHeader(header))
 	if err != nil {
 		return url, err
 	}
@@ -173,10 +164,10 @@ func UploadNewsImage(token, filename string) (url string, err error) {
 	return result.URL, nil
 }
 
-func AddPersitMaterial(token, mtype, filename string, args ...map[string]string) (url string, err error) {
-	info, err := os.Stat(filename)
+func AddPersistMaterial(token, mtype, filename string, args ...map[string]string) (url, id string, err error) {
+	fd, err := os.Open(filename)
 	if err != nil {
-		return url, err
+		return url, id, err
 	}
 
 	value := []string{
@@ -184,33 +175,27 @@ func AddPersitMaterial(token, mtype, filename string, args ...map[string]string)
 		"type=" + mtype,
 	}
 	u := weixin + "/cgi-bin/material/add_material?" + strings.Join(value, "&")
-	var body bytes.Buffer
-	w := multipart.NewWriter(&body)
-	writer, err := w.CreateFormFile("media", info.Name())
-	if err != nil {
-		return url, err
-	}
-	reader, err := os.Open(filename)
-	if err != nil {
-		return url, err
-	}
-	_, err = io.Copy(writer, reader)
-	if err != nil {
-		return url, err
-	}
 
+	fields := map[string]interface{}{
+		"media": fd,
+	}
 	if mtype == MediaVideo {
 		bin, _ := json.Marshal(args[0])
-		w.WriteField("description", string(bin))
+		fields["description"] = string(bin)
 	}
 
-	w.Close()
-	header := map[string]string{
-		"content-type": w.FormDataContentType(),
-	}
-	raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
+	reader, contentType, contentLen, err := uploadFile(fields)
 	if err != nil {
-		return url, err
+		return url, id, err
+	}
+
+	header := map[string]string{
+		"Content-Type":   contentType,
+		"Content-Length": fmt.Sprintf("%v", contentLen),
+	}
+	raw, err := util.POST(u, util.WithBody(reader), util.WithHeader(header))
+	if err != nil {
+		return url, id, err
 	}
 
 	var result struct {
@@ -220,7 +205,7 @@ func AddPersitMaterial(token, mtype, filename string, args ...map[string]string)
 	}
 	err = json.Unmarshal(raw, &result)
 	if err != nil {
-		return url, err
+		return url, id, err
 	}
 
 	if result.isError() {
@@ -228,7 +213,7 @@ func AddPersitMaterial(token, mtype, filename string, args ...map[string]string)
 		return
 	}
 
-	return result.URL, nil
+	return result.URL, result.MediaID, nil
 }
 
 type TokenInfo struct {
@@ -326,13 +311,13 @@ func GetDraft(token, mediaid string) (artice []Article, err error) {
 	return result.NewsItem, nil
 }
 
-func UpdateDraft(token, mdediaid string, index int, article Article) (err error) {
+func UpdateDraft(token, mediaid string, index int, article Article) (err error) {
 	value := []string{
 		"access_token=" + token,
 	}
 	u := weixin + "/cgi-bin/draft/update?" + strings.Join(value, "&")
 	body := map[string]interface{}{
-		"media_id": mdediaid,
+		"media_id": mediaid,
 		"index":    index,
 		"articles": article,
 	}

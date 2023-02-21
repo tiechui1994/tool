@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,7 +25,7 @@ func (err CodeError) Error() string {
 	if err.Message == "" {
 		return fmt.Sprintf("%v %q : status: %v", err.Method, err.URL,
 			http.StatusText(err.Code))
-	} else  {
+	} else {
 		return fmt.Sprintf("%v %q : (status:%v, message:%v)", err.Method, err.URL,
 			http.StatusText(err.Code), err.Message)
 	}
@@ -39,11 +40,15 @@ func Request(method, u string, opts ...Option) (json.RawMessage, http.Header, er
 	try := 0
 try:
 	request, _ := http.NewRequestWithContext(options.ctx, method, u, options.body)
+	request.Header.Set("user-agent", UserAgent())
 	for k, v := range options.header {
 		request.Header.Set(k, v)
 	}
 
-	request.Header.Set("user-agent", UserAgent())
+	val := request.Header.Get("Content-Length")
+	if val != "" {
+		request.ContentLength, _ = strconv.ParseInt(val, 10, 64)
+	}
 
 	response, err := client.Do(request)
 	if err != nil && try < options.retry {
@@ -69,7 +74,7 @@ try:
 	}
 
 	if response.StatusCode >= 400 {
-		return raw, response.Header, CodeError{method,u, response.StatusCode, string(raw)}
+		return raw, response.Header, CodeError{method, u, response.StatusCode, string(raw)}
 	}
 
 	return raw, response.Header, err
@@ -126,7 +131,7 @@ func SOCKET(u string, header map[string]string) (conn *websocket.Conn, raw json.
 	}
 
 	if response.StatusCode >= 400 {
-		return conn, raw, CodeError{http.MethodGet,u, response.StatusCode,""}
+		return conn, raw, CodeError{http.MethodGet, u, response.StatusCode, ""}
 	}
 
 	return conn, raw, nil
@@ -157,7 +162,7 @@ try:
 	}
 
 	if response.StatusCode != 200 {
-		return io,  CodeError{method,u, response.StatusCode,""}
+		return io, CodeError{method, u, response.StatusCode, ""}
 	}
 
 	return response.Body, err

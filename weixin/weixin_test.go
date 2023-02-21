@@ -5,39 +5,51 @@ import (
 	"testing"
 )
 
-var token = "65__urjOi5kgsVuLWxndRheHLtoWqT8UWo9dzBTxUFNMXpdX6L5mm-ok7MnyDQWulpl7m-eu4ACdRDOMooC5ZJw25Q58tzuvVCQayBh49rNdmC-AT_q9-o1X_I_tMJPZgACAYEO"
+var token = "65_WN79odGQ3E-mjZfZaTKfyl"
 
 func TestUploadNewsImage(t *testing.T) {
-	id, err := UploadNewsImage(token, "/home/quinn/Downloads/v.jpeg")
+	url, err := UploadImage(token, "/home/user/Downloads/flower.jpg")
+	if err != nil {
+		t.Fatalf("UploadImage: %v", err)
+	}
+	t.Log("url", url)
+}
+
+func TestAddPersistMaterial(t *testing.T) {
+	url, id, err := AddPersistMaterial(token, MediaThumb, "/home/user/Downloads/superb.jpg")
+	if err != nil {
+		t.Fatalf("AddPersistMaterial: %v", err)
+	}
+	t.Log("url", url)
 	t.Log("id", id)
-	t.Log("err", err)
 }
 
-func TestAddPersitMaterial(t *testing.T) {
-	id, err := AddPersitMaterial(token, MediaImage, "/home/quinn/Downloads/vietnamese-woman.jpg")
-	t.Log("id", id)
-	t.Log("err", err)
+func TestPersistMaterialList(t *testing.T) {
+	list, err := PersistMaterialList(token, MediaImage, 0, 10)
+	if err != nil {
+		t.Fatalf("PersistMaterialList: %v", err)
+	}
+
+	for _, v := range list.([]Media) {
+		t.Logf("name:%v, mediaid:%v, url:%v", v.Name, v.MediaID, v.Url)
+	}
 }
 
-func TestMediaList(t *testing.T) {
-	list, err := PersitMaterialList(token, MediaImage, 0, 1)
-	t.Log("id", list)
-	t.Log("err", err)
-}
-
-// crAgK-cmXMbGEq9kZymbzf_ZnZjo4XV7HHYef7yF_ZI
+// crAgK-cmXMbGEq9kZymbzTLmVnS0qOcgZ0WY9r-EMYlUBa-0hUzLV8CHUT3Nknbr
 func TestAddDraft(t *testing.T) {
-	data, _ := ioutil.ReadFile("/home/quinn/Desktop/www.html")
+	data, _ := ioutil.ReadFile("/home/user/Desktop/xyz.html")
 	news := Article{
 		Title:            "测试case",
 		Author:           "tiechui1994",
-		ThumbMediaID:     "crAgK-cmXMbGEq9kZymbzbQ2SZK08yL2dASCbsNrKRf3UH5s3yDc9ReYrv0IyNbd",
+		ThumbMediaID:     "crAgK-cmXMbGEq9kZymbzTLmVnS0qOcgZ0WY9r-EMYlUBa-0hUzLV8CHUT3Nknbr",
 		ContentSourceUrl: "https://www.baidu.com",
-		Content: string(data),
+		Content:          string(data),
 	}
 	id, err := AddDraft(token, news)
+	if err != nil {
+		t.Fatalf("AddDraft: %v", err)
+	}
 	t.Log("id", id)
-	t.Log("err", err)
 }
 
 func TestUpdateDraft(t *testing.T) {
@@ -47,14 +59,18 @@ func TestUpdateDraft(t *testing.T) {
 		Author:           "tiechui1994",
 		ThumbMediaID:     "crAgK-cmXMbGEq9kZymbzWP0k6ziJ5W_OayqgGzT2Go",
 		ContentSourceUrl: "https://www.baidu.com",
-		Content: string(data),
+		Content:          string(data),
 	}
 	err := UpdateDraft(token, "crAgK-cmXMbGEq9kZymbzf_ZnZjo4XV7HHYef7yF_ZI", 0, news)
-	t.Log("err", err)
+	if err != nil {
+		t.Fatalf("UpdateDraft: %v", err)
+	}
 }
 
 func TestGetDraft(t *testing.T) {
-	news, err := GetDraft(token, "crAgK-cmXMbGEq9kZymbzfRNQraVlfgjkPuDLTrU2yY")
-	t.Log("news", news)
-	t.Log("err", err)
+	news, err := GetDraft(token, "crAgK-cmXMbGEq9kZymbzX38HXl7Wr8_f1Bifz9Tc5pOT5c_i2b8L-UJschJbmL0")
+	if err != nil {
+		t.Fatalf("GetDraft: %v", err)
+	}
+	t.Logf("url:%v", news[0].Url)
 }
