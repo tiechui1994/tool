@@ -29,7 +29,7 @@ type Media struct {
 type News struct {
 	MediaID string `json:"media_id"`
 	Content struct {
-		NewItem    []Article `json:"new_item"`
+		NewItem    []Article `json:"news_item"`
 		CreateTime int       `json:"create_time"`
 		UpdateTime int       `json:"update_time"`
 	}
@@ -341,4 +341,40 @@ func UpdateDraft(token, mediaid string, index int, article Article) (err error) 
 	}
 
 	return nil
+}
+
+func DraftList(token string, offset, count int) (list []News, err error) {
+	value := []string{
+		"access_token=" + token,
+	}
+	u := weixin + "/cgi-bin/draft/batchget?" + strings.Join(value, "&")
+	body := map[string]interface{}{
+		"offset":     offset,
+		"count":      count,
+		"no_content": 1,
+	}
+	header := map[string]string{
+		"content-type": "application/json",
+	}
+	raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
+	if err != nil {
+		return nil, err
+	}
+	var result struct {
+		wxerror
+		TotalCount int    `json:"total_count"`
+		ItemCount  int    `json:"item_count"`
+		Items []News `json:"item"`
+	}
+	err = json.Unmarshal(raw, &result)
+	if err != nil {
+		return result.Items, err
+	}
+
+	if result.isError() {
+		err = result.wxerror
+		return
+	}
+
+	return result.Items, err
 }

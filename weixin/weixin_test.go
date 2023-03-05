@@ -1,11 +1,13 @@
 package weixin
 
 import (
+	"bytes"
+	"encoding/json"
 	"io/ioutil"
 	"testing"
 )
 
-var token = "65_WN79odGQ3E-mjZfZaTKfyl"
+var token = "66_bHNpqfqryGR-VUCME_VYmmE6koq5vZlvJ95RfWVciFkdDeJjVWGS28GqmoELZvZrs8V-AaOWZOElMxJlG7-seO8FnXxMZLHSV2MyPTxyHjkk2t0NswI0aDHI2McXQXbAIABUB"
 
 func TestUploadNewsImage(t *testing.T) {
 	url, err := UploadImage(token, "/home/user/Downloads/flower.jpg")
@@ -73,4 +75,20 @@ func TestGetDraft(t *testing.T) {
 		t.Fatalf("GetDraft: %v", err)
 	}
 	t.Logf("url:%v", news[0].Url)
+}
+
+func TestDraftList(t *testing.T) {
+	news, err := DraftList(token, 0, 10)
+	if err != nil {
+		t.Fatalf("DraftList: %v", err)
+	}
+
+	buf := bytes.Buffer{}
+	en := json.NewEncoder(&buf)
+	en.SetIndent("", " ")
+	for _, v := range news {
+		buf.Reset()
+		en.Encode(v.Content.NewItem)
+		t.Logf("value:%v", buf.String())
+	}
 }
