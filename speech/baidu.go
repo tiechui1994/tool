@@ -1,4 +1,4 @@
-package main
+package speech
 
 import (
 	"encoding/json"
@@ -18,7 +18,7 @@ import (
 // https://developer.baidu.com/vcast 登录百度账号, 获取 Cookie 信息
 var COOKIE = ""
 
-func ConvertText(text string, filename string) (err error) {
+func TextToSpeed(text string, filename string) (err error) {
 	values := make(url.Values)
 	values.Set("title", text)
 	values.Set("content", ".")
@@ -56,10 +56,10 @@ func ConvertText(text string, filename string) (err error) {
 		return fmt.Errorf("")
 	}
 
-	return Download(res.BosUrl, filename)
+	return download(res.BosUrl, filename)
 }
 
-func Download(u string, filename string) (err error) {
+func download(u string, filename string) (err error) {
 	data, err := util.GET(u)
 	if err != nil {
 		return err

@@ -1,4 +1,4 @@
-package main
+package speech
 
 import (
 	"crypto/hmac"
@@ -9,12 +9,14 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
-	"github.com/tiechui1994/tool/util"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
+
+	"github.com/tiechui1994/tool/util"
 )
 
 func randomBoundary() string {
@@ -66,6 +68,11 @@ func HMACSha1(key, method, md5, _type, date string, ossHeader []string, resource
 	values := []string{
 		method, md5, _type, date,
 	}
+
+	sort.Slice(ossHeader, func(i, j int) bool {
+		return ossHeader[i] < ossHeader[j]
+	})
+
 	values = append(values, ossHeader...)
 	values = append(values, resource)
 
@@ -75,18 +82,19 @@ func HMACSha1(key, method, md5, _type, date string, ossHeader []string, resource
 	return res
 }
 
-func Upload(src string) {
+func SpeechToText(src string) (result string, err error) {
 	fd, err := os.Open(src)
 	if err != nil {
-		return
+		return result, err
 	}
+
+	stat, _ := fd.Stat()
 
 	_, name := filepath.Split(fd.Name())
 	reader, contentType, totalSize := uploadFile(map[string]string{
 		"task_type":   "201",
 		"filenames[]": name,
 	})
-
 	header := map[string]string{
 		"content-type":   contentType,
 		"content-length": fmt.Sprintf("%v", totalSize),
@@ -97,16 +105,16 @@ func Upload(src string) {
 	u := "https://aw.aoscdn.com/tech/authorizations/oss"
 	raw, err := util.POST(u, util.WithBody(reader), util.WithHeader(header))
 	if err != nil {
-		return
+		return result, err
 	}
 
-	var response struct {
+	var authorizate struct {
 		Status int `json:"status"`
 		Data   struct {
-			Accelerate string
-			Bucket     string
-			Region     string
-			Endpoint   string
+			Accelerate string `json:"accelerate"`
+			Bucket     string `json:"bucket"`
+			Region     string `json:"region"`
+			Endpoint   string `json:"endpoint"`
 			Callback   struct {
 				Url  string `json:"url"`
 				Type string `json:"type"`
@@ -121,49 +129,190 @@ func Upload(src string) {
 			Objects map[string]string `json:"objects"`
 		} `json:"data"`
 	}
-	err = json.Unmarshal(raw, &response)
+	err = json.Unmarshal(raw, &authorizate)
 	if err != nil {
-		return
+		return result, err
 	}
 
-	for _, task := range response.Data.Objects {
-		endpoint := fmt.Sprintf("https://%v.%v/%v", response.Data.Bucket,
-			response.Data.Endpoint, task)
-		date := time.Now().Format("Mon, 02 Jan 2006 15:04:05 GMT")
+	type UploadPartResult struct {
+		PartNumber int    `xml:"PartNumber"`
+		ETag       string `xml:"ETag"`
+	}
+
+	const Size = 128000 * 2
+	buffer := make([]byte, Size)
+	for _, task := range authorizate.Data.Objects {
+		endpoint := fmt.Sprintf("https://%v.%v/%v", authorizate.Data.Bucket, authorizate.Data.Endpoint, task)
+		date := time.Now().Add(-8 * time.Hour).Format("Mon, 02 Jan 2006 15:04:05 GMT")
 		ossHeader := []string{
 			"x-oss-date:" + date,
-			"x-oss-security-token:" + response.Data.Credential.SecurityToken,
-			"x-oss-user-agent: aliyun-sdk-js/6.17.1 Chrome 112.0.0.0 on Windows 10 64-bit",
+			"x-oss-security-token:" + authorizate.Data.Credential.SecurityToken,
+			"x-oss-user-agent:aliyun-sdk-js/6.17.1 Chrome 112.0.0.0 on Windows 10 64-bit",
 		}
-
+		uri := "?uploads"
 		header := map[string]string{
 			"origin":               "https://reccloud.cn",
 			"x-oss-date":           date,
-			"x-oss-security-token": response.Data.Credential.SecurityToken,
-			"authorization": "OSS " + response.Data.Credential.AccessKeyID + ":" +
-				HMACSha1(response.Data.Credential.AccessKeySecret,
-					"PUT", "11", "audio/mpeg", date, ossHeader,
-					"/"+response.Data.Endpoint),
+			"x-oss-security-token": authorizate.Data.Credential.SecurityToken,
+			"x-oss-user-agent":     "aliyun-sdk-js/6.17.1 Chrome 112.0.0.0 on Windows 10 64-bit",
 		}
-		raw, err = util.POST(endpoint+"?uploads=", util.WithBody(reader), util.WithHeader(header))
+		header["authorization"] = "OSS " + authorizate.Data.Credential.AccessKeyID + ":" +
+			HMACSha1(authorizate.Data.Credential.AccessKeySecret, "POST", "",
+				"", date, ossHeader, "/"+authorizate.Data.Bucket+"/"+task+uri)
+		raw, err = util.POST(endpoint+uri, util.WithBody(reader), util.WithHeader(header), util.WithRetry(2))
 		if err != nil {
-			return
+			return result, err
+		}
+		var uploads struct {
+			XMLName  xml.Name `xml:"InitiateMultipartUploadResult"`
+			UploadId string   `xml:"UploadId"`
+			Key      string   `xml:"Key"`
+			Bucket   string   `xml:"Bucket"`
 		}
 
-		var uploads struct {
-			InitiateMultipartUploadResult struct {
-				UploadId string `xml:"UploadId"`
-				Key      string `xml:"Key"`
-				Bucket   string `xml:"Bucket"`
-			} `xml:"InitiateMultipartUploadResult"`
-		}
 		err = xml.Unmarshal(raw, &uploads)
 		if err != nil {
-			return
+			return result, err
 		}
 
-		//
+		// uploading
+		var uploadResult struct {
+			XMLName xml.Name           `xml:"CompleteMultipartUpload"`
+			Parts   []UploadPartResult `xml:"Part"`
+		}
 
-		util.POST(endpoint + "endpoint")
+		parts := stat.Size() / Size
+		if stat.Size()%Size != 0 {
+			parts += 1
+		}
+		uploadResult.Parts = make([]UploadPartResult, parts)
+		for partNo := 1; partNo <= int(parts); partNo++ {
+			length, err := fd.ReadAt(buffer, int64(partNo-1)*Size)
+			if err != nil && err != io.EOF {
+				return result, err
+			}
+
+			uri := fmt.Sprintf("?partNumber=%v&uploadId=%v", partNo, uploads.UploadId)
+			header["authorization"] = "OSS " + authorizate.Data.Credential.AccessKeyID + ":" +
+				HMACSha1(authorizate.Data.Credential.AccessKeySecret,
+					"PUT", "", "", date,
+					ossHeader, "/"+authorizate.Data.Bucket+"/"+task+uri)
+			_, responseHeader, err := util.Request("PUT", endpoint+uri, util.WithBody(buffer[:length]), util.WithHeader(header), util.WithRetry(2))
+			if err != nil {
+				return result, err
+			}
+
+			uploadResult.Parts[partNo-1].PartNumber = partNo
+			uploadResult.Parts[partNo-1].ETag = responseHeader.Get("ETag")
+		}
+
+		// finish
+		raw, err = xml.Marshal(uploadResult)
+		if err != nil {
+			return
+		}
+		body := []byte(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
+		body = append(body, raw...)
+		md5 := base64.StdEncoding.EncodeToString(util.MD5(string(body)))
+
+		callBody := strings.ReplaceAll(authorizate.Data.Callback.Body, "${filename}", name)
+		callback := fmt.Sprintf(`{"callbackUrl":"%v","callbackBody":"%v"}`,
+			authorizate.Data.Callback.Url, callBody)
+		uri = fmt.Sprintf("?uploadId=%v", uploads.UploadId)
+
+		ossHeader = append(ossHeader, "x-oss-callback:"+base64.StdEncoding.EncodeToString([]byte(callback)))
+		header["x-oss-callback"] = base64.StdEncoding.EncodeToString([]byte(callback))
+		header["content-md5"] = md5
+		header["content-type"] = "application/xml"
+		header["authorization"] = "OSS " + authorizate.Data.Credential.AccessKeyID + ":" +
+			HMACSha1(authorizate.Data.Credential.AccessKeySecret,
+				"POST", md5, "application/xml", date,
+				ossHeader, "/"+authorizate.Data.Bucket+"/"+task+uri)
+		raw, err = util.POST(endpoint+uri, util.WithBody(body), util.WithHeader(header), util.WithRetry(2))
+		if err != nil {
+			return result, err
+		}
+
+		var complete struct {
+			Status int `json:"status"`
+			Data   struct {
+				Url        string `json:"url"`
+				ResourceID string `json:"resource_id"`
+			} `json:"data"`
+		}
+		err = json.Unmarshal(raw, &complete)
+		if err != nil {
+			return result, err
+		}
+		delete(header, "content-md5")
+
+		return recognition(complete.Data.ResourceID, name)
 	}
+
+	return result, fmt.Errorf("")
+}
+
+func recognition(resourceID, filename string) (result string, err error) {
+	reader, contentType, totalSize := uploadFile(map[string]string{
+		"language":     "",
+		"return_type":  "1",
+		"type":         "4",
+		"content_type": "1",
+		"resource_id":  resourceID,
+		"filename":     filename,
+	})
+	header := map[string]string{
+		"content-type":   contentType,
+		"content-length": fmt.Sprintf("%v", totalSize),
+		"origin":         "https://reccloud.cn",
+		"x-api-key":      "wx40d7754m8oubrds",
+	}
+	u := "https://aw.aoscdn.com/tech/tasks/audio/recognition"
+	raw, err := util.POST(u, util.WithBody(reader), util.WithHeader(header))
+	if err != nil {
+		return result, err
+	}
+
+	var recognition struct {
+		Status int `json:"status"`
+		Data   struct {
+			TaskID string `json:"task_id"`
+		} `json:"data"`
+	}
+	err = json.Unmarshal(raw, &recognition)
+	if err != nil {
+		return result, err
+	}
+
+	u = "https://aw.aoscdn.com/tech/tasks/audio/recognition/" + recognition.Data.TaskID
+	header = map[string]string{
+		"origin":         "https://reccloud.cn",
+		"x-api-key":      "wx40d7754m8oubrds",
+	}
+again:
+	raw, err = util.GET(u, util.WithHeader(header), util.WithRetry(1))
+	if err != nil {
+		time.Sleep(2 * time.Second)
+		goto again
+	}
+	var status struct {
+		Status int `json:"status"`
+		Data   struct {
+			Progress int    `json:"progress"`
+			State    int    `json:"state"`
+			Result   string `json:"result"`
+			File     string `json:"file"`
+		} `json:"data"`
+	}
+	err = json.Unmarshal(raw, &status)
+	if err != nil {
+		time.Sleep(2 * time.Second)
+		goto again
+	}
+	if status.Data.Progress < 100 {
+		time.Sleep(time.Second)
+		goto again
+	}
+
+	return status.Data.Result, nil
 }

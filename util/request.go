@@ -39,7 +39,11 @@ func Request(method, u string, opts ...Option) (json.RawMessage, http.Header, er
 
 	try := 0
 try:
-	request, _ := http.NewRequestWithContext(options.ctx, method, u, options.body)
+	request, err := http.NewRequestWithContext(options.ctx, method, u, options.body)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	request.Header.Set("user-agent", UserAgent())
 	for k, v := range options.header {
 		request.Header.Set(k, v)
