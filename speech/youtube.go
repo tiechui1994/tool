@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"regexp"
 	"time"
@@ -34,13 +35,18 @@ func YoutubeDownload(youtube, path string, format Format) error {
 		return fmt.Errorf("invalid url %q", youtube)
 	}
 
-	u := "https://loader.to/ajax/download.php?" + fmt.Sprintf("format=%v&url=%v", format, youtube)
+	val := url.Values{}
+	val.Set("format", string(format))
+	val.Set("url", youtube)
+
+	u := "https://loader.to/ajax/download.php?" + val.Encode()
 	header := map[string]string{
 		"origin":  "https://y2down.cc",
 		"referer": "https://y2down.cc/",
 	}
 
-	raw, err := util.GET(u, util.WithHeader(header), util.WithRetry(3))
+	u = "https://cloud.unicast.workers.dev/" + u
+	raw, err := util.GET(u, util.WithHeader(header), util.WithRetry(1))
 	if err != nil {
 		return fmt.Errorf("download %w", err)
 	}
@@ -83,10 +89,9 @@ func YoutubeDownload(youtube, path string, format Format) error {
 func progress(id string) (string, error) {
 	u := "https://loader.to/ajax/progress.php?id=" + id
 	header := map[string]string{
-		"origin":  "https://y2down.cc",
 		"referer": "https://y2down.cc/",
 	}
-
+	u = "https://cloud.unicast.workers.dev/" + u
 	raw, err := util.GET(u, util.WithHeader(header), util.WithRetry(1))
 	if err != nil {
 		return "", fmt.Errorf("download %w", err)
