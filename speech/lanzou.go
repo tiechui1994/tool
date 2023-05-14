@@ -30,7 +30,7 @@ func FetchLanZouInfo(shareURL, pwd string) ([]FileInfo, error) {
 	}
 	endpoint := urls[0][1]
 
-	raw, err := util.GET(shareURL)
+	raw, err := util.GET(shareURL, util.WithRetry(3))
 	if err != nil {
 		return nil, fmt.Errorf("get share failed: %w", err)
 	}
@@ -109,7 +109,7 @@ func FetchLanZouInfo(shareURL, pwd string) ([]FileInfo, error) {
 	log.Printf("request filemoreajax url: %v, body: %v", u, body)
 	raw, err = util.POST(u,
 		util.WithBody(body),
-		util.WithRetry(2),
+		util.WithRetry(3),
 		util.WithHeader(map[string]string{
 			"Content-Type":   "application/x-www-form-urlencoded",
 			"Origin":         endpoint,
@@ -153,9 +153,9 @@ func fetchFileURL(shareURL string) (string, error) {
 	}
 	endpoint := urls[0][1]
 
-	raw, err := util.GET(shareURL)
+	raw, err := util.GET(shareURL, util.WithRetry(3))
 	if err != nil {
-		return "", fmt.Errorf("get share url failed: %w", err)
+		return "", fmt.Errorf("get code file url failed: %w", err)
 	}
 
 	rNote1 := regexp.MustCompile(`(?s:<!--.*?-->)`)
@@ -172,7 +172,7 @@ func fetchFileURL(shareURL string) (string, error) {
 
 	fn := endpoint + values[0][1]
 	log.Printf("fn url: %v", fn)
-	raw, err = util.GET(fn, util.WithHeader(map[string]string{"Referer": shareURL}))
+	raw, err = util.GET(fn, util.WithRetry(2), util.WithHeader(map[string]string{"Referer": shareURL}))
 	if err != nil {
 		return "", fmt.Errorf("get iframe failed: %w", err)
 	}
@@ -246,7 +246,7 @@ func fetchFileURL(shareURL string) (string, error) {
 	u := endpoint + "/ajaxm.php"
 	body := form.Encode()
 	log.Printf("request ajaxm url:%v body: %v", u, body)
-	raw, err = util.POST(u, util.WithBody(body), util.WithRetry(2),
+	raw, err = util.POST(u, util.WithBody(body), util.WithRetry(3),
 		util.WithHeader(map[string]string{
 			"Content-Type":   "application/x-www-form-urlencoded",
 			"Origin":         endpoint,
@@ -358,7 +358,7 @@ func LanZouRealURL(file *FileInfo) error {
 	body := form.Encode()
 	log.Printf("request ajax url:%v body: %v", u, body)
 
-	raw, err = util.POST(u, util.WithBody(body), util.WithRetry(2),
+	raw, err = util.POST(u, util.WithBody(body), util.WithRetry(3),
 		util.WithHeader(map[string]string{
 			"Content-Type":   "application/x-www-form-urlencoded",
 			"Content-Length": fmt.Sprintf("%v", len(body)),

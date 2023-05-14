@@ -103,7 +103,7 @@ func SpeechToText(src string) (result string, err error) {
 	}
 
 	u := "https://aw.aoscdn.com/tech/authorizations/oss"
-	raw, err := util.POST(u, util.WithBody(reader), util.WithHeader(header))
+	raw, err := util.POST(u, util.WithBody(reader), util.WithHeader(header), util.WithRetry(3))
 	if err != nil {
 		return result, err
 	}
@@ -143,7 +143,7 @@ func SpeechToText(src string) (result string, err error) {
 	buffer := make([]byte, Size)
 	for _, task := range authorizate.Data.Objects {
 		endpoint := fmt.Sprintf("https://%v.%v/%v", authorizate.Data.Bucket, authorizate.Data.Endpoint, task)
-		date := time.Now().Add(-8 * time.Hour).Format("Mon, 02 Jan 2006 15:04:05 GMT")
+		date := time.Now().In(time.UTC).Format("Mon, 02 Jan 2006 15:04:05 GMT")
 		ossHeader := []string{
 			"x-oss-date:" + date,
 			"x-oss-security-token:" + authorizate.Data.Credential.SecurityToken,
@@ -159,7 +159,7 @@ func SpeechToText(src string) (result string, err error) {
 		header["authorization"] = "OSS " + authorizate.Data.Credential.AccessKeyID + ":" +
 			HMACSha1(authorizate.Data.Credential.AccessKeySecret, "POST", "",
 				"", date, ossHeader, "/"+authorizate.Data.Bucket+"/"+task+uri)
-		raw, err = util.POST(endpoint+uri, util.WithBody(reader), util.WithHeader(header), util.WithRetry(2))
+		raw, err = util.POST(endpoint+uri, util.WithBody(reader), util.WithHeader(header), util.WithRetry(3))
 		if err != nil {
 			return result, err
 		}
@@ -197,7 +197,7 @@ func SpeechToText(src string) (result string, err error) {
 				HMACSha1(authorizate.Data.Credential.AccessKeySecret,
 					"PUT", "", "", date,
 					ossHeader, "/"+authorizate.Data.Bucket+"/"+task+uri)
-			_, responseHeader, err := util.Request("PUT", endpoint+uri, util.WithBody(buffer[:length]), util.WithHeader(header), util.WithRetry(2))
+			_, responseHeader, err := util.Request("PUT", endpoint+uri, util.WithBody(buffer[:length]), util.WithHeader(header), util.WithRetry(3))
 			if err != nil {
 				return result, err
 			}
@@ -228,7 +228,7 @@ func SpeechToText(src string) (result string, err error) {
 			HMACSha1(authorizate.Data.Credential.AccessKeySecret,
 				"POST", md5, "application/xml", date,
 				ossHeader, "/"+authorizate.Data.Bucket+"/"+task+uri)
-		raw, err = util.POST(endpoint+uri, util.WithBody(body), util.WithHeader(header), util.WithRetry(2))
+		raw, err = util.POST(endpoint+uri, util.WithBody(body), util.WithHeader(header), util.WithRetry(3))
 		if err != nil {
 			return result, err
 		}
@@ -249,7 +249,7 @@ func SpeechToText(src string) (result string, err error) {
 		return recognition(complete.Data.ResourceID, name)
 	}
 
-	return result, fmt.Errorf("")
+	return result, fmt.Errorf("invalid task")
 }
 
 func recognition(resourceID, filename string) (result string, err error) {
@@ -268,7 +268,7 @@ func recognition(resourceID, filename string) (result string, err error) {
 		"x-api-key":      "wx40d7754m8oubrds",
 	}
 	u := "https://aw.aoscdn.com/tech/tasks/audio/recognition"
-	raw, err := util.POST(u, util.WithBody(reader), util.WithHeader(header))
+	raw, err := util.POST(u, util.WithBody(reader), util.WithHeader(header), util.WithRetry(3))
 	if err != nil {
 		return result, err
 	}
@@ -286,11 +286,11 @@ func recognition(resourceID, filename string) (result string, err error) {
 
 	u = "https://aw.aoscdn.com/tech/tasks/audio/recognition/" + recognition.Data.TaskID
 	header = map[string]string{
-		"origin":         "https://reccloud.cn",
-		"x-api-key":      "wx40d7754m8oubrds",
+		"origin":    "https://reccloud.cn",
+		"x-api-key": "wx40d7754m8oubrds",
 	}
 again:
-	raw, err = util.GET(u, util.WithHeader(header), util.WithRetry(1))
+	raw, err = util.GET(u, util.WithHeader(header), util.WithRetry(2))
 	if err != nil {
 		time.Sleep(2 * time.Second)
 		goto again
