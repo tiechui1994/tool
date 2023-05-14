@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/tiechui1994/tool/util"
 )
@@ -16,8 +17,9 @@ type FileInfo struct {
 	Icon     string `json:"icon"`
 	ID       string `json:"id"`
 	Name     string `json:"name_all"`
-	ShareURL string `json:"url"`
+	Share    string `json:"share"`
 	Download string `json:"download"`
+	URL      string `json:"url"`
 }
 
 func FetchLanZouInfo(shareURL, pwd string) ([]FileInfo, error) {
@@ -131,12 +133,13 @@ func FetchLanZouInfo(shareURL, pwd string) ([]FileInfo, error) {
 		return nil, fmt.Errorf("requestfilemoreajax error: %v", response.Info)
 	}
 	for i, v := range response.Text {
-		response.Text[i].ShareURL = endpoint + "/" + v.ID
-		response.Text[i].Download, err = fetchFileURL(response.Text[i].ShareURL)
+		response.Text[i].Share = endpoint + "/" + v.ID
+		response.Text[i].Download, err = fetchFileURL(response.Text[i].Share)
 		if err != nil {
 			log.Printf("fetch url %v failed: %v",
-				response.Text[i].ShareURL, err)
+				response.Text[i].Share, err)
 		}
+		time.Sleep(time.Millisecond * 1500)
 	}
 
 	return response.Text, nil
@@ -269,4 +272,115 @@ func fetchFileURL(shareURL string) (string, error) {
 	}
 
 	return response.Dom + "/file/" + response.Url, nil
+}
+
+func LanZouRealURL(file *FileInfo) error {
+	raw, header, err := util.Request("GET", file.Download)
+	if err != nil {
+		return fmt.Errorf("get download url failed: %w", err)
+	}
+
+	rNote1 := regexp.MustCompile(`(?s:<!--.*?-->)`)
+	rNote2 := regexp.MustCompile(`(//.*)`)
+	raw = rNote1.ReplaceAll(raw, []byte(""))
+	raw = rNote2.ReplaceAll(raw, []byte(""))
+
+	// 正常流量
+	if !strings.Contains(string(raw), "网络异常") {
+		file.URL = header.Get("Location")
+		log.Printf("url: %v", file.URL)
+		return nil
+	}
+
+	// 异常流量
+	// ajax
+	r := regexp.MustCompile(`(?s:ajax\((\{.*?\})\,)`)
+	values := r.FindAllStringSubmatch(string(raw), 1)
+	if len(values) == 0 || len(values[0]) < 1 {
+		return fmt.Errorf("javascript ajax regex failed")
+	}
+
+	// data
+	r = regexp.MustCompile(`(?s:data\s*\:\s*(\{.*?\}))`)
+	values = r.FindAllStringSubmatch(values[0][1], 1)
+	if len(values) == 0 || len(values[0]) < 1 {
+		return fmt.Errorf("ajax post data regex failed")
+	}
+
+	// key, value
+	values[0][1] = strings.ReplaceAll(values[0][1], `'`, `"`)
+	log.Printf("ajax regex data: %v", values[0][1])
+	r = regexp.MustCompile(`(".*?"|\w)\s*\:\s*(.*?)(\s*,|\s*\})`)
+	values = r.FindAllStringSubmatch(values[0][1], -1)
+	if len(values) == 0 {
+		return fmt.Errorf("post data key:value regex failed")
+	}
+
+	rValueIsNumOrStr := regexp.MustCompile(`^(".*"|\d+)$`)
+	originKV := make(map[string]json.RawMessage)
+	for _, v := range values {
+		key, value := v[1], v[2]
+		if strings.Contains(key, `"`) {
+			key, _ = strconv.Unquote(key)
+		}
+
+		if key == "el" {
+			originKV[key] = []byte("2")
+			continue
+		}
+
+		if rValueIsNumOrStr.MatchString(value) {
+			originKV[key] = []byte(value)
+			continue
+		}
+	}
+
+	raw, err = json.Marshal(originKV)
+	if err != nil {
+		return fmt.Errorf("marshal origin data: %w", err)
+	}
+	var kv map[string]interface{}
+	d := json.NewDecoder(strings.NewReader(string(raw)))
+	d.UseNumber()
+	err = d.Decode(&kv)
+	if err != nil {
+		return fmt.Errorf("convert origin data to form data failed: %w", err)
+	}
+
+	form := make(url.Values)
+	for k, v := range kv {
+		form.Set(k, fmt.Sprintf("%v", v))
+	}
+
+	time.Sleep(2 * time.Second)
+
+	u := "https://developer.lanzoug.com/file" + "/ajax.php"
+	body := form.Encode()
+	log.Printf("request ajax url:%v body: %v", u, body)
+
+	raw, err = util.POST(u, util.WithBody(body), util.WithRetry(2),
+		util.WithHeader(map[string]string{
+			"Content-Type":   "application/x-www-form-urlencoded",
+			"Content-Length": fmt.Sprintf("%v", len(body)),
+		}))
+	if err != nil {
+		return fmt.Errorf("request ajax failed: %w", err)
+	}
+
+	var response struct {
+		Code int    `json:"zt"`
+		URL  string `json:"url"`
+	}
+	err = json.Unmarshal(raw, &response)
+	if err != nil {
+		return fmt.Errorf("request ajax failed: %w", err)
+	}
+
+	if response.Code != 1 {
+		return fmt.Errorf("request ajax error: %v", response.URL)
+	}
+
+	log.Printf("url [%v], %v", file.Share, response.URL)
+	file.URL = response.URL
+	return nil
 }

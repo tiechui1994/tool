@@ -14,7 +14,10 @@ func TestFetch(t *testing.T) {
 	files, err := FetchLanZouInfo("https://wwfr.lanzoul.com/b03k94ueb", "123")
 	if err == nil {
 		for _, f := range files {
-			t.Logf("name: %v, url: %v, download: %v", f.Name, f.ShareURL, f.Download)
+			t.Logf("name: %v, url: %v, download: %v", f.Name, f.Share, f.Download)
+			err = DownloadLanZou(&f)
+			t.Logf("download: %v, %v", err, f.URL)
+			return
 		}
 	}
 }
