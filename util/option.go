@@ -16,6 +16,7 @@ type httpOptions struct {
 	ctx           context.Context
 	BeforeRequest func(r *http.Request)
 	AfterResponse func(w *http.Response)
+	RandomHost    func() string
 }
 
 type Option interface {
@@ -90,5 +91,10 @@ func WithBeforeRequest(f func(r *http.Request)) Option {
 func WithAfterResponse(f func(w *http.Response)) Option {
 	return newFuncDialOption(func(opt *httpOptions) {
 		opt.AfterResponse = f
+	})
+}
+func WithRandomHost(f func() string) Option {
+	return newFuncDialOption(func(opt *httpOptions) {
+		opt.RandomHost = f
 	})
 }

@@ -1,12 +1,14 @@
 package util
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -39,7 +41,12 @@ func Request(method, u string, opts ...Option) (json.RawMessage, http.Header, er
 
 	try := 0
 try:
-	request, err := http.NewRequestWithContext(options.ctx, method, u, options.body)
+	if try > 0 && options.RandomHost != nil {
+		uRL, _ := url.Parse(u)
+		uRL.Host = options.RandomHost()
+		u = uRL.String()
+	}
+	request, err := http.NewRequestWithContext(context.Background(), method, u, options.body)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -78,6 +85,9 @@ try:
 	}
 
 	if response.StatusCode >= 400 {
+		if strings.Contains(response.Header.Get("content-type"), "text/html") {
+			return raw, response.Header, CodeError{method, u, response.StatusCode, ""}
+		}
 		return raw, response.Header, CodeError{method, u, response.StatusCode, string(raw)}
 	}
 
