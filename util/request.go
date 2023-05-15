@@ -43,7 +43,7 @@ func Request(method, u string, opts ...Option) (json.RawMessage, http.Header, er
 try:
 	if try > 0 && options.RandomHost != nil {
 		uRL, _ := url.Parse(u)
-		uRL.Host = options.RandomHost()
+		uRL.Host = options.RandomHost(uRL.Host)
 		u = uRL.String()
 	}
 	request, err := http.NewRequestWithContext(context.Background(), method, u, options.body)
@@ -85,6 +85,11 @@ try:
 	}
 
 	if response.StatusCode >= 400 {
+		if try < options.retry {
+			try += 1
+			time.Sleep(time.Second * time.Duration(try))
+			goto try
+		}
 		if strings.Contains(response.Header.Get("content-type"), "text/html") {
 			return raw, response.Header, CodeError{method, u, response.StatusCode, ""}
 		}

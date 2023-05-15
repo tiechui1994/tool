@@ -22,6 +22,18 @@ type FileInfo struct {
 	URL      string `json:"url"`
 }
 
+var (
+	hosts = []string{
+		"lanzoul.com",
+		"lanzouw.com",
+		"lanzoui.com",
+		"lanzoux.com",
+		"lanzouo.com",
+		"lanzous.com",
+		"lanzoug.com",
+	}
+)
+
 func FetchLanZouInfo(shareURL, pwd string) ([]FileInfo, error) {
 	rURL := regexp.MustCompile(`^(https?://[a-zA-Z0-9-]*?\.?lanzou[a-z].com)/`)
 	urls := rURL.FindAllStringSubmatch(shareURL, 1)
@@ -30,7 +42,26 @@ func FetchLanZouInfo(shareURL, pwd string) ([]FileInfo, error) {
 	}
 	endpoint := urls[0][1]
 
-	raw, err := util.GET(shareURL, util.WithRetry(3))
+	// random host
+	host := func(cur string) (val string) {
+		defer func() {
+			uRL, _ := url.Parse(shareURL)
+			uRL.Host = val
+			shareURL = uRL.String()
+			endpoint = "https://" + val
+		}()
+
+		name := cur[:strings.Index(cur, ".")]
+		for i, v := range hosts {
+			if strings.HasSuffix(cur, v) && i < len(hosts)-1 {
+				return name + "." + hosts[i+1]
+			}
+		}
+
+		return name + "." + hosts[0]
+	}
+
+	raw, err := util.GET(shareURL, util.WithRetry(3), util.WithRandomHost(host))
 	if err != nil {
 		return nil, fmt.Errorf("get share failed: %w", err)
 	}
@@ -153,7 +184,26 @@ func fetchFileURL(shareURL string) (string, error) {
 	}
 	endpoint := urls[0][1]
 
-	raw, err := util.GET(shareURL, util.WithRetry(3))
+	// random host
+	host := func(cur string) (val string) {
+		defer func() {
+			uRL, _ := url.Parse(shareURL)
+			uRL.Host = val
+			shareURL = uRL.String()
+			endpoint = "https://" + val
+		}()
+
+		name := cur[:strings.Index(cur, ".")]
+		for i, v := range hosts {
+			if strings.HasSuffix(cur, v) && i < len(hosts)-1 {
+				return name + "." + hosts[i+1]
+			}
+		}
+
+		return name + "." + hosts[0]
+	}
+
+	raw, err := util.GET(shareURL, util.WithRetry(3), util.WithRandomHost(host))
 	if err != nil {
 		return "", fmt.Errorf("get code file url failed: %w", err)
 	}

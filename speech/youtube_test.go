@@ -15,7 +15,6 @@ func TestSpeechToText(t *testing.T) {
 	t.Logf("%v, %v", raw, err)
 }
 
-
 func TestFetch(t *testing.T) {
 	files, err := FetchLanZouInfo("https://wwfr.lanzoul.com/b03k94ueb", "123")
 	if err == nil {
@@ -26,4 +25,6 @@ func TestFetch(t *testing.T) {
 			return
 		}
 	}
+
+	t.Logf("%v", err)
 }
