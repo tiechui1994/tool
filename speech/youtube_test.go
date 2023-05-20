@@ -28,3 +28,8 @@ func TestFetch(t *testing.T) {
 
 	t.Logf("%v", err)
 }
+
+func TestFetchInfo(t *testing.T) {
+	err := FetchYouTubeAudio("IjR0BS-MIBs", "/tmp/youtube.mp3")
+	t.Logf("%v", err)
+}

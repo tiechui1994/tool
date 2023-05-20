@@ -29,8 +29,6 @@ var (
 		"lanzoui.com",
 		"lanzoux.com",
 		"lanzouo.com",
-		"lanzous.com",
-		"lanzoug.com",
 	}
 )
 
