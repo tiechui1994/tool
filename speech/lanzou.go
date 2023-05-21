@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tidwall/gjson"
 	"github.com/tiechui1994/tool/util"
 )
 
@@ -19,7 +20,6 @@ type FileInfo struct {
 	Name     string `json:"name_all"`
 	Share    string `json:"share"`
 	Download string `json:"download"`
-	URL      string `json:"url"`
 }
 
 var (
@@ -64,6 +64,80 @@ func FetchLanZouInfo(shareURL, pwd string) ([]FileInfo, error) {
 		return nil, fmt.Errorf("get share failed: %w", err)
 	}
 
+	// check
+	rLink := regexp.MustCompile(`id="passwddiv"`)
+	if rLink.MatchString(string(raw)) {
+		return fileDirectURL(raw, shareURL, pwd, endpoint)
+	}
+
+	return fileInDirectURL(raw, shareURL, pwd, endpoint)
+}
+
+// 直接
+func fileDirectURL(raw []byte, shareURL, pwd, endpoint string) ([]FileInfo, error) {
+	rNote1 := regexp.MustCompile(`(?s:<!--.*?-->)`)
+	rNote2 := regexp.MustCompile(`(//.*)`)
+	raw = rNote1.ReplaceAll(raw, []byte(""))
+	raw = rNote2.ReplaceAll(raw, []byte(""))
+
+	// ajax
+	r := regexp.MustCompile(`(?s:ajax\((\{.*?dataType\s*:\s*'json'|"json"\s*)\,)`)
+	values := r.FindAllStringSubmatch(string(raw), 1)
+	if len(values) == 0 || len(values[0]) < 1 {
+		return nil, fmt.Errorf("javascript ajax regex failed")
+	}
+
+	// data
+	values[0][1] = strings.ReplaceAll(values[0][1], `'`, `"`)
+	r = regexp.MustCompile(`data\s*:\s*(".*?")`)
+	values = r.FindAllStringSubmatch(values[0][1], 1)
+	if len(values) == 0 || len(values[0]) < 1 {
+		return nil, fmt.Errorf("ajax post data regex failed")
+	}
+
+	form, _ := strconv.Unquote(values[0][1])
+	u := endpoint + "/ajaxm.php"
+	body := form + pwd
+	log.Printf("request ajaxm url:%v body: %v", u, body)
+	raw, err := util.POST(u, util.WithBody(body), util.WithRetry(3),
+		util.WithHeader(map[string]string{
+			"Content-Type":   "application/x-www-form-urlencoded",
+			"Origin":         endpoint,
+			"Referer":        shareURL,
+			"Content-Length": fmt.Sprintf("%v", len(body)),
+		}))
+	if err != nil {
+		return nil, fmt.Errorf("request ajaxm failed: %w", err)
+	}
+
+	if gjson.GetBytes(raw, "zt").Int() != 1 {
+		return nil, fmt.Errorf("request ajaxm error: %v", gjson.GetBytes(raw, "inf").String())
+	}
+
+	var response struct {
+		Info string `json:"inf"`
+		Code int    `json:"zt"`
+		Dom  string `json:"dom"`
+		Url  string `json:"url"`
+	}
+	err = json.Unmarshal(raw, &response)
+	if err != nil {
+		return nil, fmt.Errorf("decode ajaxm data failed: %w", err)
+	}
+
+	result := []FileInfo{
+		{
+			Name:     response.Info,
+			Share:    shareURL,
+			Download: response.Dom + "/file/" + response.Url,
+		},
+	}
+
+	return result, nil
+}
+
+// 间接
+func fileInDirectURL(raw []byte, shareURL, pwd, endpoint string) ([]FileInfo, error) {
 	// ajax
 	r := regexp.MustCompile(`(?s:ajax\((\{.*?\})\,)`)
 	values := r.FindAllStringSubmatch(string(raw), 1)
@@ -116,7 +190,7 @@ func FetchLanZouInfo(shareURL, pwd string) ([]FileInfo, error) {
 		}
 	}
 
-	raw, err = json.Marshal(originKV)
+	raw, err := json.Marshal(originKV)
 	if err != nil {
 		return nil, fmt.Errorf("marshal origin ajax data failed: %v", err)
 	}
@@ -149,17 +223,18 @@ func FetchLanZouInfo(shareURL, pwd string) ([]FileInfo, error) {
 		return nil, fmt.Errorf("request filemoreajax failed: %w", err)
 	}
 
+	if gjson.GetBytes(raw, "zt").Int() != 1 {
+		return nil, fmt.Errorf("request filemoreajax error: %v", gjson.GetBytes(raw, "inf").String())
+	}
+
 	var response struct {
-		Info string     `json:"info"`
+		Info string     `json:"inf"`
 		Code int        `json:"zt"`
 		Text []FileInfo `json:"text"`
 	}
 	err = json.Unmarshal(raw, &response)
 	if err != nil {
 		return nil, fmt.Errorf("decode filemoreajax data failed: %w", err)
-	}
-	if response.Code != 1 {
-		return nil, fmt.Errorf("requestfilemoreajax error: %v", response.Info)
 	}
 	for i, v := range response.Text {
 		response.Text[i].Share = endpoint + "/" + v.ID
@@ -305,8 +380,11 @@ func fetchFileURL(shareURL string) (string, error) {
 		return "", fmt.Errorf("request ajaxm failed: %w", err)
 	}
 
+	if gjson.GetBytes(raw, "zt").Int() != 1 {
+		return "", fmt.Errorf("request ajaxm error: %v", gjson.GetBytes(raw, "inf").String())
+	}
+
 	var response struct {
-		Info string `json:"info"`
 		Code int    `json:"zt"`
 		Dom  string `json:"dom"`
 		Url  string `json:"url"`
@@ -315,17 +393,14 @@ func fetchFileURL(shareURL string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("decode ajaxm data failed: %w", err)
 	}
-	if response.Code != 1 {
-		return "", fmt.Errorf("request ajaxm error: %v", response.Info)
-	}
 
 	return response.Dom + "/file/" + response.Url, nil
 }
 
-func LanZouRealURL(file *FileInfo) error {
-	raw, header, err := util.Request("GET", file.Download)
+func LanZouRealURL(download string) (string, error) {
+	raw, header, err := util.Request("GET", download)
 	if err != nil {
-		return fmt.Errorf("get download url failed: %w", err)
+		return "", fmt.Errorf("get download url failed: %w", err)
 	}
 
 	rNote1 := regexp.MustCompile(`(?s:<!--.*?-->)`)
@@ -335,9 +410,9 @@ func LanZouRealURL(file *FileInfo) error {
 
 	// 正常流量
 	if !strings.Contains(string(raw), "网络异常") {
-		file.URL = header.Get("Location")
-		log.Printf("url: %v", file.URL)
-		return nil
+		uRL := header.Get("Location")
+		log.Printf("url: %v", uRL)
+		return uRL, nil
 	}
 
 	// 异常流量
@@ -345,14 +420,14 @@ func LanZouRealURL(file *FileInfo) error {
 	r := regexp.MustCompile(`(?s:ajax\((\{.*?\})\,)`)
 	values := r.FindAllStringSubmatch(string(raw), 1)
 	if len(values) == 0 || len(values[0]) < 1 {
-		return fmt.Errorf("javascript ajax regex failed")
+		return "", fmt.Errorf("javascript ajax regex failed")
 	}
 
 	// data
 	r = regexp.MustCompile(`(?s:data\s*\:\s*(\{.*?\}))`)
 	values = r.FindAllStringSubmatch(values[0][1], 1)
 	if len(values) == 0 || len(values[0]) < 1 {
-		return fmt.Errorf("ajax post data regex failed")
+		return "", fmt.Errorf("ajax post data regex failed")
 	}
 
 	// key, value
@@ -361,7 +436,7 @@ func LanZouRealURL(file *FileInfo) error {
 	r = regexp.MustCompile(`(".*?"|\w)\s*\:\s*(.*?)(\s*,|\s*\})`)
 	values = r.FindAllStringSubmatch(values[0][1], -1)
 	if len(values) == 0 {
-		return fmt.Errorf("post data key:value regex failed")
+		return "", fmt.Errorf("post data key:value regex failed")
 	}
 
 	rValueIsNumOrStr := regexp.MustCompile(`^(".*"|\d+)$`)
@@ -385,14 +460,14 @@ func LanZouRealURL(file *FileInfo) error {
 
 	raw, err = json.Marshal(originKV)
 	if err != nil {
-		return fmt.Errorf("marshal origin data: %w", err)
+		return "", fmt.Errorf("marshal origin data: %w", err)
 	}
 	var kv map[string]interface{}
 	d := json.NewDecoder(strings.NewReader(string(raw)))
 	d.UseNumber()
 	err = d.Decode(&kv)
 	if err != nil {
-		return fmt.Errorf("convert origin data to form data failed: %w", err)
+		return "", fmt.Errorf("convert origin data to form data failed: %w", err)
 	}
 
 	form := make(url.Values)
@@ -412,7 +487,7 @@ func LanZouRealURL(file *FileInfo) error {
 			"Content-Length": fmt.Sprintf("%v", len(body)),
 		}))
 	if err != nil {
-		return fmt.Errorf("request ajax failed: %w", err)
+		return "", fmt.Errorf("request ajax failed: %w", err)
 	}
 
 	var response struct {
@@ -421,14 +496,12 @@ func LanZouRealURL(file *FileInfo) error {
 	}
 	err = json.Unmarshal(raw, &response)
 	if err != nil {
-		return fmt.Errorf("request ajax failed: %w", err)
+		return "", fmt.Errorf("request ajax failed: %w", err)
 	}
 
 	if response.Code != 1 {
-		return fmt.Errorf("request ajax error: %v", response.URL)
+		return "", fmt.Errorf("request ajax error: %v", response.URL)
 	}
 
-	log.Printf("url [%v], %v", file.Share, response.URL)
-	file.URL = response.URL
-	return nil
+	return response.URL, nil
 }
