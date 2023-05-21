@@ -29,7 +29,6 @@ func TestFetchLanZou1(t *testing.T) {
 	t.Logf("%v", err)
 }
 
-
 func TestFetchLanZou2(t *testing.T) {
 	files, err := FetchLanZouInfo("https://wwmq.lanzouy.com/iwYWX0wrtyeh", "1122")
 	if err == nil {
