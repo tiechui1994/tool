@@ -24,11 +24,12 @@ type FileInfo struct {
 
 var (
 	hosts = []string{
-		"lanzoul.com",
+		"lanzouy.com",
 		"lanzouw.com",
 		"lanzoui.com",
 		"lanzoux.com",
 		"lanzouo.com",
+		"lanzoul.com",
 	}
 )
 
@@ -236,6 +237,9 @@ func fileInDirectURL(raw []byte, shareURL, pwd, endpoint string) ([]FileInfo, er
 	if err != nil {
 		return nil, fmt.Errorf("decode filemoreajax data failed: %w", err)
 	}
+
+	time.Sleep(time.Millisecond * 1500)
+
 	for i, v := range response.Text {
 		response.Text[i].Share = endpoint + "/" + v.ID
 		response.Text[i].Download, err = fetchFileURL(response.Text[i].Share)
@@ -243,7 +247,7 @@ func fileInDirectURL(raw []byte, shareURL, pwd, endpoint string) ([]FileInfo, er
 			log.Printf("fetch url %v failed: %v",
 				response.Text[i].Share, err)
 		}
-		time.Sleep(time.Millisecond * 1500)
+		time.Sleep(time.Millisecond * 2000)
 	}
 
 	return response.Text, nil
@@ -292,6 +296,8 @@ func fetchFileURL(shareURL string) (string, error) {
 	if len(values) == 0 || len(values[0]) < 1 {
 		return "", fmt.Errorf("iframe source regex failed")
 	}
+
+	time.Sleep(time.Second)
 
 	fn := endpoint + values[0][1]
 	log.Printf("fn url: %v", fn)
@@ -365,6 +371,8 @@ func fetchFileURL(shareURL string) (string, error) {
 	for k, v := range kv {
 		form.Set(k, fmt.Sprintf("%v", v))
 	}
+
+	time.Sleep(time.Second)
 
 	u := endpoint + "/ajaxm.php"
 	body := form.Encode()
