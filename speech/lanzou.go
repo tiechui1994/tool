@@ -483,17 +483,27 @@ func LanZouRealURL(download string) (string, error) {
 		form.Set(k, fmt.Sprintf("%v", v))
 	}
 
-	time.Sleep(2 * time.Second)
+	time.Sleep(3 * time.Second)
 
-	u := "https://developer.lanzoug.com/file" + "/ajax.php"
+	u := "https://developer.lanzoug.com/file/ajax.php"
 	body := form.Encode()
-	log.Printf("request ajax url:%v body: %v", u, body)
+	host := func(cur string) (val string) {
+		name := cur[:strings.Index(cur, ".")]
+		for i, v := range hosts {
+			if strings.HasSuffix(cur, v) && i < len(hosts)-1 {
+				return name + "." + hosts[i+1]
+			}
+		}
 
-	raw, err = util.POST(u, util.WithBody(body), util.WithRetry(3),
+		return name + "." + hosts[0]
+	}
+
+	log.Printf("request ajax url:%v body: %v", u, body)
+	raw, err = util.POST(u, util.WithBody(body), util.WithRetry(4),
 		util.WithHeader(map[string]string{
 			"Content-Type":   "application/x-www-form-urlencoded",
 			"Content-Length": fmt.Sprintf("%v", len(body)),
-		}))
+		}), util.WithRandomHost(host))
 	if err != nil {
 		return "", fmt.Errorf("request ajax failed: %w", err)
 	}
