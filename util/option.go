@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -14,9 +15,10 @@ type httpOptions struct {
 	body          io.Reader
 	retry         int
 	ctx           context.Context
-	BeforeRequest func(r *http.Request)
-	AfterResponse func(w *http.Response)
-	RandomHost    func(string) string
+	beforeRequest func(r *http.Request)
+	afterResponse func(w *http.Response)
+	randomHost    func(string) string
+	proxy         func(*http.Request) (*url.URL, error)
 }
 
 type Option interface {
@@ -84,17 +86,23 @@ func WithContext(ctx context.Context) Option {
 
 func WithBeforeRequest(f func(r *http.Request)) Option {
 	return newFuncDialOption(func(opt *httpOptions) {
-		opt.BeforeRequest = f
+		opt.beforeRequest = f
 	})
 }
 
 func WithAfterResponse(f func(w *http.Response)) Option {
 	return newFuncDialOption(func(opt *httpOptions) {
-		opt.AfterResponse = f
+		opt.afterResponse = f
 	})
 }
 func WithRandomHost(f func(string) string) Option {
 	return newFuncDialOption(func(opt *httpOptions) {
-		opt.RandomHost = f
+		opt.randomHost = f
+	})
+}
+
+func WithProxy(f func(*http.Request) (*url.URL, error)) Option {
+	return newFuncDialOption(func(opt *httpOptions) {
+		opt.proxy = f
 	})
 }

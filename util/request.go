@@ -41,9 +41,9 @@ func Request(method, u string, opts ...Option) (json.RawMessage, http.Header, er
 
 	try := 0
 try:
-	if try > 0 && options.RandomHost != nil {
+	if try > 0 && options.randomHost != nil {
 		uRL, _ := url.Parse(u)
-		uRL.Host = options.RandomHost(uRL.Host)
+		uRL.Host = options.randomHost(uRL.Host)
 		u = uRL.String()
 	}
 	request, err := http.NewRequestWithContext(context.Background(), method, u, options.body)
@@ -61,6 +61,15 @@ try:
 		request.ContentLength, _ = strconv.ParseInt(val, 10, 64)
 	}
 
+	if options.proxy != nil {
+		transport := client.Client.Transport.(*http.Transport)
+		proxy := transport.Proxy
+		transport.Proxy = options.proxy
+		defer func() {
+			transport.Proxy = proxy
+		}()
+	}
+
 	response, err := client.Do(request)
 	if err != nil && try < options.retry {
 		try += 1
@@ -71,8 +80,8 @@ try:
 		return nil, nil, err
 	}
 
-	if options.BeforeRequest != nil {
-		options.BeforeRequest(request)
+	if options.beforeRequest != nil {
+		options.beforeRequest(request)
 	}
 
 	raw, err := ioutil.ReadAll(response.Body)
@@ -80,8 +89,8 @@ try:
 		return nil, nil, err
 	}
 
-	if options.AfterResponse != nil {
-		options.AfterResponse(response)
+	if options.afterResponse != nil {
+		options.afterResponse(response)
 	}
 
 	if response.StatusCode >= 400 {

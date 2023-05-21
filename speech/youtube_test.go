@@ -16,7 +16,7 @@ func TestSpeechToText(t *testing.T) {
 }
 
 func TestFetchLanZou1(t *testing.T) {
-	files, err := FetchLanZouInfo("https://wwfr.lanzoul.com/b03k94ueb", "123")
+	files, err := FetchLanZouInfo("https://wwjp.lanzoul.com/b03ka1s9c", "520")
 	if err == nil {
 		for _, f := range files {
 			t.Logf("name: %v, url: %v, download: %v", f.Name, f.Share, f.Download)
