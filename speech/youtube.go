@@ -479,6 +479,19 @@ func (tube *YouTube) First() (format Format, err error) {
 	return tube.IndexOf(0)
 }
 
+func (tube *YouTube) Last() (format Format, err error) {
+	err = tube.execute()
+	if err != nil {
+		return format, err
+	}
+
+	if len(tube.formats) > 0 {
+		return tube.formats[len(tube.formats)-1], nil
+	}
+
+	return format, fmt.Errorf("no result")
+}
+
 func (f *Format) Download(dst string) error {
 	fd, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0666)
 	if err != nil {
