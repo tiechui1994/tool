@@ -4,12 +4,6 @@ import (
 	"testing"
 )
 
-func TestYoutubeDownload(t *testing.T) {
-	err := YoutubeDownload("https://www.youtube.com/watch?v=dvKMbiolsw4",
-		"./xyz.mp4", MP4480PFormat)
-	t.Logf("%v", err)
-}
-
 func TestSpeechToText(t *testing.T) {
 	raw, err := SpeechToText("/tmp/music1242919276/youtube.mp3")
 	t.Logf("%v, %v", raw, err)
@@ -46,4 +40,13 @@ func TestFetchLanZou2(t *testing.T) {
 func TestFetchInfo(t *testing.T) {
 	err := FetchYouTubeAudio("IjR0BS-MIBs", "/tmp/youtube.mp3")
 	t.Logf("%v", err)
+}
+
+func TestYoutube(t *testing.T) {
+	yt := YouTube{VideoID: "IjR0BS-MIBs"}
+	formats, err := yt.Filter(WithVideoOnly).OrderBy(QualityOrder).All()
+	t.Logf("%v", err)
+	for _, format := range formats {
+		t.Logf("%v, %v, %v, %v %v", format.Res, format.Fps, format.FileSize, format.SubType, format.Url)
+	}
 }

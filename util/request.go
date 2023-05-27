@@ -85,6 +85,11 @@ try:
 	}
 
 	raw, err := ioutil.ReadAll(response.Body)
+	if err != nil && try < options.retry {
+		try += 1
+		time.Sleep(time.Second * time.Duration(try))
+		goto try
+	}
 	if err != nil {
 		return nil, nil, err
 	}
