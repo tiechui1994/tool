@@ -47,6 +47,14 @@ func TestYoutube(t *testing.T) {
 	formats, err := yt.Filter(WithVideoOnly).OrderBy(QualityOrder).All()
 	t.Logf("%v", err)
 	for _, format := range formats {
-		t.Logf("%v, %v, %v, %v %v", format.Res, format.Fps, format.FileSize, format.SubType, format.Url)
+		t.Logf("%v, %v, %v, %v", format.Res, format.Fps, format.FileSize, format.SubType)
+	}
+
+	t.Logf("===========")
+
+	formats, err = yt.OrderBy(QualityOrder).All()
+	t.Logf("%v", err)
+	for _, format := range formats {
+		t.Logf("%v, %v, %v, %v", format.Res, format.Fps, format.FileSize, format.SubType)
 	}
 }

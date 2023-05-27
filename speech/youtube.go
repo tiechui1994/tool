@@ -242,7 +242,7 @@ type videoFormat struct {
 	ApproxDurationMs string `json:"approxDurationMs"`
 }
 
-func fetchInfoByVideoID(videoID string) (audios []audioFormat, videos []videoFormat, err error) {
+func fetchInfoFromAPI(videoID string) (audios []audioFormat, videos []videoFormat, err error) {
 	param := params["ANDROID_EMBED"]
 	query := url.Values{}
 	query.Set("key", param.APIkey)
@@ -260,10 +260,10 @@ func fetchInfoByVideoID(videoID string) (audios []audioFormat, videos []videoFor
 		"context": param.Context,
 	}
 
-	raw, err := util.POST(u, util.WithHeader(headers), util.WithBody(body), util.WithRetry(5))
+	raw, err := util.POST(u, util.WithHeader(headers), util.WithBody(body), util.WithRetry(2))
 	if err != nil {
 		fmt.Println(err)
-		return nil, nil, fmt.Errorf("get player info error: %w", err)
+		return nil, nil, err
 	}
 
 	var response struct {
@@ -274,6 +274,39 @@ func fetchInfoByVideoID(videoID string) (audios []audioFormat, videos []videoFor
 		} `json:"streamingData"`
 	}
 	err = json.Unmarshal(raw, &response)
+	if err != nil {
+		return nil, nil, fmt.Errorf("decode player failed: %w", err)
+	}
+
+	if response.StreamingData.ExpiresInSeconds == "" {
+		return nil, nil, fmt.Errorf("palyer invalid")
+	}
+	return response.StreamingData.Formats, response.StreamingData.AdaptiveFormats, nil
+}
+
+func fetchInfoFromWeb(videoID string) (audios []audioFormat, videos []videoFormat, err error) {
+	u := "https://www.youtube.com/watch?v=" + videoID
+	raw, err := util.GET(u, util.WithRetry(3), util.WithHeader(map[string]string{
+		"user-agent": "Linux",
+	}))
+	if err != nil {
+		return audios, videos, err
+	}
+
+	r := regexp.MustCompile(`(?s:ytInitialPlayerResponse\s*=\s*(.*?);\s*</script>)`)
+	values := r.FindAllStringSubmatch(string(raw), 1)
+	if len(values) == 0 || len(values[0]) < 2 {
+		return audios, videos, fmt.Errorf("get youtube web no response: %v", u)
+	}
+
+	var response struct {
+		StreamingData struct {
+			ExpiresInSeconds string        `json:"expiresInSeconds"`
+			Formats          []audioFormat `json:"formats"`
+			AdaptiveFormats  []videoFormat `json:"adaptiveFormats"`
+		} `json:"streamingData"`
+	}
+	err = json.Unmarshal([]byte(values[0][1]), &response)
 	if err != nil {
 		return nil, nil, fmt.Errorf("decode player failed: %w", err)
 	}
@@ -340,10 +373,6 @@ func format(data interface{}) (val Format) {
 		val.DurationMs, _ = strconv.ParseInt(v.ApproxDurationMs, 10, 64)
 	}
 
-	if val.FileSize == 0 {
-		fmt.Printf("%+v \n", data)
-	}
-
 	return val
 }
 
@@ -389,7 +418,11 @@ func (tube *YouTube) init() {
 	}
 
 	tube.initOnce.Do(func() {
-		audios, videos, err := fetchInfoByVideoID(tube.VideoID)
+		audios, videos, err := fetchInfoFromAPI(tube.VideoID)
+		if err != nil {
+			fmt.Println("22222222222")
+			audios, videos, err = fetchInfoFromWeb(tube.VideoID)
+		}
 		if err != nil {
 			tube.err = err
 			return
