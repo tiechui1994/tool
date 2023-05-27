@@ -1,8 +1,11 @@
 package aliyundrive
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/md5"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -17,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dustinxie/ecc"
 	"github.com/tiechui1994/tool/log"
 	"github.com/tiechui1994/tool/util"
 )
@@ -108,13 +112,80 @@ type File struct {
 	Extension string `json:"file_extension"`
 }
 
-func Files(parentFileID string, token Token) (list []File, err error) {
-	u := yunpan + "/v2/file/list"
-	header := map[string]string{
+type State struct {
+	UserID     string
+	deviceID   string
+	signature  string
+	retry      int
+	privateKey *ecdsa.PrivateKey
+}
+
+var (
+	state *State
+	once  sync.Once
+)
+
+func initState(token Token) {
+	once.Do(func() {
+		state = &State{}
+		state.deviceID = "YdH4HNm1yFYCAd5aO5ezK4zU"
+		state.privateKey, _ = util.NewPrivateKeyFromHex(util.Sha256(state.deviceID))
+
+		secpAppID := "5dde4e1bdf9e4966b387ba58f4b3fdc3"
+		singdata := fmt.Sprintf("%s:%s:%s:%d", secpAppID, state.deviceID, token.UserID, 0)
+		hash := sha256.Sum256([]byte(singdata))
+		data, _ := ecc.SignBytes(state.privateKey, hash[:], ecc.RecID|ecc.LowerS)
+		state.signature = hex.EncodeToString(data)
+
+		pubKey := hex.EncodeToString(
+			elliptic.Marshal(elliptic.P256(), state.privateKey.PublicKey.X, state.privateKey.PublicKey.Y))
+		u := "https://api.aliyundrive.com/users/v1/users/device/create_session"
+		body := fmt.Sprintf(`{"deviceName":"Chrome浏览器","modelName":"Linux网页版","pubKey":"%v"}`,
+			pubKey)
+		header := map[string]string{
+			"accept":        "application/json",
+			"authorization": "Bearer " + token.AccessToken,
+			"content-type":  "application/json",
+			"X-Canary":      "client=web,app=adrive,version=v4.3.1",
+			"x-device-id":   state.deviceID,
+			"X-Signature":   state.signature,
+		}
+		raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header), util.WithRetry(3))
+		if err != nil {
+			fmt.Printf("create_session failed: %v \n", err)
+			os.Exit(1)
+		}
+		var result struct {
+			Success bool        `json:"success"`
+			Message interface{} `json:"message"`
+		}
+		err = json.Unmarshal(raw, &result)
+		if err != nil {
+			fmt.Printf("decode result failed: %v \n", err)
+			os.Exit(1)
+		}
+		if !result.Success {
+			fmt.Printf("session failed: %v \n", result.Message)
+			os.Exit(1)
+		}
+	})
+}
+
+func commonHeader(token Token) map[string]string {
+	initState(token)
+	return map[string]string{
 		"accept":        "application/json",
 		"authorization": "Bearer " + token.AccessToken,
 		"content-type":  "application/json",
+		"X-Canary":      "client=web,app=adrive,version=v4.3.1",
+		"x-device-id":   state.deviceID,
+		"X-Signature":   state.signature,
 	}
+}
+
+func Files(parentFileID string, token Token) (list []File, err error) {
+	u := yunpan + "/v2/file/list"
+	header := commonHeader(token)
 	var body struct {
 		All                   bool   `json:"all"`
 		DriveID               string `json:"drive_id"`
@@ -162,11 +233,7 @@ func Files(parentFileID string, token Token) (list []File, err error) {
 
 func FileInfo(fileid string, token Token) (file File, err error) {
 	u := yunpan + "/v2/file/get"
-	header := map[string]string{
-		"accept":        "application/json",
-		"authorization": "Bearer " + token.AccessToken,
-		"content-type":  "application/json",
-	}
+	header := commonHeader(token)
 	var body struct {
 		DriveID string `json:"drive_id"`
 		FileID  string `json:"file_id"`
@@ -216,11 +283,7 @@ const (
 func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, args map[string]interface{}, path ...string) (
 	upload UploadFolderInfo, err error) {
 	u := yunpan + "/adrive/v2/file/createWithFolders"
-	header := map[string]string{
-		"accept":        "application/json",
-		"authorization": "Bearer " + token.AccessToken,
-		"content-type":  "application/json",
-	}
+	header := commonHeader(token)
 
 	body := map[string]interface{}{
 		"check_name_mode": checkmode,
@@ -352,11 +415,7 @@ func UploadFile(path, fileid string, token Token) (id string, err error) {
 
 	log.Infoln("upload file=%q complete", path)
 	u := yunpan + "/v2/file/complete"
-	header := map[string]string{
-		"accept":        "application/json",
-		"authorization": "Bearer " + token.AccessToken,
-		"content-type":  "application/json",
-	}
+	header := commonHeader(token)
 	body := map[string]string{
 		"drive_id":  token.DriveID,
 		"file_id":   upload.FileID,
@@ -392,11 +451,7 @@ type batchRequest struct {
 
 func Batch(requests []batchRequest, token Token) error {
 	u := yunpan + "/v2/batch"
-	header := map[string]string{
-		"accept":        "application/json",
-		"authorization": "Bearer " + token.AccessToken,
-		"content-type":  "application/json",
-	}
+	header := commonHeader(token)
 
 	body := map[string]interface{}{
 		"requests": requests,
@@ -467,11 +522,7 @@ func Delete(files []File, token Token) error {
 
 func Rename(name, fileid string, token Token) error {
 	u := yunpan + "/v3/file/update"
-	header := map[string]string{
-		"accept":        "application/json",
-		"authorization": "Bearer " + token.AccessToken,
-		"content-type":  "application/json",
-	}
+	header := commonHeader(token)
 
 	body := map[string]interface{}{
 		"check_name_mode": refuse_mode,
@@ -498,11 +549,7 @@ func GetDownloadUrl(file File, token Token) (du DownloadUrl, err error) {
 		"file_id":  file.FileID,
 		"drive_id": file.DriveID,
 	}
-	header := map[string]string{
-		"accept":        "application/json",
-		"authorization": "Bearer " + token.AccessToken,
-		"content-type":  "application/json",
-	}
+	header := commonHeader(token)
 	raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
 	if err != nil {
 		return du, err
@@ -606,11 +653,7 @@ type ShareInfo struct {
 
 func Share(fileidlist []string, token Token) (share ShareInfo, err error) {
 	u := yunpan + "/adrive/v2/share_link/create"
-	header := map[string]string{
-		"accept":        "application/json",
-		"authorization": "Bearer " + token.AccessToken,
-		"content-type":  "application/json",
-	}
+	header := commonHeader(token)
 	body := map[string]interface{}{
 		"drive_id":     token.DriveID,
 		"expiration":   time.Now().Add(7 * time.Hour * 24).Format("2006-01-02T15:04:05.000Z"),
@@ -628,11 +671,7 @@ func Share(fileidlist []string, token Token) (share ShareInfo, err error) {
 
 func ShareList(token Token) (list []ShareInfo, err error) {
 	u := yunpan + "/adrive/v2/share_link/list"
-	header := map[string]string{
-		"accept":        "application/json",
-		"authorization": "Bearer " + token.AccessToken,
-		"content-type":  "application/json",
-	}
+	header := commonHeader(token)
 	body := map[string]interface{}{
 		"creator":          token.UserID,
 		"include_canceled": false,
@@ -677,11 +716,7 @@ func ShareCancel(shareidlist []string, token Token) error {
 
 func Search(fileid string, token Token) (list []File, err error) {
 	u := yunpan + "/v2/file/search"
-	header := map[string]string{
-		"accept":        "application/json",
-		"authorization": "Bearer " + token.AccessToken,
-		"content-type":  "application/json",
-	}
+	header := commonHeader(token)
 	var body struct {
 		DriveID               string `json:"drive_id"`
 		Limit                 int    `json:"limit"`
@@ -718,11 +753,7 @@ func Search(fileid string, token Token) (list []File, err error) {
 func Create(checkmode, name, filetype, fileid string, token Token, appendargs map[string]interface{}, path ...string) (
 	upload UploadFolderInfo, err error) {
 	u := yunpan + "/adrive/v1/biz/albums/file/create"
-	header := map[string]string{
-		"accept":        "application/json",
-		"authorization": "Bearer " + token.AccessToken,
-		"content-type":  "application/json",
-	}
+	header := commonHeader(token)
 
 	body := map[string]interface{}{
 		"check_name_mode": checkmode,
