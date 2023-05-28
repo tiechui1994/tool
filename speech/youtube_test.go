@@ -43,11 +43,16 @@ func TestFetchInfo(t *testing.T) {
 }
 
 func TestYoutube(t *testing.T) {
-	yt := YouTube{VideoID: "IjR0BS-MIBs"}
+	yt := YouTube{VideoID: "UDm3WR8b2sI"}
 	formats, err := yt.Filter(WithVideoOnly).OrderBy(QualityOrder).All()
 	t.Logf("%v", err)
-	for _, format := range formats {
+	for i, format := range formats {
 		t.Logf("%v, %v, %v, %v", format.Res, format.Fps, format.FileSize, format.SubType)
+		t.Logf("%v", format.Url)
+		if i == len(formats)-1 {
+			err = format.Download("/tmp/xyz.mp3")
+			t.Log("error", err)
+		}
 	}
 
 	t.Logf("===========")
@@ -56,5 +61,6 @@ func TestYoutube(t *testing.T) {
 	t.Logf("%v", err)
 	for _, format := range formats {
 		t.Logf("%v, %v, %v, %v", format.Res, format.Fps, format.FileSize, format.SubType)
+		t.Logf("%v", format.Url)
 	}
 }

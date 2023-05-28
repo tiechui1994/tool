@@ -102,19 +102,25 @@ func (e *Aes) Encrypt(raw []byte) ([]byte, error) {
 	var (
 		enc, dst, iv []byte
 	)
-	if len(e.IV) != blockSize {
-		// 初始向量IV必须是唯一, 但不需要保密
-		enc = make([]byte, blockSize+len(raw))
-		iv = enc[:blockSize]
-		if _, err := io.ReadFull(rand.Reader, iv); err != nil {
-			return nil, err
+	switch e.Mode {
+	case MODECBC, MODECFB, MODECTR:
+		if len(e.IV) != blockSize {
+			// 初始向量IV必须是唯一, 但不需要保密
+			enc = make([]byte, blockSize+len(raw))
+			iv = enc[:blockSize]
+			if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+				return nil, err
+			}
+			dst = enc[blockSize:]
+		} else {
+			// 初始向量IV唯一
+			enc = make([]byte, len(raw))
+			iv = make([]byte, blockSize)
+			copy(iv, e.IV)
+			dst = enc
 		}
-		dst = enc[blockSize:]
-	} else {
-		// 初始向量IV唯一
+	case MODEECB:
 		enc = make([]byte, len(raw))
-		iv = make([]byte, blockSize)
-		copy(iv, e.IV)
 		dst = enc
 	}
 
@@ -129,6 +135,9 @@ func (e *Aes) Encrypt(raw []byte) ([]byte, error) {
 	case MODECTR:
 		mode := cipher.NewCTR(block, iv)
 		mode.XORKeyStream(dst, raw)
+	case MODEECB:
+		mode := NewECBEncrypter(block)
+		mode.CryptBlocks(dst, raw)
 	}
 
 	return enc, nil
@@ -146,12 +155,15 @@ func (e *Aes) Decrypt(raw []byte) ([]byte, error) {
 	}
 
 	var iv []byte
-	if len(e.IV) != blockSize {
-		iv = raw[:blockSize]
-		raw = raw[blockSize:]
-	} else {
-		iv = make([]byte, blockSize)
-		copy(iv, e.IV)
+	switch e.Mode {
+	case MODECBC, MODECFB, MODECTR:
+		if len(e.IV) != blockSize {
+			iv = raw[:blockSize]
+			raw = raw[blockSize:]
+		} else {
+			iv = make([]byte, blockSize)
+			copy(iv, e.IV)
+		}
 	}
 
 	// CBC mode always works in whole blocks.
@@ -169,6 +181,9 @@ func (e *Aes) Decrypt(raw []byte) ([]byte, error) {
 	case MODECTR:
 		mode := cipher.NewCTR(block, iv)
 		mode.XORKeyStream(raw, raw)
+	case MODEECB:
+		mode := NewECBDecrypter(block)
+		mode.CryptBlocks(raw, raw)
 	}
 
 	switch e.Padding {
