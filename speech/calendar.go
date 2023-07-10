@@ -3,6 +3,7 @@ package speech
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -23,6 +24,7 @@ type Event struct {
 	End         *EventDateTime
 	Description string
 	Summary     string
+	Where       string
 }
 
 type EventOption interface {
@@ -72,6 +74,12 @@ func withCron(cron Cron, callback func() string) *eventOption {
 	})
 }
 
+func WithEmpty() *eventOption {
+	return newEventOption(func() []string {
+		return []string{}
+	})
+}
+
 func WithCron(c Cron, interval ...int) *eventOption {
 	interval = append(interval, 1)
 	return withCron(c, func() string {
@@ -100,7 +108,7 @@ func WithForever(c Cron, interval ...int) *eventOption {
 	})
 }
 
-func GetEvent(token oauth2.Token) error {
+func DeleteEvent(token oauth2.Token, start, end, zone string) error {
 	service, err := calendar.NewService(context.Background(),
 		option.WithHTTPClient(getClient(&token)))
 	if err != nil {
@@ -108,17 +116,76 @@ func GetEvent(token oauth2.Token) error {
 	}
 
 	calendarId := "primary"
-	list, err := service.Events.List(calendarId).Do()
+	list, err := service.Events.List(calendarId).
+		TimeMin(start).TimeMax(end).TimeZone(zone).MaxResults(512).Do()
 	if err != nil {
 		return err
 	}
 
-	for _, v := range list.Items {
-		raw, _ := v.MarshalJSON()
-		fmt.Println(string(raw))
+	for _, item := range list.Items {
+		if len(item.Recurrence) == 0 {
+			_ = delEvent(token, []string{item.Id})
+			continue
+		}
+
+		instances, err := service.Events.Instances(calendarId, item.Id).
+			TimeMin(start).TimeMax(end).TimeZone(zone).MaxResults(512).Do()
+		if err != nil {
+			continue
+		}
+
+		eventIdList := make([]string, 0, len(instances.Items))
+		for _, it := range instances.Items {
+			eventIdList = append(eventIdList, it.Id)
+		}
+		_ = delEvent(token, eventIdList)
 	}
 
 	return err
+}
+
+func delEvent(token oauth2.Token, eventIdList []string) error {
+	service, err := calendar.NewService(context.Background(),
+		option.WithHTTPClient(getClient(&token)))
+	if err != nil {
+		return err
+	}
+
+	calendarId := "primary"
+	if len(eventIdList) == 0 {
+		return service.Events.Delete(calendarId, eventIdList[0]).Do()
+	}
+
+	in := make(chan string, 2)
+	out := make(chan struct{})
+	go func() {
+		for _, eventId := range eventIdList {
+			in <- eventId
+		}
+		close(in)
+	}()
+
+	for i := 0; i < 2; i++ {
+		go func() {
+			defer func() {
+				out <- struct{}{}
+			}()
+			eventId, ok := <-in
+			if !ok {
+				return
+			}
+			err = service.Events.Delete(calendarId, eventId).Do()
+			if err != nil {
+				log.Printf("DEL failed: %v", err)
+			}
+		}()
+	}
+
+	for i := 0; i < len(eventIdList); i++ {
+		<-out
+	}
+
+	return nil
 }
 
 func InsertEvent(event Event, token oauth2.Token, frequency EventOption) (err error) {
@@ -134,6 +201,18 @@ func InsertEvent(event Event, token oauth2.Token, frequency EventOption) (err er
 		Start:       event.Start,
 		End:         event.End,
 		Recurrence:  frequency.apply(),
+		Location:    event.Where,
+		Reminders: &calendar.EventReminders{
+			Overrides: []*calendar.EventReminder{
+				{
+					Method:          "email",
+					Minutes:         0,
+					ForceSendFields: []string{"Minutes"},
+				},
+			},
+			UseDefault:      false,
+			ForceSendFields: []string{"UseDefault"},
+		},
 	}
 
 	calendarId := "primary"
