@@ -2,6 +2,8 @@ package speech
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -17,14 +19,24 @@ func getClient(token *oauth2.Token) *http.Client {
 	return config.Client(context.Background(), token)
 }
 
-type EventDateTime = calendar.EventDateTime
+type EventDateTime struct {
+	DateTime string `json:"dateTime,omitempty"`
+	TimeZone string `json:"timeZone,omitempty"`
+}
+
+type Recurrence []string
 
 type Event struct {
-	Start       *EventDateTime
-	End         *EventDateTime
-	Description string
-	Summary     string
-	Where       string
+	Start      *EventDateTime
+	End        *EventDateTime
+	Title      string
+	Recurrence Recurrence
+	Body       json.RawMessage
+	Request    struct {
+		URL     string            `json:"url"`
+		Method  string            `json:"method"`
+		Headers map[string]string `json:"headers"`
+	}
 }
 
 type EventOption interface {
@@ -74,38 +86,38 @@ func withCron(cron Cron, callback func() string) *eventOption {
 	})
 }
 
-func WithEmpty() *eventOption {
+func WithEmpty() Recurrence {
 	return newEventOption(func() []string {
 		return []string{}
-	})
+	}).apply()
 }
 
-func WithCron(c Cron, interval ...int) *eventOption {
+func WithCron(c Cron, interval ...int) Recurrence {
 	interval = append(interval, 1)
 	return withCron(c, func() string {
 		return fmt.Sprintf("COUNT=1;INTERVAL=%v", interval[0])
-	})
+	}).apply()
 }
 
-func WithCount(c Cron, count int, interval ...int) *eventOption {
+func WithCount(c Cron, count int, interval ...int) Recurrence {
 	interval = append(interval, 1)
 	return withCron(c, func() string {
 		return fmt.Sprintf("COUNT=%v;INTERVAL=%v", count, interval[0])
-	})
+	}).apply()
 }
 
-func WithUntil(c Cron, until time.Time, interval ...int) *eventOption {
+func WithUntil(c Cron, until time.Time, interval ...int) Recurrence {
 	interval = append(interval, 1)
 	return withCron(c, func() string {
 		return fmt.Sprintf("UNTIL=%v;INTERVAL=%v", until.Format("20060102T150405Z"), interval[0])
-	})
+	}).apply()
 }
 
-func WithForever(c Cron, interval ...int) *eventOption {
+func WithForever(c Cron, interval ...int) Recurrence {
 	interval = append(interval, 1)
 	return withCron(c, func() string {
 		return fmt.Sprintf("WKST=MO;INTERVAL=%v", interval[0])
-	})
+	}).apply()
 }
 
 func DeleteEvent(token oauth2.Token, start, end, zone string) error {
@@ -188,20 +200,28 @@ func delEvent(token oauth2.Token, eventIdList []string) error {
 	return nil
 }
 
-func InsertEvent(event Event, token oauth2.Token, frequency EventOption) (err error) {
+func InsertEvent(event Event, token oauth2.Token) (err error) {
 	service, err := calendar.NewService(context.Background(),
 		option.WithHTTPClient(getClient(&token)))
 	if err != nil {
 		return err
 	}
 
+	request, _ := json.Marshal(event.Request)
+
 	ev := &calendar.Event{
-		Summary:     event.Summary,
-		Description: event.Description,
-		Start:       event.Start,
-		End:         event.End,
-		Recurrence:  frequency.apply(),
-		Location:    event.Where,
+		Summary:     event.Title,
+		Description: base64.StdEncoding.EncodeToString(event.Body),
+		Start: &calendar.EventDateTime{
+			DateTime: event.Start.DateTime,
+			TimeZone: event.Start.TimeZone,
+		},
+		End: &calendar.EventDateTime{
+			DateTime: event.End.DateTime,
+			TimeZone: event.End.TimeZone,
+		},
+		Recurrence: event.Recurrence,
+		Location:   base64.StdEncoding.EncodeToString(request),
 		Reminders: &calendar.EventReminders{
 			Overrides: []*calendar.EventReminder{
 				{
@@ -221,7 +241,5 @@ func InsertEvent(event Event, token oauth2.Token, frequency EventOption) (err er
 		return err
 	}
 
-	raw, err := ev.MarshalJSON()
-	fmt.Println(string(raw), err)
-	return
+	return nil
 }
