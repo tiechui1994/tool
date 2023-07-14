@@ -3,8 +3,10 @@ package speech
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/tiechui1994/tool/util"
 	"log"
 	"net/http"
 	"time"
@@ -33,6 +35,7 @@ type Event struct {
 	Recurrence Recurrence
 	Body       json.RawMessage
 	Request    struct {
+		EventID string            `json:"eventID"`
 		URL     string            `json:"url"`
 		Method  string            `json:"method"`
 		Headers map[string]string `json:"headers"`
@@ -120,7 +123,7 @@ func WithForever(c Cron, interval ...int) Recurrence {
 	}).apply()
 }
 
-func DeleteEvent(token oauth2.Token, start, end, zone string) error {
+func DeleteEvents(token oauth2.Token, start, end, zone string) error {
 	service, err := calendar.NewService(context.Background(),
 		option.WithHTTPClient(getClient(&token)))
 	if err != nil {
@@ -154,6 +157,10 @@ func DeleteEvent(token oauth2.Token, start, end, zone string) error {
 	}
 
 	return err
+}
+
+func DeleteEvent(token oauth2.Token, eventID string) error {
+	return delEvent(token, []string{eventID})
 }
 
 func delEvent(token oauth2.Token, eventIdList []string) error {
@@ -207,9 +214,12 @@ func InsertEvent(event Event, token oauth2.Token) (err error) {
 		return err
 	}
 
+	uid := hex.EncodeToString(util.MD5(fmt.Sprintf("%v", time.Now().UnixNano())))
+	event.Request.EventID = uid
 	request, _ := json.Marshal(event.Request)
 
 	ev := &calendar.Event{
+		Id:          uid,
 		Summary:     event.Title,
 		Description: base64.StdEncoding.EncodeToString(event.Body),
 		Start: &calendar.EventDateTime{
