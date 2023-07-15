@@ -6,15 +6,20 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/tiechui1994/tool/util"
 	"log"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/tiechui1994/tool/util"
 	"golang.org/x/oauth2"
 	"google.golang.org/api/calendar/v3"
 	"google.golang.org/api/option"
+)
+
+const (
+	timeFormat   = "2006-01-02T15:04:05+08:00"
+	ZoneShanghai = "Asia/Shanghai"
 )
 
 func getClient(token *oauth2.Token) *http.Client {
@@ -23,8 +28,8 @@ func getClient(token *oauth2.Token) *http.Client {
 }
 
 type EventDateTime struct {
-	DateTime string `json:"dateTime,omitempty"`
-	TimeZone string `json:"timeZone,omitempty"`
+	DateTime time.Time `json:"dateTime,omitempty"`
+	TimeZone string    `json:"timeZone,omitempty"`
 }
 
 type Recurrence []string
@@ -36,8 +41,8 @@ type Request struct {
 }
 
 type Event struct {
-	Start      *EventDateTime
-	End        *EventDateTime
+	TimeAt     *time.Time
+	TimeZone   string
 	Title      string
 	Recurrence Recurrence
 	Body       json.RawMessage
@@ -125,7 +130,7 @@ func WithForever(c Cron, interval ...int) Recurrence {
 	}).apply()
 }
 
-func DeleteEvents(token oauth2.Token, start, end, zone string) error {
+func DeleteEvents(token oauth2.Token, start, end string) error {
 	service, err := calendar.NewService(context.Background(),
 		option.WithHTTPClient(getClient(&token)))
 	if err != nil {
@@ -134,7 +139,7 @@ func DeleteEvents(token oauth2.Token, start, end, zone string) error {
 
 	calendarId := "primary"
 	list, err := service.Events.List(calendarId).
-		TimeMin(start).TimeMax(end).TimeZone(zone).MaxResults(512).Do()
+		TimeMin(start).TimeMax(end).TimeZone(ZoneShanghai).MaxResults(512).Do()
 	if err != nil {
 		return err
 	}
@@ -146,7 +151,7 @@ func DeleteEvents(token oauth2.Token, start, end, zone string) error {
 		}
 
 		instances, err := service.Events.Instances(calendarId, item.Id).
-			TimeMin(start).TimeMax(end).TimeZone(zone).MaxResults(512).Do()
+			TimeMin(start).TimeMax(end).TimeZone(ZoneShanghai).MaxResults(512).Do()
 		if err != nil {
 			continue
 		}
@@ -162,7 +167,37 @@ func DeleteEvents(token oauth2.Token, start, end, zone string) error {
 }
 
 func DeleteEvent(token oauth2.Token, eventID string) error {
-	return delEvent(token, []string{eventID})
+	service, err := calendar.NewService(context.Background(),
+		option.WithHTTPClient(getClient(&token)))
+	if err != nil {
+		return err
+	}
+
+	calendarId := "primary"
+	instances, err := service.Events.Instances(calendarId, eventID).
+		MaxResults(512).Do()
+	if err != nil {
+		return err
+	}
+
+	if len(instances.Items) == 0 {
+		return delEvent(token, []string{eventID})
+	}
+
+	zone, err := time.LoadLocation(ZoneShanghai)
+	if err != nil {
+		return err
+	}
+
+	eventIdList := make([]string, 0)
+	now := time.Now().In(zone).Format(timeFormat)
+	for _, item := range instances.Items {
+		if item.Start.DateTime < now {
+			eventIdList = append(eventIdList, item.Id)
+		}
+	}
+
+	return delEvent(token, eventIdList)
 }
 
 func delEvent(token oauth2.Token, eventIdList []string) error {
@@ -209,31 +244,44 @@ func delEvent(token oauth2.Token, eventIdList []string) error {
 }
 
 func InsertEvent(event Event, token oauth2.Token) (err error) {
+	if event.TimeAt == nil {
+		return fmt.Errorf("attr TimeAt must be set")
+	}
+
 	service, err := calendar.NewService(context.Background(),
 		option.WithHTTPClient(getClient(&token)))
 	if err != nil {
 		return err
 	}
 
+	if event.TimeZone == "" {
+		event.TimeZone = ZoneShanghai
+	}
 	if event.Title == "" {
-		event.Title = "Event_"+time.Now().Format("0102150405")
+		event.Title = "Event_" + time.Now().Format("0102150405")
 	}
 
 	uid := hex.EncodeToString(util.MD5(fmt.Sprintf("%v", time.Now().UnixNano())))
 	event.Request.EventID = uid
 	request, _ := json.Marshal(event.Request)
 
+	zone, err := time.LoadLocation(event.TimeZone)
+	if err != nil {
+		return err
+	}
+	at := event.TimeAt.In(zone)
+
 	ev := &calendar.Event{
 		Id:          uid,
 		Summary:     event.Title,
 		Description: base64.StdEncoding.EncodeToString(event.Body),
 		Start: &calendar.EventDateTime{
-			DateTime: event.Start.DateTime,
-			TimeZone: event.Start.TimeZone,
+			DateTime: at.Format(timeFormat),
+			TimeZone: event.TimeZone,
 		},
 		End: &calendar.EventDateTime{
-			DateTime: event.End.DateTime,
-			TimeZone: event.End.TimeZone,
+			DateTime: at.Add(time.Minute).Format(timeFormat),
+			TimeZone: event.TimeZone,
 		},
 		Recurrence: event.Recurrence,
 		Location:   base64.StdEncoding.EncodeToString(request),
