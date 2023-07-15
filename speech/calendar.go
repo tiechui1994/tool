@@ -9,6 +9,7 @@ import (
 	"github.com/tiechui1994/tool/util"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -27,6 +28,12 @@ type EventDateTime struct {
 }
 
 type Recurrence []string
+type Request struct {
+	EventID string            `json:"eventID"`
+	URL     string            `json:"url"`
+	Method  string            `json:"method"`
+	Headers map[string]string `json:"headers"`
+}
 
 type Event struct {
 	Start      *EventDateTime
@@ -34,12 +41,7 @@ type Event struct {
 	Title      string
 	Recurrence Recurrence
 	Body       json.RawMessage
-	Request    struct {
-		EventID string            `json:"eventID"`
-		URL     string            `json:"url"`
-		Method  string            `json:"method"`
-		Headers map[string]string `json:"headers"`
-	}
+	Request    Request
 }
 
 type EventOption interface {
@@ -171,39 +173,38 @@ func delEvent(token oauth2.Token, eventIdList []string) error {
 	}
 
 	calendarId := "primary"
-	if len(eventIdList) == 0 {
+	if len(eventIdList) == 1 {
 		return service.Events.Delete(calendarId, eventIdList[0]).Do()
 	}
 
 	in := make(chan string, 2)
-	out := make(chan struct{})
+	wg := sync.WaitGroup{}
 	go func() {
+		defer close(in)
 		for _, eventId := range eventIdList {
 			in <- eventId
 		}
-		close(in)
 	}()
 
 	for i := 0; i < 2; i++ {
+		wg.Add(1)
 		go func() {
-			defer func() {
-				out <- struct{}{}
-			}()
-			eventId, ok := <-in
-			if !ok {
-				return
-			}
-			err = service.Events.Delete(calendarId, eventId).Do()
-			if err != nil {
-				log.Printf("DEL failed: %v", err)
+			defer wg.Done()
+			for {
+				eventId, ok := <-in
+				if !ok {
+					return
+				}
+
+				err = service.Events.Delete(calendarId, eventId).Do()
+				if err != nil {
+					log.Printf("DEL failed: %v", err)
+				}
 			}
 		}()
 	}
 
-	for i := 0; i < len(eventIdList); i++ {
-		<-out
-	}
-
+	wg.Wait()
 	return nil
 }
 
@@ -212,6 +213,10 @@ func InsertEvent(event Event, token oauth2.Token) (err error) {
 		option.WithHTTPClient(getClient(&token)))
 	if err != nil {
 		return err
+	}
+
+	if event.Title == "" {
+		event.Title = "Event_"+time.Now().Format("0102150405")
 	}
 
 	uid := hex.EncodeToString(util.MD5(fmt.Sprintf("%v", time.Now().UnixNano())))
