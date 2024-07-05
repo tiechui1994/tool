@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/md5"
+	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
@@ -113,11 +114,8 @@ type File struct {
 }
 
 type State struct {
-	UserID     string
-	deviceID   string
-	signature  string
-	retry      int
-	privateKey *ecdsa.PrivateKey
+	deviceID  string
+	signature string
 }
 
 var (
@@ -127,27 +125,28 @@ var (
 
 func initState(token Token) {
 	once.Do(func() {
-		state = &State{}
-		state.deviceID = "YdH4HNm1yFYCAd5aO5ezK4zU"
-		state.privateKey, _ = util.NewPrivateKeyFromHex(util.Sha256(state.deviceID))
+		state = &State{
+			deviceID: token.DeviceID,
+		}
+		privateKey, _ := ecdsa.GenerateKey(ecc.P256k1(), rand.Reader)
 
 		secpAppID := "5dde4e1bdf9e4966b387ba58f4b3fdc3"
-		singdata := fmt.Sprintf("%s:%s:%s:%d", secpAppID, state.deviceID, token.UserID, 0)
+		singdata := fmt.Sprintf("%s:%s:%s:%d", secpAppID, token.DeviceID, token.UserID, 0)
 		hash := sha256.Sum256([]byte(singdata))
-		data, _ := ecc.SignBytes(state.privateKey, hash[:], ecc.RecID|ecc.LowerS)
+		data, _ := ecc.SignBytes(privateKey, hash[:], ecc.RecID|ecc.LowerS)
 		state.signature = hex.EncodeToString(data)
 
-		pubKey := hex.EncodeToString(
-			elliptic.Marshal(elliptic.P256(), state.privateKey.PublicKey.X, state.privateKey.PublicKey.Y))
+		publicKey := privateKey.PublicKey
+		pubKey := hex.EncodeToString(elliptic.Marshal(publicKey.Curve, publicKey.X, publicKey.Y))
+
 		u := "https://api.aliyundrive.com/users/v1/users/device/create_session"
-		body := fmt.Sprintf(`{"deviceName":"Chrome浏览器","modelName":"Linux网页版","pubKey":"%v"}`,
-			pubKey)
+		body := fmt.Sprintf(`{"deviceName":"Chrome浏览器","modelName":"Linux网页版","pubKey":"%v"}`, pubKey)
 		header := map[string]string{
 			"accept":        "application/json",
 			"authorization": "Bearer " + token.AccessToken,
 			"content-type":  "application/json",
 			"X-Canary":      "client=web,app=adrive,version=v4.3.1",
-			"x-device-id":   state.deviceID,
+			"x-device-id":   token.DeviceID,
 			"X-Signature":   state.signature,
 		}
 		raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header), util.WithRetry(3))
@@ -222,7 +221,6 @@ func Files(parentFileID string, token Token) (list []File, err error) {
 		Items      []File `json:"items"`
 		NextMarker string `json:"next_marker"`
 	}
-
 	err = json.Unmarshal(raw, &result)
 	if err != nil {
 		return list, err
