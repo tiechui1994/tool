@@ -32,32 +32,57 @@ type param struct {
 
 var (
 	params = map[string]param{
+		"WEB_MUSIC": {
+			Context: Context{
+				Client: map[string]interface{}{
+					"clientName":    "WEB_REMIX",
+					"clientVersion": "1.20220727.01.00",
+				},
+			},
+			Header: map[string]string{
+				"Host": "music.youtube.com",
+			},
+			APIkey: "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30",
+		},
+
+		"WEB_EMBED": {
+			Context: Context{
+				Client: map[string]interface{}{
+					"clientName":    "WEB_EMBEDDED_PLAYER",
+					"clientVersion": "1.20220731.00.00",
+				},
+			},
+			Header: map[string]string{},
+			APIkey: "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+		},
+
 		"ANDROID_MUSIC": {
 			Context: Context{
 				Client: map[string]interface{}{
 					"clientName":        "ANDROID_MUSIC",
-					"clientVersion":     "5.16.51",
+					"clientVersion":     "6.42.52",
 					"androidSdkVersion": 30,
 				},
 			},
 			Header: map[string]string{
-				"User-Agent": "com.google.android.apps.youtube.music/",
+				"User-Agent": "com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 11) gzip",
 			},
-			APIkey: "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+			APIkey: "AIzaSyAOghZGza2MQSZkY_zfZ370N-PUdXEo8AI",
 		},
+
 		"ANDROID_EMBED": {
 			Context: Context{
 				Client: map[string]interface{}{
 					"clientName":        "ANDROID_EMBEDDED_PLAYER",
-					"clientVersion":     "17.31.35",
+					"clientVersion":     "19.09.37",
 					"clientScreen":      "EMBED",
 					"androidSdkVersion": 30,
 				},
 			},
 			Header: map[string]string{
-				"User-Agent": "com.google.android.youtube/",
+				"User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
 			},
-			APIkey: "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+			APIkey: "AIzaSyCjc_pVEDi4qsv5MtC2dMXzpIaDoRFLsxw",
 		},
 	}
 
