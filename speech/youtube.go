@@ -40,7 +40,7 @@ var (
 				},
 			},
 			Header: map[string]string{
-				"Host": "music.youtube.com",
+				"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
 			},
 			APIkey: "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30",
 		},
@@ -52,7 +52,9 @@ var (
 					"clientVersion": "1.20220731.00.00",
 				},
 			},
-			Header: map[string]string{},
+			Header: map[string]string{
+				"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+			},
 			APIkey: "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
 		},
 
@@ -331,20 +333,30 @@ again:
 		"context": param.Context,
 	}
 
-	raw, err := util.POST(u, util.WithHeader(headers), util.WithBody(body), util.WithRetry(2))
+	raw, err := util.POST(u, util.WithHeader(headers), util.WithBody(body), util.WithRetry(3))
 	if err != nil {
 		fmt.Println(err)
 		return nil, nil, err
 	}
-
 	if !gjson.Get(string(raw), "streamingData").Exists() {
-		client = "ANDROID_EMBED"
-		goto again
-	}
-	if client == "ANDROID_EMBED" {
-		if v := gjson.Get(string(raw), "playabilityStatus.status").String(); v == "UNPLAYABLE" {
-			return audios, videos, fmt.Errorf("videoID=%v can not play", videoID)
+		if client == "ANDROID_MUSIC" {
+			client = "ANDROID_EMBED"
+			goto again
 		}
+		if client == "ANDROID_EMBED" {
+			client = "WEB_MUSIC"
+			goto again
+		}
+		if client == "WEB_MUSIC" {
+			client = "WEB_EMBED"
+			goto again
+		}
+		if client == "WEB_EMBED" {
+			return audios, videos, fmt.Errorf("videoID=%v can not download", videoID)
+		}
+	}
+	if v := gjson.Get(string(raw), "playabilityStatus.status").String(); v == "UNPLAYABLE" {
+		return audios, videos, fmt.Errorf("videoID=%v can not play", videoID)
 	}
 
 	applyDescrambler(gjson.Get(string(raw), "streamingData").String())
@@ -591,7 +603,7 @@ func (f *Format) Download(dst string) error {
 		}
 
 		u := fmt.Sprintf("%v&range=%v-%v", f.Url, download, stopPos)
-		raw, err := util.GET(u, util.WithRetry(3))
+		raw, err := util.GET(u, util.WithRetry(5))
 		if err != nil {
 			return fmt.Errorf("GET failed: %w", err)
 		}
