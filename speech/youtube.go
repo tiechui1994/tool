@@ -64,6 +64,7 @@ var (
 					"clientName":        "ANDROID_MUSIC",
 					"clientVersion":     "6.42.52",
 					"androidSdkVersion": 30,
+					"userAgent": "com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 11) gzip",
 				},
 			},
 			Header: map[string]string{
@@ -79,12 +80,28 @@ var (
 					"clientVersion":     "19.09.37",
 					"clientScreen":      "EMBED",
 					"androidSdkVersion": 30,
+					"userAgent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
 				},
 			},
 			Header: map[string]string{
 				"User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
 			},
 			APIkey: "AIzaSyCjc_pVEDi4qsv5MtC2dMXzpIaDoRFLsxw",
+		},
+
+		"ANDROID_CREATOR": {
+			Context: Context{
+				Client: map[string]interface{}{
+					"clientName":        "ANDROID_CREATOR",
+					"clientVersion":     "22.30.100",
+					"androidSdkVersion": 30,
+					"userAgent":      "com.google.android.apps.youtube.creator/22.30.100 (Linux; U; Android 11) gzip",
+				},
+			},
+			Header: map[string]string{
+				"User-Agent": "com.google.android.apps.youtube.creator/22.30.100 (Linux; U; Android 11) gzip",
+			},
+			APIkey: "AIzaSyD_qjV8zaaUMehtLkrKFgVeSX_Iqbtyws8",
 		},
 	}
 
@@ -348,6 +365,10 @@ again:
 			goto again
 		}
 		if client == "WEB_MUSIC" {
+			client = "ANDROID_CREATOR"
+			goto again
+		}
+		if client == "ANDROID_CREATOR" {
 			client = "WEB_EMBED"
 			goto again
 		}
