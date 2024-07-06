@@ -40,7 +40,9 @@ var (
 				},
 			},
 			Header: map[string]string{
-				"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+				"Content-Type":    "application/json",
+				"Accept-Language": "en-US,en",
+				"User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
 			},
 			APIkey: "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30",
 		},
@@ -53,7 +55,9 @@ var (
 				},
 			},
 			Header: map[string]string{
-				"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+				"Content-Type":    "application/json",
+				"Accept-Language": "en-US,en",
+				"User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
 			},
 			APIkey: "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
 		},
@@ -64,11 +68,13 @@ var (
 					"clientName":        "ANDROID_MUSIC",
 					"clientVersion":     "6.42.52",
 					"androidSdkVersion": 30,
-					"userAgent": "com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 11) gzip",
+					"userAgent":         "com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 11) gzip",
 				},
 			},
 			Header: map[string]string{
-				"User-Agent": "com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 11) gzip",
+				"Content-Type":    "application/json",
+				"Accept-Language": "en-US,en",
+				"User-Agent":      "com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 11) gzip",
 			},
 			APIkey: "AIzaSyAOghZGza2MQSZkY_zfZ370N-PUdXEo8AI",
 		},
@@ -80,11 +86,13 @@ var (
 					"clientVersion":     "19.09.37",
 					"clientScreen":      "EMBED",
 					"androidSdkVersion": 30,
-					"userAgent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
+					"userAgent":         "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
 				},
 			},
 			Header: map[string]string{
-				"User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
+				"Content-Type":    "application/json",
+				"Accept-Language": "en-US,en",
+				"User-Agent":      "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
 			},
 			APIkey: "AIzaSyCjc_pVEDi4qsv5MtC2dMXzpIaDoRFLsxw",
 		},
@@ -95,11 +103,13 @@ var (
 					"clientName":        "ANDROID_CREATOR",
 					"clientVersion":     "22.30.100",
 					"androidSdkVersion": 30,
-					"userAgent":      "com.google.android.apps.youtube.creator/22.30.100 (Linux; U; Android 11) gzip",
+					"userAgent":         "com.google.android.apps.youtube.creator/22.30.100 (Linux; U; Android 11) gzip",
 				},
 			},
 			Header: map[string]string{
-				"User-Agent": "com.google.android.apps.youtube.creator/22.30.100 (Linux; U; Android 11) gzip",
+				"Content-Type":    "application/json",
+				"Accept-Language": "en-US,en",
+				"User-Agent":      "com.google.android.apps.youtube.creator/22.30.100 (Linux; U; Android 11) gzip",
 			},
 			APIkey: "AIzaSyD_qjV8zaaUMehtLkrKFgVeSX_Iqbtyws8",
 		},
@@ -341,19 +351,16 @@ again:
 	query.Set("videoId", videoID)
 
 	u := "https://www.youtube.com/youtubei/v1/player?" + query.Encode()
-	headers := map[string]string{
-		"Content-Type":    "application/json",
-		"User-Agent":      "com.google.android.apps.youtube.music/",
-		"accept-language": "en-US,en",
-	}
+	headers := param.Header
 	body := map[string]interface{}{
 		"context": param.Context,
 	}
-
-	raw, err := util.POST(u, util.WithHeader(headers), util.WithBody(body), util.WithRetry(3))
+	raw, err := util.POST(u, util.WithHeader(headers), util.WithBody(body), util.WithRetry(2))
 	if err != nil {
-		fmt.Println(err)
-		return nil, nil, err
+		v, ok := err.(util.CodeError)
+		if !ok || v.Code >= 500 {
+			return nil, nil, err
+		}
 	}
 	if !gjson.Get(string(raw), "streamingData").Exists() {
 		if client == "ANDROID_MUSIC" {
