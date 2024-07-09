@@ -32,6 +32,23 @@ type param struct {
 
 var (
 	params = map[string]param{
+		"WEB": {
+			Context: Context{
+				Client: map[string]interface{}{
+					"clientName":    "WEB",
+					"clientVersion": "2.20220801.00.00",
+				},
+			},
+			Header: map[string]string{
+				"X-YouTube-Client-Name":    "1",
+				"X-YouTube-Client-Version": "2.20220801.00.00",
+				"Content-Type":             "application/json",
+				"Accept-Language":          "en-US,en",
+				"User-Agent":               "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+			},
+			APIkey: "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+		},
+
 		"WEB_MUSIC": {
 			Context: Context{
 				Client: map[string]interface{}{
@@ -40,9 +57,11 @@ var (
 				},
 			},
 			Header: map[string]string{
-				"Content-Type":    "application/json",
-				"Accept-Language": "en-US,en",
-				"User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+				"X-YouTube-Client-Name":    "67",
+				"X-YouTube-Client-Version": "1.20220727.01.00",
+				"Content-Type":             "application/json",
+				"Accept-Language":          "en-US,en",
+				"User-Agent":               "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
 			},
 			APIkey: "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30",
 		},
@@ -55,11 +74,49 @@ var (
 				},
 			},
 			Header: map[string]string{
-				"Content-Type":    "application/json",
-				"Accept-Language": "en-US,en",
-				"User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+				"X-YouTube-Client-Name":    "56",
+				"X-YouTube-Client-Version": "1.20220731.00.00",
+				"Content-Type":             "application/json",
+				"Accept-Language":          "en-US,en",
+				"User-Agent":               "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
 			},
 			APIkey: "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+		},
+
+		"WEB_CREATOR": {
+			Context: Context{
+				Client: map[string]interface{}{
+					"clientName":    "WEB_CREATOR",
+					"clientVersion": "1.20220726.00.00",
+				},
+			},
+			Header: map[string]string{
+				"X-YouTube-Client-Name":    "62",
+				"X-YouTube-Client-Version": "1.20220726.00.00",
+				"Content-Type":             "application/json",
+				"Accept-Language":          "en-US,en",
+				"User-Agent":               "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+			},
+			APIkey: "AIzaSyBUPetSUmoZL-OhlxA7wSac5XinrygCqMo",
+		},
+
+		"ANDROID": {
+			Context: Context{
+				Client: map[string]interface{}{
+					"clientName":        "ANDROID",
+					"clientVersion":     "19.09.37",
+					"androidSdkVersion": 30,
+					"userAgent":         "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
+				},
+			},
+			Header: map[string]string{
+				"X-YouTube-Client-Name":    "3",
+				"X-YouTube-Client-Version": "19.09.37",
+				"Content-Type":             "application/json",
+				"Accept-Language":          "en-US,en",
+				"User-Agent":               "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
+			},
+			APIkey: "AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w",
 		},
 
 		"ANDROID_MUSIC": {
@@ -72,9 +129,11 @@ var (
 				},
 			},
 			Header: map[string]string{
-				"Content-Type":    "application/json",
-				"Accept-Language": "en-US,en",
-				"User-Agent":      "com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 11) gzip",
+				"X-YouTube-Client-Name":    "21",
+				"X-YouTube-Client-Version": "6.42.52",
+				"Content-Type":             "application/json",
+				"Accept-Language":          "en-US,en",
+				"User-Agent":               "com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 11) gzip",
 			},
 			APIkey: "AIzaSyAOghZGza2MQSZkY_zfZ370N-PUdXEo8AI",
 		},
@@ -84,15 +143,16 @@ var (
 				Client: map[string]interface{}{
 					"clientName":        "ANDROID_EMBEDDED_PLAYER",
 					"clientVersion":     "19.09.37",
-					"clientScreen":      "EMBED",
 					"androidSdkVersion": 30,
 					"userAgent":         "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
 				},
 			},
 			Header: map[string]string{
-				"Content-Type":    "application/json",
-				"Accept-Language": "en-US,en",
-				"User-Agent":      "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
+				"X-YouTube-Client-Name":    "55",
+				"X-YouTube-Client-Version": "19.09.37",
+				"Content-Type":             "application/json",
+				"Accept-Language":          "en-US,en",
+				"User-Agent":               "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
 			},
 			APIkey: "AIzaSyCjc_pVEDi4qsv5MtC2dMXzpIaDoRFLsxw",
 		},
@@ -107,9 +167,11 @@ var (
 				},
 			},
 			Header: map[string]string{
-				"Content-Type":    "application/json",
-				"Accept-Language": "en-US,en",
-				"User-Agent":      "com.google.android.apps.youtube.creator/22.30.100 (Linux; U; Android 11) gzip",
+				"X-YouTube-Client-Name":    "14",
+				"X-YouTube-Client-Version": "22.30.100",
+				"Content-Type":             "application/json",
+				"Accept-Language":          "en-US,en",
+				"User-Agent":               "com.google.android.apps.youtube.creator/22.30.100 (Linux; U; Android 11) gzip",
 			},
 			APIkey: "AIzaSyD_qjV8zaaUMehtLkrKFgVeSX_Iqbtyws8",
 		},
@@ -341,7 +403,7 @@ func applyDescrambler(streamingData string) {
 }
 
 func fetchInfo(videoID string) (audios []audioFormat, videos []videoFormat, err error) {
-	client := "ANDROID_MUSIC"
+	client := "ANDROID"
 again:
 	param := params[client]
 	query := url.Values{}
@@ -363,23 +425,27 @@ again:
 		}
 	}
 	if !gjson.Get(string(raw), "streamingData").Exists() {
-		if client == "ANDROID_MUSIC" {
+		if client == "ANDROID" {
 			client = "ANDROID_EMBED"
 			goto again
 		}
 		if client == "ANDROID_EMBED" {
-			client = "WEB_MUSIC"
-			goto again
-		}
-		if client == "WEB_MUSIC" {
 			client = "ANDROID_CREATOR"
 			goto again
 		}
 		if client == "ANDROID_CREATOR" {
+			client = "WEB"
+			goto again
+		}
+		if client == "WEB" {
 			client = "WEB_EMBED"
 			goto again
 		}
 		if client == "WEB_EMBED" {
+			client = "WEB_CREATOR"
+			goto again
+		}
+		if client == "WEB_CREATOR" {
 			return audios, videos, fmt.Errorf("videoID=%v can not download", videoID)
 		}
 	}
