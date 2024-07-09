@@ -32,6 +32,62 @@ type param struct {
 
 var (
 	params = map[string]param{
+		"IOS": {
+			Context: Context{
+				Client: map[string]interface{}{
+					"clientName":    "IOS",
+					"clientVersion": "19.09.3",
+					"deviceModel":   "iPhone14,3",
+					"userAgent":     "com.google.ios.youtube/19.09.3 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)",
+				},
+			},
+			Header: map[string]string{
+				"X-YouTube-Client-Name":    "5",
+				"X-YouTube-Client-Version": "19.09.3",
+				"Content-Type":             "application/json",
+				"Accept-Language":          "en-US,en",
+				"User-Agent":               "com.google.ios.youtube/19.09.3 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)",
+			},
+			APIkey: "AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc",
+		},
+		"IOS_EMBED": {
+			Context: Context{
+				Client: map[string]interface{}{
+					"clientName":    "IOS_MESSAGES_EXTENSION",
+					"clientVersion": "19.09.3",
+					"deviceModel":   "iPhone14,3",
+					"userAgent":     "com.google.ios.youtube/19.09.3 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)",
+				},
+			},
+			Header: map[string]string{
+				"X-YouTube-Client-Name":    "66",
+				"X-YouTube-Client-Version": "19.09.3",
+				"Content-Type":             "application/json",
+				"Accept-Language":          "en-US,en",
+				"User-Agent":               "com.google.ios.youtube/19.09.3 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)",
+			},
+			APIkey: "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+		},
+
+		"IOS_CREATOR": {
+			Context: Context{
+				Client: map[string]interface{}{
+					"clientName":    "IOS_CREATOR",
+					"clientVersion": "22.33.101",
+					"deviceModel":   "iPhone14,3",
+					"userAgent":     "com.google.ios.youtube/22.33.101 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)",
+				},
+			},
+			Header: map[string]string{
+				"X-YouTube-Client-Name":    "15",
+				"X-YouTube-Client-Version": "22.33.101",
+				"Content-Type":             "application/json",
+				"Accept-Language":          "en-US,en",
+				"User-Agent":               "com.google.ios.youtube/22.33.101 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)",
+			},
+			APIkey: "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+		},
+
 		"WEB": {
 			Context: Context{
 				Client: map[string]interface{}{
@@ -403,7 +459,7 @@ func applyDescrambler(streamingData string) {
 }
 
 func fetchInfo(videoID string) (audios []audioFormat, videos []videoFormat, err error) {
-	client := "ANDROID"
+	client := "IOS"
 again:
 	param := params[client]
 	query := url.Values{}
@@ -425,6 +481,14 @@ again:
 		}
 	}
 	if !gjson.Get(string(raw), "streamingData").Exists() {
+		if client == "IOS" {
+			client = "IOS_EMBED"
+			goto again
+		}
+		if client == "IOS_EMBED" {
+			client = "ANDROID"
+			goto again
+		}
 		if client == "ANDROID" {
 			client = "ANDROID_EMBED"
 			goto again
