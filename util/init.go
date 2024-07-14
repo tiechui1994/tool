@@ -77,8 +77,6 @@ var client localClient
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
-
-	client.proxy = http.ProxyFromEnvironment
 	client.jar, _ = cookiejar.New(nil)
 	client.dns = []string{
 		"8.8.8.8:53", "8.8.4.4:53",
@@ -126,7 +124,12 @@ func init() {
 			},
 			MaxIdleConns:        100,
 			MaxIdleConnsPerHost: 100,
-			Proxy:               client.proxy,
+			Proxy: func(req *http.Request) (*url.URL, error) {
+				if client.proxy != nil {
+					return client.proxy(req)
+				}
+				return http.ProxyFromEnvironment(req)
+			},
 		},
 		Jar: client.jar,
 	}
