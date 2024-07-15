@@ -103,7 +103,7 @@ func init() {
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				d := net.Dialer{
 					Resolver:  resolver,
-					Timeout:   30 * time.Second,
+					Timeout:   15 * time.Second,
 					KeepAlive: 5 * time.Minute,
 				}
 			retry:
@@ -116,7 +116,7 @@ func init() {
 
 					return nil, err
 				}
-				return newTimeoutConn(conn, 60*time.Second, 300*time.Second), nil
+				return newTimeoutConn(conn, 15*time.Second, 45*time.Second), nil
 			},
 			DisableKeepAlives: true,
 			TLSClientConfig: &tls.Config{

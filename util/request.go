@@ -51,9 +51,11 @@ try:
 		return nil, nil, err
 	}
 
-	request.Header.Set("user-agent", UserAgent())
 	for k, v := range options.header {
 		request.Header.Set(k, v)
+	}
+	if request.Header.Get("User-Agent") == "" {
+		request.Header.Set("User-Agent", UserAgent())
 	}
 
 	val := request.Header.Get("Content-Length")
