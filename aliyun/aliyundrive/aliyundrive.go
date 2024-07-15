@@ -275,7 +275,7 @@ const (
 )
 
 const (
-	m10 = 10 * 1024 * 1024
+	m10 = 32 * 1024 * 1024
 )
 
 func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, args map[string]interface{}, path ...string) (

@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	fileSize = 9 * 1024 * 1024
+	fileSize = 10 * 1024 * 1024
 )
 
 type Context struct {
@@ -750,17 +750,17 @@ func (f *Format) Download(dst string) error {
 
 	header := map[string]string{
 		"Accept-Encoding": "identity",
-		"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36",
-		"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+		"User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36",
+		"Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 		"Accept-Language": "en-us,en;q=0.5",
-		"Sec-Fetch-Mode": "navigate",
+		"Sec-Fetch-Mode":  "navigate",
 	}
 
 	size := f.FileSize
 	download := int64(0)
 	log.Printf("start download audio file: %v", f.Url)
 	for size == 0 || download < size {
-		bytes := rand.Int31n(1024 * 1024) + fileSize
+		bytes := fileSize - rand.Int31n(fileSize*0.05)
 		stopPos := download + int64(bytes)
 
 		// size != 0
@@ -776,6 +776,7 @@ func (f *Format) Download(dst string) error {
 		if err != nil {
 			return fmt.Errorf("GET failed: %w", err)
 		}
+
 
 		n, err := fd.WriteAt(raw, download)
 		if n != len(raw) || err != nil {
