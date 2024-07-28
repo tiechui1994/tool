@@ -19,8 +19,8 @@ func init() {
 		"218.30.19.40:53", "218.30.19.50:53", // 西安
 	})
 
-	util.RegisterFileJar()
-	raw, _ := ioutil.ReadFile(filepath.Join(util.JarDir(), "drive.json"))
+	util.RegisterCookieJar("drive.json")
+	raw, _ := ioutil.ReadFile(filepath.Join(util.Dir(), "drive.json"))
 	json.Unmarshal(raw, &token)
 }
 

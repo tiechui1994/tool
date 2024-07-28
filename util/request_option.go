@@ -11,6 +11,8 @@ import (
 )
 
 type httpOptions struct {
+	test          bool
+	debug         bool
 	header        map[string]string
 	body          io.Reader
 	retry         int
@@ -19,6 +21,16 @@ type httpOptions struct {
 	afterResponse func(w *http.Response)
 	randomHost    func(string) string
 	proxy         func(*http.Request) (*url.URL, error)
+}
+
+func (opt *httpOptions) Clone() *httpOptions {
+	v := new(httpOptions)
+	*v = *opt
+
+	v.ctx = context.Background()
+	v.body = nil
+	v.header = nil
+	return v
 }
 
 type Option interface {
@@ -33,21 +45,21 @@ func defaultOptions() *httpOptions {
 }
 
 // Empty
-type EmptyDialOption struct{}
+type emptyHttpOption struct{}
 
-func (EmptyDialOption) apply(*httpOptions) {}
+func (emptyHttpOption) apply(*httpOptions) {}
 
 // Func
-type funcDialOption struct {
-	f func(*httpOptions)
+type funcHttpOption struct {
+	call func(*httpOptions)
 }
 
-func (fdo *funcDialOption) apply(do *httpOptions) {
-	fdo.f(do)
+func (fdo *funcHttpOption) apply(do *httpOptions) {
+	fdo.call(do)
 }
 
-func newFuncDialOption(f func(*httpOptions)) *funcDialOption {
-	return &funcDialOption{f: f}
+func newFuncDialOption(f func(*httpOptions)) *funcHttpOption {
+	return &funcHttpOption{call: f}
 }
 
 func WithHeader(header map[string]string) Option {
@@ -72,6 +84,12 @@ func WithBody(body interface{}) Option {
 	})
 }
 
+func WithTest() Option {
+	return newFuncDialOption(func(options *httpOptions) {
+		options.test = true
+	})
+}
+
 func WithRetry(retry uint) Option {
 	return newFuncDialOption(func(o *httpOptions) {
 		o.retry = int(retry)
@@ -81,6 +99,12 @@ func WithRetry(retry uint) Option {
 func WithContext(ctx context.Context) Option {
 	return newFuncDialOption(func(o *httpOptions) {
 		o.ctx = ctx
+	})
+}
+
+func WithDebug() Option {
+	return newFuncDialOption(func(o *httpOptions) {
+		o.debug = true
 	})
 }
 
@@ -95,6 +119,7 @@ func WithAfterResponse(f func(w *http.Response)) Option {
 		opt.afterResponse = f
 	})
 }
+
 func WithRandomHost(f func(string) string) Option {
 	return newFuncDialOption(func(opt *httpOptions) {
 		opt.randomHost = f
