@@ -6,7 +6,10 @@ import (
 	"net/http"
 )
 
+var debug bool
+
 func main() {
+	//debug = true
 	runAsConnector := flag.Bool("c", false, "as connector")
 	runAsAgent := flag.Bool("a", false, "as agent")
 	runAsServer := flag.Bool("s", false, "as server")

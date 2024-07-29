@@ -26,6 +26,8 @@ class WebSocketStream {
                 };
                 socket.onclose = () => controller.close();
             },
+            pull(controller) {
+            },
             cancel() {
                 console.log("readable cancel")
                 socket.close();
@@ -90,8 +92,8 @@ app.get("/", async (c) => {
     const rule = c.req.query("rule")
     console.log(`uid: ${uid}, code: ${code}, rule: ${rule}`)
 
-
     const {response, socket} = Deno.upgradeWebSocket(c.req.raw)
+    console.log(`socket:`, socket)
     if (rule === "manage") {
         socket.onopen = () => {
             console.log("socket opened");

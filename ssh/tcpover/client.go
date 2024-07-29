@@ -43,7 +43,11 @@ func NewClient(server string) *Client {
 }
 
 func (c *Client) Std(destUid string) error {
-	std := NewStdReadWriteCloser()
+	var std io.ReadWriteCloser = NewStdReadWriteCloser()
+	if debug {
+		std = NewRandomStream()
+	}
+
 	code := time.Now().Format("20060102150405__Std")
 	if err := c.ConnectServer(std, destUid, code); err != nil {
 		log.Printf("Std::ConnectServer %v", err)
@@ -240,10 +244,17 @@ func (c *Client) ConnectServer(local io.ReadWriteCloser, destUid, code string) e
 }
 
 func (c *Client) ConnectLocal(code string) error {
-	local, err := net.Dial("tcp", "127.0.0.1:22")
+	var local io.ReadWriteCloser
+	var err error
+	local, err = net.Dial("tcp", "127.0.0.1:22")
 	if err != nil {
 		return err
 	}
+
+	if debug {
+		local = NewEchoStream()
+	}
+
 	onceCloseLocal := &OnceCloser{Closer: local}
 	defer onceCloseLocal.Close()
 
