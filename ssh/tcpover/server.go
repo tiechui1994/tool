@@ -1,167 +1,124 @@
-package tcpover
+package main
 
 import (
-	"github.com/gorilla/websocket"
+	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	"github.com/gorilla/websocket"
 )
+
+type PairGroup struct {
+	done chan struct{}
+	conn []*websocket.Conn
+}
 
 type Server struct {
 	manageConn sync.Map // addr <=> conn
-	linkConn   sync.Map // code <=> []conn
+
+	groupMux  sync.RWMutex
+	groupConn map[string]*PairGroup // code <=> []conn
 
 	upgrade *websocket.Upgrader
 	conn    int32 // number of active connections
 }
 
-func NewServer(token string) *Server {
+func NewServer() *Server {
 	return &Server{
-		upgrade: &websocket.Upgrader{},
+		upgrade:   &websocket.Upgrader{},
+		groupConn: map[string]*PairGroup{},
 	}
 }
 
-func (s *Server) Serve(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	conn, err := s.upgrade.Upgrade(w, r, nil)
 	if err != nil {
 		http.Error(w, `upgrade error`, http.StatusBadRequest)
 		return
 	}
 
-	addr := r.URL.Query().Get("addr")
+	uid := r.URL.Query().Get("uid")
 	code := r.URL.Query().Get("code")
 	rule := r.URL.Query().Get("rule")
 
+	log.Printf("enter: number of connections:%v, code:%v, uid:%v, rule:%v", atomic.AddInt32(&s.conn, +1), code, uid, rule)
+	defer func() { log.Println("leave: number of connections:", atomic.AddInt32(&s.conn, -1)) }()
+
 	// manage channel
 	if rule == "manage" {
-		s.manageConn.Store(addr, conn)
+		s.manageConn.Store(uid, conn)
+		ticker := time.NewTicker(time.Second)
 		for {
-			select {}
-		}
-	}
-
-	// link channel
-	remote, err := net.Dial(`tcp`, addr)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	onceCloseRemote := &OnceCloser{Closer: remote}
-	defer onceCloseRemote.Close()
-
-	w.Header().Add(`Content-Length`, `0`)
-	w.WriteHeader(http.StatusSwitchingProtocols)
-	local, bio, err := w.(http.Hijacker).Hijack()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	onceCloseLocal := &OnceCloser{Closer: local}
-	defer onceCloseLocal.Close()
-
-	log.Println("enter: number of connections:", atomic.AddInt32(&s.conn, +1))
-	defer func() { log.Println("leave: number of connections:", atomic.AddInt32(&s.conn, -1)) }()
-
-	wg := &sync.WaitGroup{}
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-
-		// The returned bufio.Reader may contain unprocessed buffered data from the client.
-		// Copy them to dst so we can use src directly.
-		if n := bio.Reader.Buffered(); n > 0 {
-			n64, err := io.CopyN(remote, bio, int64(n))
-			if n64 != int64(n) || err != nil {
-				log.Println("io.CopyN:", n64, err)
-				return
+			select {
+			case <-ticker.C:
+				err = conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(time.Second))
+				if err != nil {
+					log.Println("ping error", err)
+					fmt.Println("closing.....", conn.Close())
+					return
+				}
 			}
 		}
-
-		defer onceCloseRemote.Close()
-		_, _ = io.Copy(remote, local)
-	}()
-
-	go func() {
-		defer wg.Done()
-
-		// flush any unwritten data.
-		if err := bio.Writer.Flush(); err != nil {
-			log.Println(`bio.Writer.Flush():`, err)
-			return
-		}
-
-		defer onceCloseLocal.Close()
-		_, _ = io.Copy(local, remote)
-	}()
-
-	wg.Wait()
-}
-
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if upgrade := r.Header.Get(`Upgrade`); upgrade != httpHeaderUpgrade {
-		http.Error(w, `upgrade error`, http.StatusBadRequest)
-		return
 	}
 
-	// the URL.Path doesn't matter.
-	addr := r.URL.Query().Get("addr")
-	remote, err := net.Dial(`tcp`, addr)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	onceCloseRemote := &OnceCloser{Closer: remote}
-	defer onceCloseRemote.Close()
+	s.groupMux.Lock()
+	if v, ok := s.groupConn[code]; ok {
+		v.conn = append(v.conn, conn)
+		s.groupMux.Unlock()
 
-	w.Header().Add(`Content-Length`, `0`)
-	w.WriteHeader(http.StatusSwitchingProtocols)
-	local, bio, err := w.(http.Hijacker).Hijack()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	onceCloseLocal := &OnceCloser{Closer: local}
-	defer onceCloseLocal.Close()
+		local := &SocketStream{conn: v.conn[0]}
+		remote := &SocketStream{conn: v.conn[1]}
 
-	log.Println("enter: number of connections:", atomic.AddInt32(&s.conn, +1))
-	defer func() { log.Println("leave: number of connections:", atomic.AddInt32(&s.conn, -1)) }()
+		onceCloseLocal := &OnceCloser{Closer: local}
+		onceCloseRemote := &OnceCloser{Closer: remote}
 
-	wg := &sync.WaitGroup{}
-	wg.Add(2)
+		defer func() {
+			close(v.done)
+			s.groupMux.Lock()
+			delete(s.groupConn, code)
+			s.groupMux.Unlock()
+			onceCloseRemote.Close()
+			onceCloseLocal.Close()
+		}()
 
-	go func() {
-		defer wg.Done()
+		wg := &sync.WaitGroup{}
+		wg.Add(2)
 
-		// The returned bufio.Reader may contain unprocessed buffered data from the client.
-		// Copy them to dst so we can use src directly.
-		if n := bio.Reader.Buffered(); n > 0 {
-			n64, err := io.CopyN(remote, bio, int64(n))
-			if n64 != int64(n) || err != nil {
-				log.Println("io.CopyN:", n64, err)
-				return
-			}
+		go func() {
+			defer wg.Done()
+
+			defer onceCloseRemote.Close()
+			_, _ = io.Copy(remote, local)
+		}()
+
+		go func() {
+			defer wg.Done()
+
+			defer onceCloseLocal.Close()
+			_, _ = io.Copy(local, remote)
+		}()
+
+		wg.Wait()
+	} else {
+		pg := &PairGroup{
+			done: make(chan struct{}),
+			conn: []*websocket.Conn{conn},
+		}
+		s.groupConn[code] = pg
+		s.groupMux.Unlock()
+
+		manage, ok := s.manageConn.Load(uid)
+		if ok {
+			_ = manage.(*websocket.Conn).WriteJSON(ControlMessage{
+				Command: CommandLink,
+				Data: map[string]interface{}{"Code":code},
+			})
 		}
 
-		defer onceCloseRemote.Close()
-		_, _ = io.Copy(remote, local)
-	}()
-
-	go func() {
-		defer wg.Done()
-
-		// flush any unwritten data.
-		if err := bio.Writer.Flush(); err != nil {
-			log.Println(`bio.Writer.Flush():`, err)
-			return
-		}
-
-		defer onceCloseLocal.Close()
-		_, _ = io.Copy(local, remote)
-	}()
-
-	wg.Wait()
+		<-pg.done
+	}
 }

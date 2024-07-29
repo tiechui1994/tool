@@ -1,10 +1,8 @@
-package tcpover
+package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/websocket"
@@ -23,71 +21,127 @@ const (
 	httpHeaderUpgrade = `http2tcp/1.0`
 )
 
+var (
+	LocalAgentTCP = "127.0.0.1:9988"
+)
+
+const (
+	firstDataLength = 20
+)
+
 type Client struct {
-	server    string
-	userAgent string
+	server string
 
 	localConn sync.Map
 }
 
 func NewClient(server string) *Client {
 	if !strings.Contains(server, "://") {
-		server = "http://" + server
+		server = "ws://" + server
 	}
 	return &Client{server: server}
 }
 
-// If non-empty, when connecting to the server, this User-Agent will be used
-// instead of the default `Go-http-client/1.1`.
-func (c *Client) SetUserAgent(userAgent string) {
-	c.userAgent = userAgent
-}
-
-func (c *Client) Std(to string) {
+func (c *Client) Std(destUid string) error {
 	std := NewStdReadWriteCloser()
-	code := time.Now().String()
-	if err := c.ConnectServer(std, to, code); err != nil {
-		log.Println(err)
+	code := time.Now().Format("20060102150405__Std")
+	if err := c.ConnectServer(std, destUid, code); err != nil {
+		log.Printf("Std::ConnectServer %v", err)
+		return err
 	}
+
+	return nil
 }
 
-func (c *Client) Serve(listen string, to string) {
-	lis, err := net.Listen("tcp", listen)
+func (c *Client) Tcp(destUid string) error {
+	conn, err := net.Dial("tcp", LocalAgentTCP)
 	if err != nil {
-		log.Fatalln(err)
+		log.Printf("Tcp::Dial %v", err)
+		return err
+	}
+
+	var first [firstDataLength]byte
+	copy(first[:], destUid)
+	n, err := conn.Write(first[:])
+	if err != nil || n != firstDataLength {
+		log.Printf("Tcp::Write First Data %v", err)
+		return err
+	}
+
+	code := time.Now().Format("20060102150405__Tcp")
+	if err := c.ConnectServer(conn, destUid, code); err != nil {
+		log.Printf("Tcp::ConnectServer %v", err)
+		return err
+	}
+
+	return nil
+}
+
+func (c *Client) Serve(uid string) error {
+	lis, err := net.Listen("tcp", LocalAgentTCP)
+	if err != nil {
+		log.Printf("Serve::Listen %v", err)
+		return err
 	}
 	defer lis.Close()
+
+	err = c.Manage(uid)
+	if err != nil {
+		log.Printf("Serve::Manage %v", err)
+		return err
+	}
 
 	for {
 		conn, err := lis.Accept()
 		if err != nil {
-			log.Println(err)
 			time.Sleep(time.Second * 5)
 			continue
 		}
+
 		go func(conn io.ReadWriteCloser) {
-			code := time.Now().String()
-			if err := c.ConnectServer(conn, to, code); err != nil {
-				log.Println(err)
+			var first [firstDataLength]byte
+			n, err := conn.Read(first[:])
+			if n != firstDataLength || err != nil {
+				_ = conn.Close()
+				log.Printf("Serve::Read Uid %v", err)
+				return
+			}
+
+			var destUid string
+			for i, v := range first {
+				if v == 0 {
+					destUid = string(first[:i])
+					break
+				}
+			}
+			if destUid == "" {
+				_ = conn.Close()
+				log.Printf("Serve::destUid is empty")
+				return
+			}
+
+			code := time.Now().Format("20060102150405__Serve")
+			if err := c.ConnectServer(conn, destUid, code); err != nil {
+				log.Printf("Serve::ConnectServer %v", err)
 			}
 		}(conn)
 	}
 }
 
 const (
-	CommandLink  = 0x01
-	CommandClose = 0x02
+	CommandLink = 0x01
 )
 
 type ControlMessage struct {
 	Command uint32
-	Data    []byte
+	Data    map[string]interface{}
 }
 
-func (c *Client) Manage() error {
-	header := http.Header{}
-	header.Set("rule", "manage")
-	conn, resp, err := websocket.DefaultDialer.DialContext(context.Background(), c.server, header)
+func (c *Client) Manage(uid string) error {
+	query := url.Values{}
+	query.Set("rule", "manage")
+	query.Set("uid", uid)
+	conn, resp, err := websocket.DefaultDialer.DialContext(context.Background(), c.server+"?"+query.Encode(), nil)
 	if err != nil {
 		return err
 	}
@@ -101,38 +155,36 @@ func (c *Client) Manage() error {
 	go func() {
 		for {
 			var cmd ControlMessage
-			err = conn.ReadJSON(&cmd)
+			//err = conn.ReadJSON(&cmd)
+			//if err != nil {
+			//	continue
+			//}
+
+			_, p, err := conn.ReadMessage()
 			if err != nil {
+				if websocket.IsCloseError(err, websocket.CloseAbnormalClosure) {
+					conn.Close()
+					return
+				}
+				log.Printf("ReadMessage: %v", err)
+				continue
+			}
+			log.Printf(`[%v]`, string(p))
+			err = json.Unmarshal(p, &cmd)
+			if err != nil {
+				log.Printf("Unmarshal: %v", err)
 				continue
 			}
 
 			switch cmd.Command {
 			case CommandLink:
-				var connectInfo struct{
-					Code string
-					Addr string
-				}
-				err = json.Unmarshal(cmd.Data, &connectInfo)
-				if err != nil {
-					continue
-				}
+				log.Printf("ControlMessage => cmd %v, data: %v", cmd.Command, cmd.Data)
 				go func() {
-					err = c.ConnectLocal(connectInfo.Addr,connectInfo.Code)
+					err = c.ConnectLocal(cmd.Data["Code"].(string))
 					if err != nil {
 						log.Println("ConnectLocal:", err)
 					}
 				}()
-			case CommandClose:
-				var connectInfo struct{
-					Code string
-				}
-				err = json.Unmarshal(cmd.Data, &connectInfo)
-				if err != nil {
-					continue
-				}
-				if val, ok := c.localConn.Load(connectInfo.Code); ok {
-					val.(io.Closer).Close()
-				}
 			}
 		}
 	}()
@@ -140,14 +192,16 @@ func (c *Client) Manage() error {
 	return nil
 }
 
-func (c *Client) ConnectServer(local io.ReadWriteCloser, addr, code string) error {
+func (c *Client) ConnectServer(local io.ReadWriteCloser, destUid, code string) error {
 	onceCloseLocal := &OnceCloser{Closer: local}
 	defer onceCloseLocal.Close()
 
-	header := http.Header{}
-	header.Set("addr", addr)
-	header.Set("code", code)
-	conn, resp, err := websocket.DefaultDialer.DialContext(context.Background(), c.server, header)
+	query := url.Values{}
+	query.Set("uid", destUid)
+	query.Set("code", code)
+	u := c.server + "?" + query.Encode()
+	log.Printf("ConnectServer: %v", u)
+	conn, resp, err := websocket.DefaultDialer.DialContext(context.Background(), u, nil)
 	if err != nil {
 		return err
 	}
@@ -169,22 +223,24 @@ func (c *Client) ConnectServer(local io.ReadWriteCloser, addr, code string) erro
 		defer wg.Done()
 
 		defer onceCloseRemote.Close()
-		_, _ = io.Copy(remote, local)
+		_, err = io.Copy(remote, local)
+		log.Printf("error1: %v", err)
 	}()
 
 	go func() {
 		defer wg.Done()
 
 		defer onceCloseLocal.Close()
-		_, _ = io.Copy(local, remote)
+		_, err = io.Copy(local, remote)
+		log.Printf("error2: %v", err)
 	}()
 
 	wg.Wait()
 	return nil
 }
 
-func (c *Client) ConnectLocal(addr, code string) error {
-	local, err := net.Dial(`tcp`, addr)
+func (c *Client) ConnectLocal(code string) error {
+	local, err := net.Dial("tcp", "127.0.0.1:22")
 	if err != nil {
 		return err
 	}
@@ -194,10 +250,10 @@ func (c *Client) ConnectLocal(addr, code string) error {
 	c.localConn.Store(code, onceCloseLocal)
 	defer c.localConn.Delete(code)
 
-	header := http.Header{}
-	header.Set("addr", addr)
-	header.Set("code", code)
-	conn, resp, err := websocket.DefaultDialer.DialContext(context.Background(), c.server, header)
+	query := url.Values{}
+	query.Set("uid", "anonymous")
+	query.Set("code", code)
+	conn, resp, err := websocket.DefaultDialer.DialContext(context.Background(), c.server+"?"+query.Encode(), nil)
 	if err != nil {
 		return err
 	}
@@ -219,112 +275,16 @@ func (c *Client) ConnectLocal(addr, code string) error {
 		defer wg.Done()
 
 		defer onceCloseRemote.Close()
-		_, _ = io.Copy(remote, local)
+		_, err = io.Copy(remote, local)
+		log.Printf("ConnectLocal::error1: %v", err)
 	}()
 
 	go func() {
 		defer wg.Done()
 
 		defer onceCloseLocal.Close()
-		_, _ = io.Copy(local, remote)
-	}()
-
-	wg.Wait()
-	return nil
-}
-
-func (c *Client) proxy(local io.ReadWriteCloser, addr string) error {
-	onceCloseLocal := &OnceCloser{Closer: local}
-	defer onceCloseLocal.Close()
-
-	u, err := url.Parse(c.server)
-	if err != nil {
-		return err
-	}
-	host := u.Hostname()
-	port := u.Port()
-	if port == `` {
-		switch u.Scheme {
-		case `http`:
-			port = "80"
-		case `https`:
-			port = `443`
-		default:
-			return fmt.Errorf(`unknown scheme: %s`, u.Scheme)
-		}
-	}
-	serverAddr := net.JoinHostPort(host, port)
-
-	var remote net.Conn
-	if u.Scheme == `http` {
-		remote, err = net.Dial(`tcp`, serverAddr)
-		if err != nil {
-			return err
-		}
-	} else if u.Scheme == `https` {
-		remote, err = tls.Dial(`tcp`, serverAddr, nil)
-		if err != nil {
-			return err
-		}
-	}
-	if remote == nil {
-		return fmt.Errorf("no server connection made")
-	}
-
-	onceCloseRemote := &OnceCloser{Closer: remote}
-	defer onceCloseRemote.Close()
-
-	v := u.Query()
-	v.Set(`addr`, addr)
-	u.RawQuery = v.Encode()
-
-	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Add(`Connection`, `upgrade`)
-	req.Header.Add(`Upgrade`, httpHeaderUpgrade)
-	if c.userAgent != `` {
-		req.Header.Add(`User-Agent`, c.userAgent)
-	}
-
-	if err := req.Write(remote); err != nil {
-		return err
-	}
-	bior := bufio.NewReader(remote)
-	resp, err := http.ReadResponse(bior, req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusSwitchingProtocols {
-		buf := bytes.NewBuffer(nil)
-		resp.Write(buf)
-		return fmt.Errorf("statusCode != 101:\n%s", buf.String())
-	}
-
-	wg := &sync.WaitGroup{}
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-
-		defer onceCloseRemote.Close()
-		_, _ = io.Copy(remote, local)
-	}()
-
-	go func() {
-		defer wg.Done()
-
-		if n := int64(bior.Buffered()); n > 0 {
-			if nc, err := io.CopyN(local, bior, n); err != nil || nc != n {
-				log.Println("io.CopyN:", nc, err)
-				return
-			}
-		}
-
-		defer onceCloseLocal.Close()
-		_, _ = io.Copy(local, remote)
+		_, err = io.Copy(local, remote)
+		log.Printf("ConnectLocal::error2: %v", err)
 	}()
 
 	wg.Wait()

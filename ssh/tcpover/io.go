@@ -1,4 +1,4 @@
-package tcpover
+package main
 
 import (
 	"bytes"
@@ -65,6 +65,9 @@ func (s *SocketStream) Read(p []byte) (n int, err error) {
 	}
 
 	_, data, err := s.conn.ReadMessage()
+	if err != nil {
+		return 0, err
+	}
 	if len(data) >= len(p) {
 		n = copy(p, data)
 		s.buf.Write(data[n:])
