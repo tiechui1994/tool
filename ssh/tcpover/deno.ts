@@ -5,6 +5,7 @@ const app = new Hono();
 const manageSocket = {}
 const groupSocket = {}
 const mutex = new Mutex()
+const uuid = new Date()
 
 class EmendWebsocket {
     public socket: WebSocket
@@ -97,6 +98,10 @@ async function proxy(c, prefix, endpoint) {
     const response = await fetch(endpoint, init)
     return new Response(response.body, response)
 }
+
+app.get("/~/check", async(c) => {
+  return new Response("code is:"+uuid)
+})
 
 app.get("/~/ws", async (c) => {
     const upgrade = c.req.headers.get("upgrade") || "";
