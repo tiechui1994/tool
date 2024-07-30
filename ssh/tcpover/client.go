@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/gorilla/websocket"
 	"io"
 	"log"
 	"net"
@@ -14,11 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
-)
 
-const (
-	authHeaderType    = `HTTP2TCP`
-	httpHeaderUpgrade = `http2tcp/1.0`
+	"github.com/gorilla/websocket"
 )
 
 var (
@@ -26,11 +22,13 @@ var (
 )
 
 const (
-	firstDataLength = 20
+	firstDataLength    = 20
+	socketBufferLength = 1024
 )
 
 type Client struct {
 	server string
+	dialer *websocket.Dialer
 
 	localConn sync.Map
 }
@@ -39,7 +37,15 @@ func NewClient(server string) *Client {
 	if !strings.Contains(server, "://") {
 		server = "ws://" + server
 	}
-	return &Client{server: server}
+	return &Client{
+		server: server,
+		dialer: &websocket.Dialer{
+			Proxy:            http.ProxyFromEnvironment,
+			HandshakeTimeout: 45 * time.Second,
+			WriteBufferSize:  1024,
+			ReadBufferSize:   1024,
+		},
+	}
 }
 
 func (c *Client) Std(destUid string) error {
@@ -203,6 +209,7 @@ func (c *Client) ConnectServer(local io.ReadWriteCloser, destUid, code string) e
 	query := url.Values{}
 	query.Set("uid", destUid)
 	query.Set("code", code)
+	query.Set("rule", "Connector")
 	u := c.server + "?" + query.Encode()
 	log.Printf("ConnectServer: %v", u)
 	conn, resp, err := websocket.DefaultDialer.DialContext(context.Background(), u, nil)
@@ -227,7 +234,7 @@ func (c *Client) ConnectServer(local io.ReadWriteCloser, destUid, code string) e
 		defer wg.Done()
 
 		defer onceCloseRemote.Close()
-		_, err = io.Copy(remote, local)
+		_, err = io.CopyBuffer(remote, local, make([]byte, socketBufferLength))
 		log.Printf("error1: %v", err)
 	}()
 
@@ -235,7 +242,7 @@ func (c *Client) ConnectServer(local io.ReadWriteCloser, destUid, code string) e
 		defer wg.Done()
 
 		defer onceCloseLocal.Close()
-		_, err = io.Copy(local, remote)
+		_, err = io.CopyBuffer(local, remote, make([]byte, socketBufferLength))
 		log.Printf("error2: %v", err)
 	}()
 
@@ -264,6 +271,7 @@ func (c *Client) ConnectLocal(code string) error {
 	query := url.Values{}
 	query.Set("uid", "anonymous")
 	query.Set("code", code)
+	query.Set("rule", "Agent")
 	conn, resp, err := websocket.DefaultDialer.DialContext(context.Background(), c.server+"?"+query.Encode(), nil)
 	if err != nil {
 		return err
@@ -286,7 +294,7 @@ func (c *Client) ConnectLocal(code string) error {
 		defer wg.Done()
 
 		defer onceCloseRemote.Close()
-		_, err = io.Copy(remote, local)
+		_, err = io.CopyBuffer(remote, local, make([]byte, socketBufferLength))
 		log.Printf("ConnectLocal::error1: %v", err)
 	}()
 
@@ -294,7 +302,7 @@ func (c *Client) ConnectLocal(code string) error {
 		defer wg.Done()
 
 		defer onceCloseLocal.Close()
-		_, err = io.Copy(local, remote)
+		_, err = io.CopyBuffer(local, remote, make([]byte, socketBufferLength))
 		log.Printf("ConnectLocal::error2: %v", err)
 	}()
 

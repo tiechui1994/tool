@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
+	"fmt"
 	"github.com/gorilla/websocket"
 	"io"
+	"log"
 	random "math/rand"
 	"os"
 	"sync"
@@ -120,8 +122,8 @@ type RandomStream struct {
 
 func NewRandomStream() *RandomStream {
 	s := new(RandomStream)
-	s.in, _ = os.Create("./in.bin")
-	s.out, _ = os.Create("./out.bin")
+	s.in, _ = os.Create("./in.txt")
+	s.out, _ = os.Create("./out.txt")
 	return s
 }
 
@@ -138,14 +140,30 @@ func (s *RandomStream) Close() error {
 }
 
 func (s *RandomStream) Write(p []byte) (n int, err error) {
-	time.Sleep(time.Duration(random.Int31n(500)+200) * time.Millisecond)
 	return s.out.Write(p)
 }
 
+func init() {
+	random.Seed(time.Now().UnixNano())
+}
+
 func (s *RandomStream) Read(p []byte) (n int, err error) {
-	time.Sleep(time.Duration(random.Int31n(500)+200) * time.Millisecond)
-	m := random.Int31n(int32(len(p)))
-	n, err = rand.Read(p[:m])
-	_, _ = s.in.Write(p)
+	time.Sleep(time.Duration(random.Int31n(100)) * time.Millisecond)
+
+	data := make([]byte, socketBufferLength)
+	_, _ = rand.Read(data)
+
+	n = random.Intn(len(p))
+	suffix := []byte(fmt.Sprintf("==>%v\n", n))
+	for len(suffix) >= n {
+		n = random.Intn(len(p))
+		suffix = []byte(fmt.Sprintf("==>%v\n", n))
+	}
+
+	copy(p[:n-len(suffix)], data)
+	copy(p[n-len(suffix):], suffix)
+
+	log.Printf("%v ==> %v", len(p), n)
+	_, _ = s.in.Write(p[:n])
 	return n, err
 }

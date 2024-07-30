@@ -6,50 +6,70 @@ const manageSocket = {}
 const groupSocket = {}
 const mutex = new Mutex()
 
+class EmendWebsocket {
+    public socket: WebSocket
+    public attrs: string
+
+    constructor(socket: WebSocket, attrs: string) {
+        this.socket = socket
+        this.attrs = attrs
+    }
+
+    close(code?: number, reason?: string) {
+        this.socket.close(code, reason)
+    }
+
+    send(chunk: string | ArrayBufferLike | ArrayBuffer) {
+        this.socket.send(chunk)
+    }
+}
+
 class WebSocketStream {
-    public socket: WebSocket;
+    public socket: EmendWebsocket;
     public readable: ReadableStream<Uint8Array>;
     public writable: WritableStream<Uint8Array>;
 
-    constructor(socket: WebSocket) {
+    constructor(socket: EmendWebsocket) {
         this.socket = socket;
         this.readable = new ReadableStream({
-            start(controller) {
-                socket.onmessage = function ({data}) {
-                    console.log("read len", data)
-                    controller.enqueue(data);
+            async start(controller) {
+                socket.socket.onmessage = (event) => {
+                    console.log(socket.attrs, "read len", event.data.byteLength)
+                    controller.enqueue(new Uint8Array(event.data));
                 };
-                socket.onerror = (e) => {
-                    socket.close()
-                    console.log("readable onerror", e)
-                    // controller.error(e)
+                socket.socket.onerror = (e) => {
+                    console.log("<readable onerror>", e.message)
+                    controller.error(e)
                 };
-                socket.onclose = () => controller.close();
+
+                socket.socket.onclose = () => {
+                    console.log("<readable onclose>:", socket.attrs)
+                    controller.close()
+                }
             },
             pull(controller) {
             },
             cancel() {
-                console.log("readable cancel")
-                socket.close();
+                socket.close(1000, socket.attrs + "readable cancel");
             },
         });
         this.writable = new WritableStream({
             start(controller) {
-                socket.onerror = (e) => {
-                    console.log("writable onerror", e)
-                    // controller.error(e);
+                socket.socket.onerror = (e) => {
+                    console.log("<writable onerror>:", e.message)
+                }
+                socket.socket.onclose = () => {
+                    console.log("<writable onclose>:" + socket.attrs)
                 }
             },
             write(chunk) {
                 socket.send(chunk);
             },
             close() {
-                console.log("writable close")
-                socket.close();
+                socket.close(1000, socket.attrs + "writable close");
             },
             abort(e) {
-                console.log("writable abort", e)
-                socket.close();
+                socket.close(1006, socket.attrs + "writable abort");
             },
         });
     }
@@ -77,7 +97,6 @@ async function proxy(c, prefix, endpoint) {
     }
 
     const response = await fetch(endpoint, init)
-// clone the response to return a response with modifiable headers
     return new Response(response.body, response)
 }
 
@@ -93,18 +112,16 @@ app.get("/", async (c) => {
     console.log(`uid: ${uid}, code: ${code}, rule: ${rule}`)
 
     const {response, socket} = Deno.upgradeWebSocket(c.req.raw)
-    console.log(`socket:`, socket)
     if (rule === "manage") {
         socket.onopen = () => {
-            console.log("socket opened");
-            manageSocket[uid] = socket
+            manageSocket[uid] = new EmendWebsocket(socket, `${rule}_${uid}`)
         }
         socket.onerror = (e) => {
-            console.log("socket onerror", e.message, uid);
+            console.log("socket onerror", e.message, socket.extensions);
             manageSocket[uid] = null
         }
         socket.onclose = () => {
-            console.log("socket closed", uid);
+            console.log("socket closed", socket.extensions);
             manageSocket[uid] = null
         }
         return response
@@ -112,10 +129,11 @@ app.get("/", async (c) => {
 
     await mutex.acquire();
     if (groupSocket[code]) {
-        groupSocket[code].second = socket
-        const connPair = groupSocket[code]
-        mutex.release()
-        connPair.second.onopen = () => {
+        socket.onopen = () => {
+            groupSocket[code].second = new EmendWebsocket(socket, `${rule}_${code}_${uid}`)
+            const connPair = groupSocket[code]
+            mutex.release()
+
             const first = new WebSocketStream(connPair.first)
             const second = new WebSocketStream(connPair.second)
 
@@ -123,10 +141,12 @@ app.get("/", async (c) => {
             second.readable.pipeTo(first.writable)
         }
     } else {
-        groupSocket[code] = {
-            first: socket,
+        socket.onopen = () => {
+            groupSocket[code] = {
+                first: new EmendWebsocket(socket, `${rule}_${code}_${uid}`),
+            }
+            mutex.release()
         }
-        mutex.release()
 
         const targetConn = manageSocket[uid]
         const data = JSON.stringify({

@@ -92,14 +92,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			defer wg.Done()
 
 			defer onceCloseRemote.Close()
-			_, _ = io.Copy(remote, local)
+			_, _ = io.CopyBuffer(remote, local, make([]byte, 1024))
 		}()
 
 		go func() {
 			defer wg.Done()
 
 			defer onceCloseLocal.Close()
-			_, _ = io.Copy(local, remote)
+			_, _ = io.CopyBuffer(local, remote, make([]byte, 1024))
 		}()
 
 		wg.Wait()
