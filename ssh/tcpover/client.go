@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -23,7 +24,11 @@ var (
 
 const (
 	firstDataLength    = 20
-	socketBufferLength = 1024
+	socketBufferLength = 16384
+
+	RuleManage    = "manage"
+	RuleAgent     = "Agent"
+	RuleConnector = "Connector"
 )
 
 type Client struct {
@@ -42,8 +47,8 @@ func NewClient(server string) *Client {
 		dialer: &websocket.Dialer{
 			Proxy:            http.ProxyFromEnvironment,
 			HandshakeTimeout: 45 * time.Second,
-			WriteBufferSize:  1024,
-			ReadBufferSize:   1024,
+			WriteBufferSize:  socketBufferLength,
+			ReadBufferSize:   socketBufferLength,
 		},
 	}
 }
@@ -147,6 +152,43 @@ type ControlMessage struct {
 	Data    map[string]interface{}
 }
 
+var (
+	webSocketCloseCode = []int{
+		websocket.CloseNormalClosure,
+		websocket.CloseGoingAway,
+		websocket.CloseProtocolError,
+		websocket.CloseUnsupportedData,
+		websocket.CloseNoStatusReceived,
+		websocket.CloseAbnormalClosure,
+		websocket.CloseInvalidFramePayloadData,
+		websocket.CloseInternalServerErr,
+		websocket.CloseServiceRestart,
+		websocket.CloseTryAgainLater,
+	}
+)
+
+func isClose(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if _, ok := err.(*websocket.CloseError); ok {
+		return websocket.IsCloseError(err, webSocketCloseCode...)
+	}
+
+	if v, ok := err.(syscall.Errno); ok {
+		return v.Is(syscall.ECONNABORTED) || v.Is(syscall.ECONNRESET) ||
+			v.Is(syscall.ETIMEDOUT) || v.Is(syscall.ECONNREFUSED) ||
+			v.Is(syscall.ENETUNREACH) || v.Is(syscall.ENETRESET)
+	}
+
+	if strings.Contains(err.Error(), "use of closed network connection") {
+		return true
+	}
+
+	return false
+}
+
 func (c *Client) Manage(uid string) error {
 	query := url.Values{}
 	query.Set("rule", "manage")
@@ -163,23 +205,35 @@ func (c *Client) Manage(uid string) error {
 	}
 
 	go func() {
+		defer func() {
+			log.Printf("Manage Socket Close: %v", conn.Close())
+
+			times := 1
+			for {
+				time.Sleep(time.Duration(times) * time.Second)
+				times = times * 2
+				err = c.Manage(uid)
+				if err == nil {
+					log.Printf("reconnect to server success")
+					break
+				}
+
+				log.Printf("reconnect to server: %v", err)
+				if times >= 64 {
+					times = 1
+				}
+			}
+		}()
 		for {
 			var cmd ControlMessage
-			//err = conn.ReadJSON(&cmd)
-			//if err != nil {
-			//	continue
-			//}
-
 			_, p, err := conn.ReadMessage()
+			if isClose(err) {
+				return
+			}
 			if err != nil {
-				if websocket.IsCloseError(err, websocket.CloseAbnormalClosure) {
-					conn.Close()
-					return
-				}
 				log.Printf("ReadMessage: %v", err)
 				continue
 			}
-			log.Printf(`[%v]`, string(p))
 			err = json.Unmarshal(p, &cmd)
 			if err != nil {
 				log.Printf("Unmarshal: %v", err)
@@ -212,7 +266,7 @@ func (c *Client) ConnectServer(local io.ReadWriteCloser, destUid, code string) e
 	query.Set("rule", "Connector")
 	u := c.server + "?" + query.Encode()
 	log.Printf("ConnectServer: %v", u)
-	conn, resp, err := websocket.DefaultDialer.DialContext(context.Background(), u, nil)
+	conn, resp, err := c.dialer.DialContext(context.Background(), u, nil)
 	if err != nil {
 		return err
 	}
@@ -235,7 +289,6 @@ func (c *Client) ConnectServer(local io.ReadWriteCloser, destUid, code string) e
 
 		defer onceCloseRemote.Close()
 		_, err = io.CopyBuffer(remote, local, make([]byte, socketBufferLength))
-		log.Printf("error1: %v", err)
 	}()
 
 	go func() {
@@ -243,7 +296,6 @@ func (c *Client) ConnectServer(local io.ReadWriteCloser, destUid, code string) e
 
 		defer onceCloseLocal.Close()
 		_, err = io.CopyBuffer(local, remote, make([]byte, socketBufferLength))
-		log.Printf("error2: %v", err)
 	}()
 
 	wg.Wait()
@@ -272,7 +324,7 @@ func (c *Client) ConnectLocal(code string) error {
 	query.Set("uid", "anonymous")
 	query.Set("code", code)
 	query.Set("rule", "Agent")
-	conn, resp, err := websocket.DefaultDialer.DialContext(context.Background(), c.server+"?"+query.Encode(), nil)
+	conn, resp, err := c.dialer.DialContext(context.Background(), c.server+"?"+query.Encode(), nil)
 	if err != nil {
 		return err
 	}

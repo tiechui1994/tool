@@ -34,14 +34,12 @@ class WebSocketStream {
         this.readable = new ReadableStream({
             async start(controller) {
                 socket.socket.onmessage = (event) => {
-                    console.log(socket.attrs, "read len", event.data.byteLength)
                     controller.enqueue(new Uint8Array(event.data));
                 };
                 socket.socket.onerror = (e) => {
                     console.log("<readable onerror>", e.message)
                     controller.error(e)
                 };
-
                 socket.socket.onclose = () => {
                     console.log("<readable onclose>:", socket.attrs)
                     controller.close()
@@ -62,7 +60,7 @@ class WebSocketStream {
                     console.log("<writable onclose>:" + socket.attrs)
                 }
             },
-            write(chunk) {
+            write(chunk, controller) {
                 socket.send(chunk);
             },
             close() {
@@ -100,7 +98,7 @@ async function proxy(c, prefix, endpoint) {
     return new Response(response.body, response)
 }
 
-app.get("/", async (c) => {
+app.get("/~/ws", async (c) => {
     const upgrade = c.req.headers.get("upgrade") || "";
     if (upgrade.toLowerCase() != "websocket") {
         return new Response("request isn't trying to upgrade to websocket.");
@@ -109,6 +107,14 @@ app.get("/", async (c) => {
     const uid = c.req.query("uid")
     const code = c.req.query("code")
     const rule = c.req.query("rule")
+    let targetConn
+    if (rule === "Connector") {
+        targetConn = manageSocket[uid]
+        if (!targetConn) {
+            console.log("the target Agent websocket not exist", uid)
+            return new Response("agent not running.");
+        }
+    }
     console.log(`uid: ${uid}, code: ${code}, rule: ${rule}`)
 
     const {response, socket} = Deno.upgradeWebSocket(c.req.raw)
@@ -130,25 +136,28 @@ app.get("/", async (c) => {
     await mutex.acquire();
     if (groupSocket[code]) {
         socket.onopen = () => {
-            groupSocket[code].second = new EmendWebsocket(socket, `${rule}_${code}_${uid}`)
+            groupSocket[code].second = new WebSocketStream(new EmendWebsocket(socket, `${rule}_${code}_${uid}`))
             const connPair = groupSocket[code]
             mutex.release()
 
-            const first = new WebSocketStream(connPair.first)
-            const second = new WebSocketStream(connPair.second)
-
-            first.readable.pipeTo(second.writable)
-            second.readable.pipeTo(first.writable)
+            const first = connPair.first
+            const second = connPair.second
+            first.readable.pipeTo(second.writable).catch((e) => {
+               console.log("socket exception", first.socket.attrs, e.message)
+               groupSocket[code] = null
+            })
+            second.readable.pipeTo(first.writable).catch((e) => {
+               console.log("socket exception", second.socket.attrs, e.message)
+               groupSocket[code] = null
+            })
         }
     } else {
         socket.onopen = () => {
             groupSocket[code] = {
-                first: new EmendWebsocket(socket, `${rule}_${code}_${uid}`),
+                first: new WebSocketStream(new EmendWebsocket(socket, `${rule}_${code}_${uid}`)),
             }
             mutex.release()
         }
-
-        const targetConn = manageSocket[uid]
         const data = JSON.stringify({
             Command: 0x01,
             Data: {Code: code}
@@ -158,6 +167,10 @@ app.get("/", async (c) => {
     }
 
     return response;
+})
+
+app.on(['GET', 'DELETE', 'HEAD', 'OPTIONS', 'PUT', 'POST'], "*", async (c) => {
+    return await proxy(c, '/api', 'https://api.quinn.eu.org')
 })
 
 Deno.serve(app.fetch);
