@@ -94,6 +94,49 @@ async function proxy(request, endpoint) {
     return new Response(response.body, response)
 }
 
+
+app.get("/~/link", (c) => {
+    const upgrade = c.req.headers.get("upgrade") || "";
+    if (upgrade.toLowerCase() != "websocket") {
+        return new Response("request isn't trying to upgrade to websocket.");
+    }
+
+    const uid = c.req.query("uid")
+    const code = c.req.query("code")
+    const rule = c.req.query("rule")
+    const regex = /^([a-zA-Z0-9.]+):(\d+)$/
+    if (rule === "Connector" && regex.test(uid)) {
+        const tokens = regex.exec(uid)
+        const hostname = tokens[1]
+        const port = parseInt(tokens[2])
+        console.log(`${uid} hostname: ${hostname}, port:${port}`)
+        const {response, socket} = Deno.upgradeWebSocket(c.req.raw)
+        socket.onerror = (e) => {
+            console.log("socket onerror", e.message);
+        }
+        socket.onclose = () => {
+            console.log("socket closed");
+        }
+        socket.onopen = () => {
+            const local = new WebSocketStream(new EmendWebsocket(socket, `${rule}_${code}_${uid}`))
+            Deno.connect({
+                port: port,
+                hostname: hostname,
+            }).then((remote) => {
+                local.readable.pipeTo(remote.writable).catch((e) => {
+                    console.log("socket exception", e.message)
+                })
+                remote.readable.pipeTo(local.writable).catch((e) => {
+                    console.log("socket exception", e.message)
+                })
+            })
+        }
+        return response
+    }
+
+    return new Response("request failed");
+})
+
 app.get("/~/ws", async (c) => {
     const upgrade = c.req.headers.get("upgrade") || "";
     if (upgrade.toLowerCase() != "websocket") {
