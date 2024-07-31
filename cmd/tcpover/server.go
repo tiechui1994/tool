@@ -63,7 +63,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer func() { log.Println("leave: number of connections:", atomic.AddInt32(&s.conn, -1)) }()
 
 	// manage channel
-	if rule == "manage" {
+	if rule == RuleManage {
 		s.manageConn.Store(uid, conn)
 		defer s.manageConn.Delete(uid)
 		ticker := time.NewTicker(time.Second)

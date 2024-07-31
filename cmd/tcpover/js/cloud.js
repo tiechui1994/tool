@@ -177,11 +177,34 @@ async function ws(request) {
 }
 
 
+async function proxy(request) {
+    const url = new URL(request.url)
+    const path = url.pathname + url.search
+    const endpoint = "https://tcpover.koyeb.app" + path
+    request.headers['host'] = "tcpover.koyeb.app"
+    let init = {
+        method: request.method,
+        headers: request.headers
+    }
+    if (['POST', 'PUT'].includes(request.method.toUpperCase())) {
+        init.body = request.body
+    }
+
+    const response = await fetch(endpoint, init)
+    return new Response(response.body, response)
+}
+
+
 export default {
     async fetch(request, env, ctx) {
+        const url = new URL(request.url);
+        if (url.pathname.startsWith("/api")) {
+            console.log("request url:", url.pathname)
+            return await proxy(request)
+        }
+
         const upgradeHeader = request.headers.get('Upgrade');
         if (!upgradeHeader || upgradeHeader !== 'websocket') {
-            const url = new URL(request.url);
             switch (url.pathname) {
                 case "/check":
                     return check(request)

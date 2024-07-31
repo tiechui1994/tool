@@ -44,13 +44,13 @@ func NewClient(server string) *Client {
 	}
 
 	m := map[string]string{
-		"overtcp.pages.dev:443":"[2606:4700:310c::ac42:2d1f]:443",
+		"tcpover.pages.dev:443": "[2606:4700:310c::ac42:2d1f]:443",
 	}
 
 	return &Client{
 		server: server,
 		dialer: &websocket.Dialer{
-			Proxy:            http.ProxyFromEnvironment,
+			Proxy: http.ProxyFromEnvironment,
 			NetDialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				v := addr
 				if val, ok := m[addr]; ok {
@@ -113,11 +113,8 @@ func (c *Client) Serve(uid string) error {
 	}
 	defer lis.Close()
 
-	err = c.Manage(uid)
-	if err != nil {
-		log.Printf("Serve::Manage %v", err)
-		return err
-	}
+	c.Manage(uid)
+	log.Printf("Connect Server Success")
 
 	for {
 		conn, err := lis.Accept()
@@ -127,10 +124,10 @@ func (c *Client) Serve(uid string) error {
 		}
 
 		go func(conn io.ReadWriteCloser) {
+			defer conn.Close()
 			var first [firstDataLength]byte
 			n, err := conn.Read(first[:])
 			if n != firstDataLength || err != nil {
-				_ = conn.Close()
 				log.Printf("Serve::Read Uid %v", err)
 				return
 			}
@@ -143,7 +140,6 @@ func (c *Client) Serve(uid string) error {
 				}
 			}
 			if destUid == "" {
-				_ = conn.Close()
 				log.Printf("Serve::destUid is empty")
 				return
 			}
@@ -192,51 +188,50 @@ func isClose(err error) bool {
 	if v, ok := err.(syscall.Errno); ok {
 		return v.Is(syscall.ECONNABORTED) || v.Is(syscall.ECONNRESET) ||
 			v.Is(syscall.ETIMEDOUT) || v.Is(syscall.ECONNREFUSED) ||
-			v.Is(syscall.ENETUNREACH) || v.Is(syscall.ENETRESET)
+			v.Is(syscall.ENETUNREACH) || v.Is(syscall.ENETRESET) ||
+			v.Is(syscall.EPIPE)
 	}
 
-	if strings.Contains(err.Error(), "use of closed network connection") {
+	if strings.Contains(err.Error(), "use of closed network connection") ||
+		strings.Contains(err.Error(), "broken pipe") {
 		return true
 	}
 
 	return false
 }
 
-func (c *Client) Manage(uid string) error {
+func (c *Client) Manage(uid string) {
+	times := 1
+try:
+	time.Sleep(time.Second * time.Duration(times))
+	if times >= 64 {
+		times = 1
+	}
 	query := url.Values{}
 	query.Set("rule", "manage")
 	query.Set("uid", uid)
 	conn, resp, err := c.dialer.DialContext(context.Background(), c.server+"?"+query.Encode(), nil)
 	if err != nil {
-		return err
+		log.Printf("Manage::DialContext: %v", err)
+		times = times * 2
+		goto try
 	}
 
 	if resp.StatusCode != http.StatusSwitchingProtocols {
 		buf := bytes.NewBuffer(nil)
 		_ = resp.Write(buf)
-		return fmt.Errorf("statusCode != 101:\n%s", buf.String())
+		log.Printf("Manage::StatusCode not 101: %v", buf.String())
+		times = times * 2
+		goto try
 	}
 
 	go func() {
 		defer func() {
 			log.Printf("Manage Socket Close: %v", conn.Close())
-
-			times := 1
-			for {
-				time.Sleep(time.Duration(times) * time.Second)
-				times = times * 2
-				err = c.Manage(uid)
-				if err == nil {
-					log.Printf("reconnect to server success")
-					break
-				}
-
-				log.Printf("reconnect to server: %v", err)
-				if times >= 64 {
-					times = 1
-				}
-			}
+			c.Manage(uid)
+			log.Printf("Reconnect to server success")
 		}()
+
 		for {
 			var cmd ControlMessage
 			_, p, err := conn.ReadMessage()
@@ -265,8 +260,6 @@ func (c *Client) Manage(uid string) error {
 			}
 		}
 	}()
-
-	return nil
 }
 
 func (c *Client) ConnectServer(local io.ReadWriteCloser, destUid, code string) error {
