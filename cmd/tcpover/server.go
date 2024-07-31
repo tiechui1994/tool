@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"regexp"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -40,6 +41,54 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	rule := r.URL.Query().Get("rule")
 
+	regex := regexp.MustCompile(`^([a-zA-Z0-9.]+):(\d+)$`)
+	if rule == RuleConnector && regex.MatchString(uid) {
+		conn, err := net.Dial("tcp", uid)
+		if err != nil {
+			log.Printf("tcp connect [%v] : %v", uid, err)
+			http.Error(w, fmt.Sprintf("tcp connect failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		socket, err := s.upgrade.Upgrade(w, r, nil)
+		if err != nil {
+			log.Printf("upgrade error: %v", err)
+			http.Error(w, fmt.Sprintf("upgrade error: %v", err), http.StatusBadRequest)
+			return
+		}
+
+		local := conn
+		remote := &SocketStream{conn: socket}
+
+		onceCloseLocal := &OnceCloser{Closer: local}
+		onceCloseRemote := &OnceCloser{Closer: remote}
+
+		defer func() {
+			_ = onceCloseRemote.Close()
+			_ = onceCloseLocal.Close()
+		}()
+
+		wg := &sync.WaitGroup{}
+		wg.Add(2)
+
+		go func() {
+			defer wg.Done()
+
+			defer onceCloseRemote.Close()
+			_, _ = io.CopyBuffer(remote, local, make([]byte, socketBufferLength))
+		}()
+
+		go func() {
+			defer wg.Done()
+
+			defer onceCloseLocal.Close()
+			_, _ = io.CopyBuffer(local, remote, make([]byte, socketBufferLength))
+		}()
+
+		wg.Wait()
+		return
+	}
+
 	if rule == RuleConnector {
 		manage, ok := s.manageConn.Load(uid)
 		if !ok {
@@ -47,12 +96,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("Agent [%v] not connect", uid), http.StatusBadRequest)
 			return
 		}
-		if ok {
-			_ = manage.(*websocket.Conn).WriteJSON(ControlMessage{
-				Command: CommandLink,
-				Data:    map[string]interface{}{"Code": code},
-			})
-		}
+		_ = manage.(*websocket.Conn).WriteJSON(ControlMessage{
+			Command: CommandLink,
+			Data:    map[string]interface{}{"Code": code},
+		})
 	}
 
 	conn, err := s.upgrade.Upgrade(w, r, nil)
