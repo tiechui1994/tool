@@ -5,7 +5,6 @@ const app = new Hono();
 const manageSocket = {}
 const groupSocket = {}
 const mutex = new Mutex()
-const uuid = new Date()
 
 class EmendWebsocket {
     public socket: WebSocket
@@ -74,34 +73,26 @@ class WebSocketStream {
     }
 }
 
-async function proxy(c, prefix, endpoint) {
-    const request = c.req.raw
-    const url = new URL(request.url)
-    const path = url.pathname + url.search
-
-    if (path.startsWith("/https://") || path.startsWith("/http://")) {
-        endpoint = path.substring(1)
-    } else if (path.startsWith(prefix)) {
-        endpoint = endpoint + path
+async function proxy(request, endpoint) {
+    const headers = new Headers({})
+    headers.set('host', (new URL(endpoint)).host)
+    for (const [key, value] of request.headers.entries()) {
+        if (key.toLowerCase() == 'host') {
+            continue
+        }
+        headers.set(key, value)
     }
-
-    request.headers['host'] = (new URL(endpoint)).host
     console.log("req url:", endpoint)
     let init = {
         method: request.method,
-        headers: request.headers
+        headers: headers
     }
     if (['POST', 'PUT'].includes(request.method.toUpperCase())) {
         init.body = request.body
     }
-
     const response = await fetch(endpoint, init)
     return new Response(response.body, response)
 }
-
-app.get("/~/check", async(c) => {
-  return new Response("code is:"+uuid)
-})
 
 app.get("/~/ws", async (c) => {
     const upgrade = c.req.headers.get("upgrade") || "";
@@ -175,7 +166,20 @@ app.get("/~/ws", async (c) => {
 })
 
 app.on(['GET', 'DELETE', 'HEAD', 'OPTIONS', 'PUT', 'POST'], "*", async (c) => {
-    return await proxy(c, '/api', 'https://api.quinn.eu.org')
+    const request = c.req.raw
+    const url = new URL(request.url)
+    const path = url.pathname + url.search
+
+    let endpoint = ""
+    if (path.startsWith("/https://") || path.startsWith("/http://")) {
+        endpoint = path.substring(1)
+    } else if (path.startsWith("/api")) {
+        endpoint = "https://api.quinn.eu.org" + path
+    }  else {
+        endpoint = "https://api.quinn.eu.org"
+    }
+
+    return await proxy(request, endpoint)
 })
 
 Deno.serve(app.fetch);

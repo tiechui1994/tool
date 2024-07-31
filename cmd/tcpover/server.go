@@ -57,11 +57,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	conn, err := s.upgrade.Upgrade(w, r, nil)
 	if err != nil {
-		http.Error(w, `upgrade error`, http.StatusBadRequest)
+		log.Printf("upgrade error: %v", err)
+		http.Error(w, fmt.Sprintf("upgrade error: %v", err), http.StatusBadRequest)
 		return
 	}
-	log.Printf("enter: number of connections:%v, code:%v, uid:%v, rule:%v", atomic.AddInt32(&s.conn, +1), code, uid, rule)
-	defer func() { log.Println("leave: number of connections:", atomic.AddInt32(&s.conn, -1)) }()
+	log.Printf("enter connections:%v, code:%v, uid:%v, rule:%v", atomic.AddInt32(&s.conn, +1), code, uid, rule)
+	defer func() {
+		log.Printf("leave connections:%v  code:%v, uid:%v, rule:%v", atomic.AddInt32(&s.conn, -1), code, uid, rule)
+	}()
 
 	// manage channel
 	if rule == RuleManage {
