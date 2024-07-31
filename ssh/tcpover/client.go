@@ -42,10 +42,23 @@ func NewClient(server string) *Client {
 	if !strings.Contains(server, "://") {
 		server = "ws://" + server
 	}
+
+	m := map[string]string{
+		"overtcp.pages.dev:443":"[2606:4700:310c::ac42:2d1f]:443",
+	}
+
 	return &Client{
 		server: server,
 		dialer: &websocket.Dialer{
 			Proxy:            http.ProxyFromEnvironment,
+			NetDialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				v := addr
+				if val, ok := m[addr]; ok {
+					v = val
+				}
+				fmt.Println("DialContext:", v)
+				return (&net.Dialer{}).DialContext(context.Background(), network, v)
+			},
 			HandshakeTimeout: 45 * time.Second,
 			WriteBufferSize:  socketBufferLength,
 			ReadBufferSize:   socketBufferLength,
@@ -193,7 +206,7 @@ func (c *Client) Manage(uid string) error {
 	query := url.Values{}
 	query.Set("rule", "manage")
 	query.Set("uid", uid)
-	conn, resp, err := websocket.DefaultDialer.DialContext(context.Background(), c.server+"?"+query.Encode(), nil)
+	conn, resp, err := c.dialer.DialContext(context.Background(), c.server+"?"+query.Encode(), nil)
 	if err != nil {
 		return err
 	}

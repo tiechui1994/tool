@@ -3,9 +3,13 @@ package ssh
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
+	"io"
 	"log"
+	"net"
 	"net/http"
+	"os"
 	"testing"
 	"time"
 
@@ -76,4 +80,44 @@ func connect() error {
 
 func TestClient(t *testing.T) {
 	t.Log(connect())
+}
+
+func client() {
+	m := map[string]string{
+		"www.baidu.com:443": "[2409:8c20:6:1d55:0:ff:b09c:7d77]:443",
+		"page-us-qg0.pages.dev:443":"47.236.202.91:443",
+		"overtcp.pages.dev":"[2606:4700:310c::ac42:2d1f]:443",
+	}
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				v := addr
+				if val, ok := m[addr]; ok {
+					v = val
+				}
+				fmt.Println("DialContext:", v)
+				return (&net.Dialer{}).DialContext(context.Background(), network, v)
+			},
+			DisableKeepAlives: true,
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 100,
+		},
+	}
+	//req, _ := http.NewRequest("GET", "https://page-us-qg0.pages.dev/", nil)
+	resp, err := client.Get("https://overtcp.pages.dev/check")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	_,_ = io.Copy(os.Stdout, resp.Body)
+	fmt.Println(resp.Status)
+}
+
+func TestXc(t *testing.T) {
+	client()
 }
