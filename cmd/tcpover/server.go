@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -66,21 +67,29 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if rule == RuleManage {
 		s.manageConn.Store(uid, conn)
 		defer s.manageConn.Delete(uid)
-		ticker := time.NewTicker(time.Second)
-		for {
-			select {
-			case <-ticker.C:
-				err = conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(time.Second))
-				if isClose(err) {
-					log.Println("closing.....", conn.Close())
-					return
-				}
-				if err != nil {
-					log.Println("ping error", err)
-					continue
-				}
+
+		done := make(chan struct{})
+		conn.SetPingHandler(func(message string) error {
+			err := conn.WriteControl(websocket.PongMessage, []byte(message), time.Now().Add(time.Second))
+			if err == websocket.ErrCloseSent {
+				return nil
+			} else if e, ok := err.(net.Error); ok && e.Temporary() {
+				return nil
+			} else if err == nil {
+				return nil
 			}
-		}
+
+			if isClose(err) {
+				close(done)
+				log.Printf("closing ..... : %v", conn.Close())
+				return err
+			}
+
+			log.Printf("pong error: %v", err)
+			return err
+		})
+
+		<-done
 	}
 
 	s.groupMux.Lock()

@@ -225,12 +225,31 @@ try:
 		goto try
 	}
 
+	var onceClose sync.Once
+	closeFunc := func() {
+		log.Printf("Manage Socket Close: %v", conn.Close())
+		c.Manage(uid)
+		log.Printf("Reconnect to server success")
+	}
+
 	go func() {
-		defer func() {
-			log.Printf("Manage Socket Close: %v", conn.Close())
-			c.Manage(uid)
-			log.Printf("Reconnect to server success")
-		}()
+		ticker := time.NewTicker(20 * time.Second)
+		defer onceClose.Do(closeFunc)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			err = conn.WriteControl(websocket.PingMessage, []byte(nil), time.Now().Add(time.Second))
+			if isClose(err) {
+				return
+			}
+			if err != nil {
+				log.Printf("Ping: %v", err)
+			}
+		}
+	}()
+
+	go func() {
+		defer onceClose.Do(closeFunc)
 
 		for {
 			var cmd ControlMessage
@@ -291,6 +310,21 @@ func (c *Client) ConnectServer(local io.ReadWriteCloser, destUid, code string) e
 	wg.Add(2)
 
 	go func() {
+		ticker := time.NewTicker(20 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			err = conn.WriteControl(websocket.PingMessage, []byte(nil), time.Now().Add(time.Second))
+			if isClose(err) {
+				return
+			}
+			if err != nil {
+				log.Printf("Ping: %v", err)
+			}
+		}
+	}()
+
+	go func() {
 		defer wg.Done()
 
 		defer onceCloseRemote.Close()
@@ -347,6 +381,21 @@ func (c *Client) ConnectLocal(code string) error {
 
 	wg := &sync.WaitGroup{}
 	wg.Add(2)
+
+	go func() {
+		ticker := time.NewTicker(20 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			err = conn.WriteControl(websocket.PingMessage, []byte(nil), time.Now().Add(time.Second))
+			if isClose(err) {
+				return
+			}
+			if err != nil {
+				log.Printf("Ping: %v", err)
+			}
+		}
+	}()
 
 	go func() {
 		defer wg.Done()
