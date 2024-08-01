@@ -179,7 +179,7 @@ async function ws(request) {
 
 async function proxy(request, u) {
     const url = new URL(u)
-    request.headers['host'] = u.host
+    request.headers['host'] = url.host
     let init = {
         method: request.method,
         headers: request.headers
@@ -196,16 +196,16 @@ async function proxy(request, u) {
 export default {
     async fetch(request, env, ctx) {
         const url = new URL(request.url);
-	      const path = url.pathname + url.search
+        const path = url.pathname + url.search
         if (path.startsWith("/api")) {
             const u = "https://tcpover.koyeb.app" + path
             console.log("request url:", u)
             return await proxy(request, u)
-        } else if (path.startsWith("/proxy/api")) {
-	          const u = "https://tcpover.glitch.me" + path.substring("/proxy".length)
+        } else if (path.startsWith("/proxy")) {
+            const u = "https://tcpover.glitch.me" + path.substring("/proxy".length)
             console.log("request url:", u)
             return await proxy(request, u)
-	      }
+        }
 
         const upgradeHeader = request.headers.get('Upgrade');
         if (!upgradeHeader || upgradeHeader !== 'websocket') {
@@ -213,7 +213,7 @@ export default {
                 case "/check":
                     return check(request)
                 default:
-                    return new Response("invalid request")
+                    return await proxy(request, "https://www.bing.com")
             }
         } else {
             return await ws(request)
