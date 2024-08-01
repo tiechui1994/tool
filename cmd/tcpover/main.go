@@ -4,6 +4,8 @@ import (
 	"flag"
 	"log"
 	"net/http"
+
+	"github.com/tiechui1994/tool/cmd/tcpover/over"
 )
 
 var debug bool
@@ -35,7 +37,7 @@ func main() {
 	}
 
 	if *runAsServer {
-		s := NewServer()
+		s := over.NewServer()
 		if err := http.ListenAndServe(*listenAddr, s); err != nil {
 			log.Fatalln(err)
 		}
@@ -43,7 +45,7 @@ func main() {
 	}
 
 	if *runAsConnector {
-		c := NewClient(*serverEndpoint)
+		c := over.NewClient(*serverEndpoint, nil)
 		if *connectLocal {
 			if err := c.Tcp(*uid); err != nil {
 				log.Fatalln(err)
@@ -57,7 +59,7 @@ func main() {
 	}
 
 	if *runAsAgent {
-		c := NewClient(*serverEndpoint)
+		c := over.NewClient(*serverEndpoint, nil)
 		if err := c.Serve(*uid); err != nil {
 			log.Fatalln(err)
 		}

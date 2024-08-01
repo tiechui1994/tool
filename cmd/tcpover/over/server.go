@@ -1,4 +1,4 @@
-package main
+package over
 
 import (
 	"fmt"
@@ -58,7 +58,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		local := conn
-		remote := &SocketStream{conn: socket}
+		remote := NewSocketReadWriteCloser(socket)
 
 		onceCloseLocal := &OnceCloser{Closer: local}
 		onceCloseRemote := &OnceCloser{Closer: remote}
@@ -75,14 +75,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			defer wg.Done()
 
 			defer onceCloseRemote.Close()
-			_, _ = io.CopyBuffer(remote, local, make([]byte, socketBufferLength))
+			_, _ = io.CopyBuffer(remote, local, make([]byte, SocketBufferLength))
 		}()
 
 		go func() {
 			defer wg.Done()
 
 			defer onceCloseLocal.Close()
-			_, _ = io.CopyBuffer(local, remote, make([]byte, socketBufferLength))
+			_, _ = io.CopyBuffer(local, remote, make([]byte, SocketBufferLength))
 		}()
 
 		wg.Wait()
@@ -138,7 +138,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			log.Printf("pong error: %v", err)
 			return err
 		})
-
 		<-done
 	}
 
@@ -147,8 +146,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		v.conn = append(v.conn, conn)
 		s.groupMux.Unlock()
 
-		local := &SocketStream{conn: v.conn[0]}
-		remote := &SocketStream{conn: v.conn[1]}
+		local := NewSocketReadWriteCloser(v.conn[0])
+		remote := NewSocketReadWriteCloser(v.conn[1])
 
 		onceCloseLocal := &OnceCloser{Closer: local}
 		onceCloseRemote := &OnceCloser{Closer: remote}
@@ -170,14 +169,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			defer wg.Done()
 
 			defer onceCloseRemote.Close()
-			_, _ = io.CopyBuffer(remote, local, make([]byte, socketBufferLength))
+			_, _ = io.CopyBuffer(remote, local, make([]byte, SocketBufferLength))
 		}()
 
 		go func() {
 			defer wg.Done()
 
 			defer onceCloseLocal.Close()
-			_, _ = io.CopyBuffer(local, remote, make([]byte, socketBufferLength))
+			_, _ = io.CopyBuffer(local, remote, make([]byte, SocketBufferLength))
 		}()
 
 		wg.Wait()

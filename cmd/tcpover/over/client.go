@@ -1,4 +1,4 @@
-package main
+package over
 
 import (
 	"bytes"
@@ -7,28 +7,15 @@ import (
 	"fmt"
 	"io"
 	"log"
+	random "math/rand"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
-)
-
-var (
-	LocalAgentTCP = "127.0.0.1:9988"
-)
-
-const (
-	firstDataLength    = 20
-	socketBufferLength = 16384
-
-	RuleManage    = "manage"
-	RuleAgent     = "Agent"
-	RuleConnector = "Connector"
 )
 
 type Client struct {
@@ -38,13 +25,12 @@ type Client struct {
 	localConn sync.Map
 }
 
-func NewClient(server string) *Client {
+func NewClient(server string, proxy map[string][]string) *Client {
 	if !strings.Contains(server, "://") {
 		server = "ws://" + server
 	}
-
-	m := map[string]string{
-		"tcpover.pages.dev:443": "[2606:4700:310c::ac42:2d1f]:443",
+	if proxy == nil {
+		proxy = map[string][]string{}
 	}
 
 	return &Client{
@@ -53,23 +39,23 @@ func NewClient(server string) *Client {
 			Proxy: http.ProxyFromEnvironment,
 			NetDialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				v := addr
-				if val, ok := m[addr]; ok {
-					v = val
+				if val, ok := proxy[addr]; ok {
+					v = val[random.Intn(len(val))]
 				}
-				fmt.Println("DialContext:", v)
+				log.Printf("DialContext [%v]: %v", addr, v)
 				return (&net.Dialer{}).DialContext(context.Background(), network, v)
 			},
 			HandshakeTimeout: 45 * time.Second,
-			WriteBufferSize:  socketBufferLength,
-			ReadBufferSize:   socketBufferLength,
+			WriteBufferSize:  SocketBufferLength,
+			ReadBufferSize:   SocketBufferLength,
 		},
 	}
 }
 
 func (c *Client) Std(destUid string) error {
 	var std io.ReadWriteCloser = NewStdReadWriteCloser()
-	if debug {
-		std = NewRandomStream()
+	if Debug {
+		std = NewEchoReadWriteCloser()
 	}
 
 	code := time.Now().Format("20060102150405__Std")
@@ -88,10 +74,10 @@ func (c *Client) Tcp(destUid string) error {
 		return err
 	}
 
-	var first [firstDataLength]byte
+	var first [FirstDataLength]byte
 	copy(first[:], destUid)
 	n, err := conn.Write(first[:])
-	if err != nil || n != firstDataLength {
+	if err != nil || n != FirstDataLength {
 		log.Printf("Tcp::Write First Data %v", err)
 		return err
 	}
@@ -125,9 +111,9 @@ func (c *Client) Serve(uid string) error {
 
 		go func(conn io.ReadWriteCloser) {
 			defer conn.Close()
-			var first [firstDataLength]byte
+			var first [FirstDataLength]byte
 			n, err := conn.Read(first[:])
-			if n != firstDataLength || err != nil {
+			if n != FirstDataLength || err != nil {
 				log.Printf("Serve::Read Uid %v", err)
 				return
 			}
@@ -152,54 +138,6 @@ func (c *Client) Serve(uid string) error {
 	}
 }
 
-const (
-	CommandLink = 0x01
-)
-
-type ControlMessage struct {
-	Command uint32
-	Data    map[string]interface{}
-}
-
-var (
-	webSocketCloseCode = []int{
-		websocket.CloseNormalClosure,
-		websocket.CloseGoingAway,
-		websocket.CloseProtocolError,
-		websocket.CloseUnsupportedData,
-		websocket.CloseNoStatusReceived,
-		websocket.CloseAbnormalClosure,
-		websocket.CloseInvalidFramePayloadData,
-		websocket.CloseInternalServerErr,
-		websocket.CloseServiceRestart,
-		websocket.CloseTryAgainLater,
-	}
-)
-
-func isClose(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	if _, ok := err.(*websocket.CloseError); ok {
-		return websocket.IsCloseError(err, webSocketCloseCode...)
-	}
-
-	if v, ok := err.(syscall.Errno); ok {
-		return v.Is(syscall.ECONNABORTED) || v.Is(syscall.ECONNRESET) ||
-			v.Is(syscall.ETIMEDOUT) || v.Is(syscall.ECONNREFUSED) ||
-			v.Is(syscall.ENETUNREACH) || v.Is(syscall.ENETRESET) ||
-			v.Is(syscall.EPIPE)
-	}
-
-	if strings.Contains(err.Error(), "use of closed network connection") ||
-		strings.Contains(err.Error(), "broken pipe") {
-		return true
-	}
-
-	return false
-}
-
 func (c *Client) Manage(uid string) {
 	times := 1
 try:
@@ -208,7 +146,7 @@ try:
 		times = 1
 	}
 	query := url.Values{}
-	query.Set("rule", "manage")
+	query.Set("rule", RuleManage)
 	query.Set("uid", uid)
 	conn, resp, err := c.dialer.DialContext(context.Background(), c.server+"?"+query.Encode(), nil)
 	if err != nil {
@@ -288,9 +226,8 @@ func (c *Client) ConnectServer(local io.ReadWriteCloser, destUid, code string) e
 	query := url.Values{}
 	query.Set("uid", destUid)
 	query.Set("code", code)
-	query.Set("rule", "Connector")
+	query.Set("rule", RuleConnector)
 	u := c.server + "?" + query.Encode()
-	log.Printf("ConnectServer: %v", u)
 	conn, resp, err := c.dialer.DialContext(context.Background(), u, nil)
 	if err != nil {
 		return err
@@ -302,7 +239,7 @@ func (c *Client) ConnectServer(local io.ReadWriteCloser, destUid, code string) e
 		return fmt.Errorf("statusCode != 101:\n%s", buf.String())
 	}
 
-	remote := &SocketStream{conn: conn}
+	remote := NewSocketReadWriteCloser(conn)
 	onceCloseRemote := &OnceCloser{Closer: remote}
 	defer onceCloseLocal.Close()
 
@@ -328,14 +265,14 @@ func (c *Client) ConnectServer(local io.ReadWriteCloser, destUid, code string) e
 		defer wg.Done()
 
 		defer onceCloseRemote.Close()
-		_, err = io.CopyBuffer(remote, local, make([]byte, socketBufferLength))
+		_, err = io.CopyBuffer(remote, local, make([]byte, SocketBufferLength))
 	}()
 
 	go func() {
 		defer wg.Done()
 
 		defer onceCloseLocal.Close()
-		_, err = io.CopyBuffer(local, remote, make([]byte, socketBufferLength))
+		_, err = io.CopyBuffer(local, remote, make([]byte, SocketBufferLength))
 	}()
 
 	wg.Wait()
@@ -350,8 +287,8 @@ func (c *Client) ConnectLocal(code string) error {
 		return err
 	}
 
-	if debug {
-		local = NewEchoStream()
+	if Debug {
+		local = NewEchoReadWriteCloser()
 	}
 
 	onceCloseLocal := &OnceCloser{Closer: local}
@@ -363,7 +300,7 @@ func (c *Client) ConnectLocal(code string) error {
 	query := url.Values{}
 	query.Set("uid", "anonymous")
 	query.Set("code", code)
-	query.Set("rule", "Agent")
+	query.Set("rule", RuleAgent)
 	conn, resp, err := c.dialer.DialContext(context.Background(), c.server+"?"+query.Encode(), nil)
 	if err != nil {
 		return err
@@ -375,7 +312,7 @@ func (c *Client) ConnectLocal(code string) error {
 		return fmt.Errorf("statusCode != 101:\n%s", buf.String())
 	}
 
-	remote := &SocketStream{conn: conn}
+	remote := NewSocketReadWriteCloser(conn)
 	onceCloseRemote := &OnceCloser{Closer: remote}
 	defer onceCloseLocal.Close()
 
@@ -401,7 +338,7 @@ func (c *Client) ConnectLocal(code string) error {
 		defer wg.Done()
 
 		defer onceCloseRemote.Close()
-		_, err = io.CopyBuffer(remote, local, make([]byte, socketBufferLength))
+		_, err = io.CopyBuffer(remote, local, make([]byte, SocketBufferLength))
 		log.Printf("ConnectLocal::error1: %v", err)
 	}()
 
@@ -409,7 +346,7 @@ func (c *Client) ConnectLocal(code string) error {
 		defer wg.Done()
 
 		defer onceCloseLocal.Close()
-		_, err = io.CopyBuffer(local, remote, make([]byte, socketBufferLength))
+		_, err = io.CopyBuffer(local, remote, make([]byte, SocketBufferLength))
 		log.Printf("ConnectLocal::error2: %v", err)
 	}()
 

@@ -1,16 +1,17 @@
-package main
+package over
 
 import (
 	"bytes"
 	"crypto/rand"
 	"fmt"
-	"github.com/gorilla/websocket"
 	"io"
 	"log"
 	random "math/rand"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 type OnceCloser struct {
@@ -50,21 +51,25 @@ func (c *StdReadWriteCloser) Close() error {
 	return nil
 }
 
-type SocketStream struct {
+type socketReadWriteCloser struct {
 	buf  bytes.Buffer
 	conn *websocket.Conn
 }
 
-func (s *SocketStream) Close() error {
+func NewSocketReadWriteCloser(socket *websocket.Conn) io.ReadWriteCloser  {
+	return &socketReadWriteCloser{conn: socket}
+}
+
+func (s *socketReadWriteCloser) Close() error {
 	return s.conn.Close()
 }
 
-func (s *SocketStream) Write(p []byte) (n int, err error) {
+func (s *socketReadWriteCloser) Write(p []byte) (n int, err error) {
 	err = s.conn.WriteMessage(websocket.BinaryMessage, p)
 	return len(p), err
 }
 
-func (s *SocketStream) Read(p []byte) (n int, err error) {
+func (s *socketReadWriteCloser) Read(p []byte) (n int, err error) {
 	if s.buf.Len() > 0 {
 		return s.buf.Read(p)
 	}
@@ -83,18 +88,18 @@ func (s *SocketStream) Read(p []byte) (n int, err error) {
 	}
 }
 
-type EchoStream struct {
+type echoReadWriteCloser struct {
 	reader *io.PipeReader
 	writer *io.PipeWriter
 }
 
-func NewEchoStream() *EchoStream {
-	s := new(EchoStream)
+func NewEchoReadWriteCloser()  io.ReadWriteCloser {
+	s := new(echoReadWriteCloser)
 	s.reader, s.writer = io.Pipe()
 	return s
 }
 
-func (s *EchoStream) Close() error {
+func (s *echoReadWriteCloser) Close() error {
 	err1 := s.reader.Close()
 	err2 := s.writer.Close()
 
@@ -107,27 +112,33 @@ func (s *EchoStream) Close() error {
 	return nil
 }
 
-func (s *EchoStream) Write(p []byte) (n int, err error) {
+func (s *echoReadWriteCloser) Write(p []byte) (n int, err error) {
 	return s.writer.Write(p)
 }
 
-func (s *EchoStream) Read(p []byte) (n int, err error) {
+func (s *echoReadWriteCloser) Read(p []byte) (n int, err error) {
 	return s.reader.Read(p)
 }
 
-type RandomStream struct {
+type randomReadWriteCloser struct {
 	in  *os.File
 	out *os.File
 }
 
-func NewRandomStream() *RandomStream {
-	s := new(RandomStream)
+
+func init() {
+	random.Seed(time.Now().UnixNano())
+}
+
+
+func NewRandomReadWriteCloser() io.ReadWriteCloser {
+	s := new(randomReadWriteCloser)
 	s.in, _ = os.Create("./in.txt")
 	s.out, _ = os.Create("./out.txt")
 	return s
 }
 
-func (s *RandomStream) Close() error {
+func (s *randomReadWriteCloser) Close() error {
 	err1 := s.in.Close()
 	err2 := s.out.Close()
 	if err1 != nil {
@@ -139,18 +150,14 @@ func (s *RandomStream) Close() error {
 	return nil
 }
 
-func (s *RandomStream) Write(p []byte) (n int, err error) {
+func (s *randomReadWriteCloser) Write(p []byte) (n int, err error) {
 	return s.out.Write(p)
 }
 
-func init() {
-	random.Seed(time.Now().UnixNano())
-}
-
-func (s *RandomStream) Read(p []byte) (n int, err error) {
+func (s *randomReadWriteCloser) Read(p []byte) (n int, err error) {
 	time.Sleep(time.Duration(random.Int31n(100)) * time.Millisecond)
 
-	data := make([]byte, socketBufferLength)
+	data := make([]byte, SocketBufferLength)
 	_, _ = rand.Read(data)
 
 	n = random.Intn(len(p))
