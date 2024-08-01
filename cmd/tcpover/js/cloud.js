@@ -177,11 +177,9 @@ async function ws(request) {
 }
 
 
-async function proxy(request) {
-    const url = new URL(request.url)
-    const path = url.pathname + url.search
-    const endpoint = "https://tcpover.koyeb.app" + path
-    request.headers['host'] = "tcpover.koyeb.app"
+async function proxy(request, u) {
+    const url = new URL(u)
+    request.headers['host'] = u.host
     let init = {
         method: request.method,
         headers: request.headers
@@ -190,7 +188,7 @@ async function proxy(request) {
         init.body = request.body
     }
 
-    const response = await fetch(endpoint, init)
+    const response = await fetch(u, init)
     return new Response(response.body, response)
 }
 
@@ -198,10 +196,16 @@ async function proxy(request) {
 export default {
     async fetch(request, env, ctx) {
         const url = new URL(request.url);
-        if (url.pathname.startsWith("/api")) {
-            console.log("request url:", url.pathname)
-            return await proxy(request)
-        }
+	      const path = url.pathname + url.search
+        if (path.startsWith("/api")) {
+            const u = "https://tcpover.koyeb.app" + path
+            console.log("request url:", u)
+            return await proxy(request, u)
+        } else if (path.startsWith("/proxy/api")) {
+	          const u = "https://tcpover.glitch.me" + path.substring("/proxy".length)
+            console.log("request url:", u)
+            return await proxy(request, u)
+	      }
 
         const upgradeHeader = request.headers.get('Upgrade');
         if (!upgradeHeader || upgradeHeader !== 'websocket') {
