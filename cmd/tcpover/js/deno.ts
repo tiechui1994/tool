@@ -94,8 +94,7 @@ async function proxy(request, endpoint) {
     return new Response(response.body, response)
 }
 
-
-app.get("/~/link", (c) => {
+app.get("/api/ssh", async (c) => {
     const upgrade = c.req.headers.get("upgrade") || "";
     if (upgrade.toLowerCase() != "websocket") {
         return new Response("request isn't trying to upgrade to websocket.");
@@ -104,6 +103,7 @@ app.get("/~/link", (c) => {
     const uid = c.req.query("uid")
     const code = c.req.query("code")
     const rule = c.req.query("rule")
+
     const regex = /^([a-zA-Z0-9.]+):(\d+)$/
     if (rule === "Connector" && regex.test(uid)) {
         const tokens = regex.exec(uid)
@@ -134,18 +134,6 @@ app.get("/~/link", (c) => {
         return response
     }
 
-    return new Response("request failed");
-})
-
-app.get("/~/ws", async (c) => {
-    const upgrade = c.req.headers.get("upgrade") || "";
-    if (upgrade.toLowerCase() != "websocket") {
-        return new Response("request isn't trying to upgrade to websocket.");
-    }
-
-    const uid = c.req.query("uid")
-    const code = c.req.query("code")
-    const rule = c.req.query("rule")
     let targetConn
     if (rule === "Connector") {
         targetConn = manageSocket[uid]
@@ -216,10 +204,8 @@ app.on(['GET', 'DELETE', 'HEAD', 'OPTIONS', 'PUT', 'POST'], "*", async (c) => {
     let endpoint = ""
     if (path.startsWith("/https://") || path.startsWith("/http://")) {
         endpoint = path.substring(1)
-    } else if (path.startsWith("/api")) {
-        endpoint = "https://api.quinn.eu.org" + path
     }  else {
-        endpoint = "https://api.quinn.eu.org"
+        endpoint = "https://www.bing.com"
     }
 
     return await proxy(request, endpoint)
