@@ -126,28 +126,17 @@ async function ws(request) {
         const [client, webSocket] = Object.values(webSocketPair);
         webSocket.accept();
 
-        webSocket.addEventListener("open", () => {
-            const remote = new WebSocketStream(new EmendWebsocket(webSocket, `${rule}_${uid}`))
-            const local = connect({
-                hostname: hostname,
-                port: port,
-            })
-            remote.readable.pipeTo(local.writable).catch((e) => {
-                console.log("socket exception", e.message)
-                safeCloseWebSocket(webSocket)
-            })
-            local.readable.pipeTo(remote.writable).catch((e) => {
-                console.log("socket exception", e.message)
-                safeCloseWebSocket(webSocket)
-            })
+        const remote = new WebSocketStream(new EmendWebsocket(webSocket, `${rule}_${uid}`))
+        const local = connect(uid, { secureTransport: "off" })
+        remote.readable.pipeTo(local.writable).catch((e) => {
+            console.log("socket exception", e.message)
+            safeCloseWebSocket(webSocket)
         })
-        webSocket.addEventListener("error", (e) => {
-            console.log("socket onerror", e.message);
+        local.readable.pipeTo(remote.writable).catch((e) => {
+            console.log("socket exception", e.message)
+            safeCloseWebSocket(webSocket)
         })
-        webSocket.addEventListener("close", () => {
-            console.log("socket onclose");
-        })
-
+        
         return new Response(null, {
             status: 101,
             webSocket: client,
