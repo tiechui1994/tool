@@ -1,3 +1,6 @@
+// @ts-ignore
+import {connect} from 'cloudflare:sockets';
+
 class Lock {
     constructor() {
         this.queue = [];
@@ -87,8 +90,6 @@ class WebSocketStream {
     }
 }
 
-const manageSocket = {}
-const groupSocket = {}
 let uuid = null;
 const mutex = new Lock()
 
@@ -99,35 +100,52 @@ function check(request) {
     return new Response("code is:" + uuid.valueOf())
 }
 
+function safeCloseWebSocket(socket) {
+    try {
+        if (socket.readyState === 1 || socket.readyState === 2) {
+            socket.close();
+        }
+    } catch (error) {
+        console.error('safeCloseWebSocket error', error);
+    }
+}
+
 async function ws(request) {
     const url = new URL(request.url);
     const uid = url.searchParams.get("uid")
-    const code = url.searchParams.get("code")
     const rule = url.searchParams.get("rule")
-    let targetConn
-    if (rule === "Connector") {
-        targetConn = manageSocket[uid]
-        if (!targetConn) {
-            console.log("the target Agent websocket not exist", uid)
-            return new Response("agent not running.");
-        }
-    }
-    console.log(`uid: ${uid}, code: ${code}, rule: ${rule}`)
-    const webSocketPair = new WebSocketPair();
-    const [client, webSocket] = Object.values(webSocketPair);
-    webSocket.accept();
 
-    if (rule === "manage") {
+    const regex = /^([a-zA-Z0-9.]+):(\d+)$/
+    if (rule === "Connector" && regex.test(uid)) {
+        const tokens = regex.exec(uid)
+        const hostname = tokens[1]
+        const port = parseInt(tokens[2])
+        console.log(`${uid} hostname: ${hostname}, port:${port}`)
+
+        const webSocketPair = new WebSocketPair();
+        const [client, webSocket] = Object.values(webSocketPair);
+        webSocket.accept();
+
         webSocket.addEventListener("open", () => {
-            manageSocket[uid] = new EmendWebsocket(webSocket, `${rule}_${uid}`)
+            const remote = new WebSocketStream(new EmendWebsocket(webSocket, `${rule}_${uid}`))
+            const local = connect({
+                hostname: hostname,
+                port: port,
+            })
+            remote.readable.pipeTo(local.writable).catch((e) => {
+                console.log("socket exception", e.message)
+                safeCloseWebSocket(webSocket)
+            })
+            local.readable.pipeTo(remote.writable).catch((e) => {
+                console.log("socket exception", e.message)
+                safeCloseWebSocket(webSocket)
+            })
         })
         webSocket.addEventListener("error", (e) => {
             console.log("socket onerror", e.message);
-            manageSocket[uid] = null
         })
         webSocket.addEventListener("close", () => {
-            console.log("socket closed");
-            manageSocket[uid] = null
+            console.log("socket onclose");
         })
 
         return new Response(null, {
@@ -136,43 +154,8 @@ async function ws(request) {
         });
     }
 
-    await mutex.acquire()
-    if (groupSocket[code]) {
-        webSocket.addEventListener("open", async () => {
-            groupSocket[code].second = new WebSocketStream(new EmendWebsocket(socket, `${rule}_${code}_${uid}`))
-            const connPair = groupSocket[code]
-            await mutex.release()
-
-            const first = connPair.first
-            const second = connPair.second
-            first.readable.pipeTo(second.writable).catch((e) => {
-                console.log("socket exception", first.socket.attrs, e.message)
-                groupSocket[code] = null
-            })
-            second.readable.pipeTo(first.writable).catch((e) => {
-                console.log("socket exception", second.socket.attrs, e.message)
-                groupSocket[code] = null
-            })
-        })
-    } else {
-        webSocket.addEventListener("open", async () => {
-            groupSocket[code] = {
-                first: new WebSocketStream(new EmendWebsocket(webSocket, `${rule}_${code}_${uid}`)),
-            }
-            await mutex.release()
-        })
-        const data = JSON.stringify({
-            Command: 0x01,
-            Data: {Code: code}
-        })
-        console.log("send data:", data)
-        targetConn.send(data)
-    }
-
-
-    return new Response(null, {
-        status: 101,
-        webSocket: client,
+    return new Response("Bad Request", {
+        status: 500,
     });
 }
 
