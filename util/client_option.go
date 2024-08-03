@@ -23,18 +23,36 @@ type cookieFunc interface {
 type clientConfig struct {
 	proxy func(*http.Request) (*url.URL, error)
 
-	once     sync.Once // set once dns
-	dns      []string
+	once sync.Once // set once dns
+	dns  []string
 
-	cookieJar *cookiejar.Jar
+	cookieJar http.CookieJar
 	cookieFun cookieFunc
 	dir       string        // file jar dir
 	sync      chan struct{} // sync file jar
 }
 
+type simpleCookieJar struct {
+	name            string
+	privateJar      *cookiejar.Jar
+	afterCookieSave func()
+}
+
+func (s *simpleCookieJar) Cookies(u *url.URL) []*http.Cookie {
+	return s.privateJar.Cookies(u)
+}
+
+func (s *simpleCookieJar) SetCookies(u *url.URL, cookies []*http.Cookie) {
+	s.privateJar.SetCookies(u, cookies)
+	if s.afterCookieSave != nil {
+		s.afterCookieSave()
+	}
+}
+
 type simpleCookieFun struct {
-	name       string
-	privateJar *cookiejar.Jar
+	name            string
+	privateJar      *cookiejar.Jar
+	afterCookieSave func()
 }
 
 var cookieNameSanitizer = strings.NewReplacer("\n", "-", "\r", "-")
@@ -55,17 +73,15 @@ func (s *simpleCookieFun) LoadCookie(req *http.Request) {
 func (s *simpleCookieFun) SaveCookie(url *url.URL, resp *http.Response) {
 	if rc := resp.Cookies(); len(rc) > 0 {
 		s.privateJar.SetCookies(url, rc)
+		if s.afterCookieSave != nil {
+			s.afterCookieSave()
+		}
 	}
 }
 
 type ClientOption interface {
 	apply(opt *clientConfig)
 }
-
-// Empty
-type emptyClientOption struct{}
-
-func (emptyClientOption) apply(config *clientConfig) {}
 
 // Func
 type funcClientOption struct {
@@ -109,21 +125,26 @@ func WithClientCookieJar(name string) ClientOption {
 		}
 
 		config.sync = make(chan struct{})
+		cj := &simpleCookieJar{name: name}
+		cj.afterCookieSave = func() {
+			config.sync <- struct{}{}
+		}
 		loadJar := unSerialize(name)
 		if loadJar != nil {
-			config.cookieJar = (*cookiejar.Jar)(unsafe.Pointer(loadJar))
+			cj.privateJar = (*cookiejar.Jar)(unsafe.Pointer(loadJar))
 		} else {
-			config.cookieJar, _ = cookiejar.New(nil)
+			cj.privateJar, _ = cookiejar.New(nil)
 		}
+		config.cookieJar = cj
 
 		go func() {
 			timer := time.NewTicker(5 * time.Second)
 			for {
 				select {
 				case <-timer.C:
-					serialize(config.cookieJar, name)
+					serialize(cj.privateJar, name)
 				case <-config.sync:
-					serialize(config.cookieJar, name)
+					serialize(cj.privateJar, name)
 				}
 			}
 		}()
@@ -138,7 +159,15 @@ func WithClientCookieFun(name string) ClientOption {
 
 		config.sync = make(chan struct{})
 		cf := &simpleCookieFun{name: name}
-		cf.privateJar, _ = cookiejar.New(nil)
+		loadJar := unSerialize(name)
+		if loadJar != nil {
+			cf.privateJar = (*cookiejar.Jar)(unsafe.Pointer(loadJar))
+		} else {
+			cf.privateJar, _ = cookiejar.New(nil)
+		}
+		cf.afterCookieSave = func() {
+			config.sync <- struct{}{}
+		}
 		config.cookieFun = cf
 
 		go func() {
@@ -163,9 +192,9 @@ type EmbedClient struct {
 
 func NewClient(opts ...ClientOption) *EmbedClient {
 	options := &clientConfig{
-		dir:      globalClient.config.dir,
-		dns:      globalClient.config.dns,
-		proxy:    globalClient.config.proxy,
+		dir:   globalClient.config.dir,
+		dns:   globalClient.config.dns,
+		proxy: globalClient.config.proxy,
 	}
 
 	for _, opt := range opts {
@@ -240,7 +269,7 @@ func (c *EmbedClient) GetCookie(url *url.URL, name string) *http.Cookie {
 	if c.config.cookieFun != nil {
 		jar = c.config.cookieFun.(*simpleCookieFun).privateJar
 	} else if c.config.cookieJar != nil {
-		jar = c.config.cookieJar
+		jar = c.config.cookieJar.(*simpleCookieJar).privateJar
 	} else {
 		panic("no cookieJar")
 	}
@@ -253,12 +282,4 @@ func (c *EmbedClient) GetCookie(url *url.URL, name string) *http.Cookie {
 	}
 
 	return nil
-}
-
-func (c *EmbedClient) SyncCookie() {
-	if c.config.cookieFun == nil && c.config.cookieJar == nil {
-		return
-	}
-
-	c.config.sync <- struct{}{}
 }
