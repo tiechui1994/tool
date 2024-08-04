@@ -1,6 +1,7 @@
 package over
 
 import (
+	"errors"
 	"strings"
 	"syscall"
 
@@ -19,7 +20,6 @@ const (
 
 	CommandLink = 0x01
 )
-
 
 var (
 	Debug bool
@@ -63,6 +63,10 @@ func isClose(err error) bool {
 
 	if strings.Contains(err.Error(), "use of closed network connection") ||
 		strings.Contains(err.Error(), "broken pipe") {
+		return true
+	}
+
+	if errors.Is(err, websocket.ErrCloseSent) {
 		return true
 	}
 

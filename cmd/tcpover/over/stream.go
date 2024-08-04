@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	random "math/rand"
+	"net"
 	"os"
 	"sync"
 	"time"
@@ -56,7 +57,7 @@ type socketReadWriteCloser struct {
 	conn *websocket.Conn
 }
 
-func NewSocketReadWriteCloser(socket *websocket.Conn) io.ReadWriteCloser  {
+func NewSocketReadWriteCloser(socket *websocket.Conn) io.ReadWriteCloser {
 	return &socketReadWriteCloser{conn: socket}
 }
 
@@ -93,7 +94,7 @@ type echoReadWriteCloser struct {
 	writer *io.PipeWriter
 }
 
-func NewEchoReadWriteCloser()  io.ReadWriteCloser {
+func NewEchoReadWriteCloser() io.ReadWriteCloser {
 	s := new(echoReadWriteCloser)
 	s.reader, s.writer = io.Pipe()
 	return s
@@ -125,11 +126,9 @@ type randomReadWriteCloser struct {
 	out *os.File
 }
 
-
 func init() {
 	random.Seed(time.Now().UnixNano())
 }
-
 
 func NewRandomReadWriteCloser() io.ReadWriteCloser {
 	s := new(randomReadWriteCloser)
@@ -173,4 +172,33 @@ func (s *randomReadWriteCloser) Read(p []byte) (n int, err error) {
 	log.Printf("%v ==> %v", len(p), n)
 	_, _ = s.in.Write(p[:n])
 	return n, err
+}
+
+type socketConn struct {
+	io.ReadWriteCloser
+	*websocket.Conn
+}
+
+func NewSocketConn(conn *websocket.Conn) net.Conn {
+	return &socketConn{
+		ReadWriteCloser: NewSocketReadWriteCloser(conn),
+		Conn:            conn,
+	}
+}
+
+func (c *socketConn) Close() error  {
+	return c.Conn.Close()
+}
+
+func (c *socketConn) SetDeadline(t time.Time) error {
+	err := c.Conn.SetReadDeadline(t)
+	if err != nil {
+		return err
+	}
+
+	err = c.Conn.SetReadDeadline(t)
+	if err != nil {
+		return err
+	}
+	return nil
 }

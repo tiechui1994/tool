@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/tiechui1994/tool/cmd/tcpover/transport"
+	"github.com/tiechui1994/tool/cmd/tcpover/transport/ctx"
 	"io"
 	"log"
 	random "math/rand"
@@ -59,7 +61,7 @@ func (c *Client) Std(destUid string) error {
 	}
 
 	code := time.Now().Format("20060102150405__Std")
-	if err := c.ConnectServer(std, destUid, code); err != nil {
+	if err := c.connectServer(std, destUid, code); err != nil {
 		log.Printf("Std::ConnectServer %v", err)
 		return err
 	}
@@ -83,7 +85,7 @@ func (c *Client) Tcp(destUid string) error {
 	}
 
 	code := time.Now().Format("20060102150405__Tcp")
-	if err := c.ConnectServer(conn, destUid, code); err != nil {
+	if err := c.connectServer(conn, destUid, code); err != nil {
 		log.Printf("Tcp::ConnectServer %v", err)
 		return err
 	}
@@ -91,7 +93,7 @@ func (c *Client) Tcp(destUid string) error {
 	return nil
 }
 
-func (c *Client) Serve(uid string) error {
+func (c *Client) ServeAgent(destUid string) error {
 	lis, err := net.Listen("tcp", LocalAgentTCP)
 	if err != nil {
 		log.Printf("Serve::Listen %v", err)
@@ -99,7 +101,7 @@ func (c *Client) Serve(uid string) error {
 	}
 	defer lis.Close()
 
-	c.Manage(uid)
+	c.manage(destUid)
 	log.Printf("Connect Server Success")
 
 	for {
@@ -131,14 +133,14 @@ func (c *Client) Serve(uid string) error {
 			}
 
 			code := time.Now().Format("20060102150405__Serve")
-			if err := c.ConnectServer(conn, destUid, code); err != nil {
+			if err := c.connectServer(conn, destUid, code); err != nil {
 				log.Printf("Serve::ConnectServer %v", err)
 			}
 		}(conn)
 	}
 }
 
-func (c *Client) Manage(uid string) {
+func (c *Client) manage(uid string) {
 	times := 1
 try:
 	time.Sleep(time.Second * time.Duration(times))
@@ -166,7 +168,7 @@ try:
 	var onceClose sync.Once
 	closeFunc := func() {
 		log.Printf("Manage Socket Close: %v", conn.Close())
-		c.Manage(uid)
+		c.manage(uid)
 		log.Printf("Reconnect to server success")
 	}
 
@@ -209,7 +211,7 @@ try:
 			case CommandLink:
 				log.Printf("ControlMessage => cmd %v, data: %v", cmd.Command, cmd.Data)
 				go func() {
-					err = c.ConnectLocal(cmd.Data["Code"].(string))
+					err = c.connectLocal(cmd.Data["Code"].(string))
 					if err != nil {
 						log.Println("ConnectLocal:", err)
 					}
@@ -219,7 +221,7 @@ try:
 	}()
 }
 
-func (c *Client) ConnectServer(local io.ReadWriteCloser, destUid, code string) error {
+func (c *Client) connectServer(local io.ReadWriteCloser, destUid, code string) error {
 	onceCloseLocal := &OnceCloser{Closer: local}
 	defer onceCloseLocal.Close()
 
@@ -279,7 +281,7 @@ func (c *Client) ConnectServer(local io.ReadWriteCloser, destUid, code string) e
 	return nil
 }
 
-func (c *Client) ConnectLocal(code string) error {
+func (c *Client) connectLocal(code string) error {
 	var local io.ReadWriteCloser
 	var err error
 	local, err = net.Dial("tcp", "127.0.0.1:22")
@@ -351,5 +353,60 @@ func (c *Client) ConnectLocal(code string) error {
 	}()
 
 	wg.Wait()
+	return nil
+}
+
+type Proxy struct {
+	c *Client
+}
+
+func (p *Proxy) Name() string {
+	return "tcpover"
+}
+
+func (p *Proxy) DialContext(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
+	var uid = fmt.Sprintf("%v:%v", metadata.Host, metadata.DstPort)
+	query := url.Values{}
+	query.Set("uid", uid)
+	query.Set("rule", RuleConnector)
+	u := p.c.server + "?" + query.Encode()
+	conn, resp, err := p.c.dialer.DialContext(ctx, u, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		buf := bytes.NewBuffer(nil)
+		_ = resp.Write(buf)
+		return nil, fmt.Errorf("statusCode != 101:\n%s", buf.String())
+	}
+
+	go func() {
+		ticker := time.NewTicker(20 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			err = conn.WriteControl(websocket.PingMessage, []byte(nil), time.Now().Add(time.Second))
+			if isClose(err) {
+				return
+			}
+			if err != nil {
+				log.Printf("Ping: %v", err)
+			}
+		}
+	}()
+
+	return NewSocketConn(conn), nil
+}
+
+func (c *Client) ServeProxy(localUid string) error {
+	err := transport.RegisterListener("mixed", localUid)
+	if err != nil {
+		return err
+	}
+
+	done := make(chan struct{})
+	transport.RegisterProxy(&Proxy{c: c})
+	<-done
 	return nil
 }

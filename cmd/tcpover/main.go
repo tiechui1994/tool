@@ -14,13 +14,15 @@ func main() {
 	runAsConnector := flag.Bool("c", false, "as connector")
 	runAsAgent := flag.Bool("a", false, "as agent")
 	runAsServer := flag.Bool("s", false, "as server")
+	runAsProxy := flag.Bool("p", false, "as proxy")
+
 	connectLocal := flag.Bool("ca", false, "connect local agent mode")
 	listenAddr := flag.String("l", "", "Listen address [SC]")
 	serverEndpoint := flag.String("e", "", "Server endpoint. [C]")
 	uid := flag.String("d", "", "The destination uid to [C]")
 	flag.Parse()
 
-	if !*runAsServer && !*runAsConnector && !*runAsAgent {
+	if !*runAsServer && !*runAsConnector && !*runAsAgent && !*runAsProxy {
 		log.Fatalln("must be run as one mode")
 	}
 
@@ -33,7 +35,11 @@ func main() {
 	}
 
 	if *runAsAgent && (*serverEndpoint == "" || *uid == "") {
-		log.Fatalln("agent must set server endpoint and destination and listen addr")
+		log.Fatalln("agent must set server endpoint and destination")
+	}
+
+	if *runAsProxy && (*serverEndpoint == "" || *listenAddr == "") {
+		log.Fatalln("agent must set server endpoint  and listen addr")
 	}
 
 	if *runAsServer {
@@ -60,7 +66,15 @@ func main() {
 
 	if *runAsAgent {
 		c := over.NewClient(*serverEndpoint, nil)
-		if err := c.Serve(*uid); err != nil {
+		if err := c.ServeAgent(*uid); err != nil {
+			log.Fatalln(err)
+		}
+		return
+	}
+
+	if *runAsProxy {
+		c := over.NewClient(*serverEndpoint, nil)
+		if err := c.ServeProxy(*listenAddr); err != nil {
 			log.Fatalln(err)
 		}
 		return

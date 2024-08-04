@@ -129,6 +129,9 @@ app.get("/api/ssh", async (c) => {
                 remote.readable.pipeTo(local.writable).catch((e) => {
                     console.log("socket exception", e.message)
                 })
+            }).catch((e) => {
+                local.socket.close()
+                console.log("socket exception", e.message)
             })
         }
         return response
