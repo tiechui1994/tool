@@ -185,7 +185,7 @@ export default {
                 case "/check":
                     return check(request)
                 default:
-                    return await proxy(request, "https://www.bing.com")
+                    return await proxy(request, "https://www.bing.com"+path)
             }
         } else {
             return await ws(request)
