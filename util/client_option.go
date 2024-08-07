@@ -39,6 +39,7 @@ type simpleCookieJar struct {
 }
 
 func (s *simpleCookieJar) Cookies(u *url.URL) []*http.Cookie {
+	fmt.Println("Cookies", u.String())
 	return s.privateJar.Cookies(u)
 }
 
@@ -226,7 +227,7 @@ func (c *EmbedClient) init() {
 						KeepAlive: 5 * time.Minute,
 					}
 				retry:
-					conn, err := d.Dial("tcp4", addr)
+					conn, err := d.Dial(network, addr)
 					if err != nil {
 						if val, ok := err.(*net.OpError); ok &&
 							strings.Contains(val.Err.Error(), "no suitable address found") {
@@ -282,4 +283,21 @@ func (c *EmbedClient) GetCookie(url *url.URL, name string) *http.Cookie {
 	}
 
 	return nil
+}
+
+func (c *EmbedClient) GetCookies(url *url.URL) []*http.Cookie {
+	if c.config.cookieFun == nil && c.config.cookieJar == nil {
+		return nil
+	}
+
+	var jar *cookiejar.Jar
+	if c.config.cookieFun != nil {
+		jar = c.config.cookieFun.(*simpleCookieFun).privateJar
+	} else if c.config.cookieJar != nil {
+		jar = c.config.cookieJar.(*simpleCookieJar).privateJar
+	} else {
+		panic("no cookieJar")
+	}
+
+	return jar.Cookies(url)
 }

@@ -1,6 +1,8 @@
 package util
 
 import (
+	"compress/flate"
+	"compress/gzip"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -173,7 +175,21 @@ try:
 		c.debugResponse(request, response, now)
 	}
 
-	raw, err := ioutil.ReadAll(response.Body)
+	var reader io.Reader
+	encoding := response.Header.Get("Content-Encoding")
+	switch strings.ToLower(encoding) {
+	case "gzip":
+		reader, err = gzip.NewReader(response.Body)
+		if err != nil {
+			return nil, nil, err
+		}
+	case "deflate":
+		reader = flate.NewReader(reader)
+	default:
+		reader = response.Body
+	}
+	raw, err := ioutil.ReadAll(reader)
+
 	if err != nil && try < options.retry {
 		try += 1
 		time.Sleep(time.Second * time.Duration(try))
@@ -202,6 +218,7 @@ try:
 	if c.config.cookieFun != nil {
 		c.config.cookieFun.SaveCookie(request.URL, response)
 	}
+
 	if options.test {
 		c.testResponse(request, testDataStu{raw, response.Header})
 	}
