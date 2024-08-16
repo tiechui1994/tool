@@ -2,32 +2,33 @@ package mux
 
 import (
 	"errors"
-	"github.com/tiechui1994/tool/cmd/tcpover/over/buf"
 	"io"
+
+	"github.com/tiechui1994/tool/cmd/tcpover/over/buf"
 )
 
 type Writer struct {
-	dest         Destination
-	writer       io.Writer
-	id           uint16
-	followup     bool
-	hasError     bool
+	dest     Destination
+	writer   io.Writer
+	id       uint16
+	followup bool
+	hasError bool
 }
 
 func NewWriter(id uint16, dest Destination, writer io.Writer) *Writer {
 	return &Writer{
-		id:           id,
-		dest:         dest,
-		writer:       writer,
-		followup:     false,
+		id:       id,
+		dest:     dest,
+		writer:   writer,
+		followup: false,
 	}
 }
 
-func NewResponseWriter(id uint16, writer io.Writer, transferType protocol.TransferType) *Writer {
+func NewResponseWriter(id uint16, writer io.Writer) *Writer {
 	return &Writer{
-		id:           id,
-		writer:       writer,
-		followup:     true,
+		id:       id,
+		writer:   writer,
+		followup: true,
 	}
 }
 
@@ -57,51 +58,40 @@ func (w *Writer) writeMetaOnly() error {
 	return err
 }
 
-func writeMetaWithFrame(writer io.Writer, meta FrameMetadata, data buf.Buffer) error {
+func writeMetaWithFrame(writer io.Writer, meta FrameMetadata, data []byte) error {
 	frame := buf.New()
 	if err := meta.WriteTo(frame); err != nil {
 		return err
 	}
-	if _, err := WriteUint16(frame, uint16(data.Len())); err != nil {
+	if _, err := WriteUint16(frame, uint16(len(data))); err != nil {
 		return err
 	}
 
-	if data.Len()+1 > 64*1024*1024 {
+	if len(data)+1 > 64*1024*1024 {
 		return errors.New("value too large")
 	}
 
-	//sliceSize := len(data) + 1
-	//mb2 := make(buf.MultiBuffer, 0, sliceSize)
-	//mb2 = append(mb2, frame)
-	//mb2 = append(mb2, data...)
-	//return writer.WriteMultiBuffer(mb2)
+	_, err := writer.Write(append(frame.Bytes(), data...))
+	return err
 }
 
-func (w *Writer) writeData(mb buf.MultiBuffer) error {
+func (w *Writer) writeData(data []byte) error {
 	meta := w.getNextFrameMeta()
 	meta.Option = OptionData
 
-	return writeMetaWithFrame(w.writer, meta, mb)
+	return writeMetaWithFrame(w.writer, meta, data)
 }
 
 // WriteMultiBuffer implements buf.Writer.
-func (w *Writer) WriteMultiBuffer(mb buf.MultiBuffer) error {
-	defer buf.ReleaseMulti(mb)
+func (w *Writer) WriteBuffer(b buf.Buffer) error {
+	defer b.Release()
 
-	if mb.IsEmpty() {
+	if b.IsEmpty() {
 		return w.writeMetaOnly()
 	}
 
-	for !mb.IsEmpty() {
-		var chunk buf.MultiBuffer
-		if w.transferType == protocol.TransferTypeStream {
-			mb, chunk = buf.SplitSize(mb, 8*1024)
-		} else {
-			mb2, b := buf.SplitFirst(mb)
-			mb = mb2
-			chunk = buf.MultiBuffer{b}
-		}
-		if err := w.writeData(chunk); err != nil {
+	if !b.IsEmpty() {
+		if err := w.writeData(b.Bytes()); err != nil {
 			return err
 		}
 	}
@@ -125,6 +115,6 @@ func (w *Writer) Close() error {
 		return err
 	}
 
-	w.writer.WriteMultiBuffer(buf.MultiBuffer{frame})
+	w.writer.Write(frame.Bytes())
 	return nil
 }
