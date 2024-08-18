@@ -17,9 +17,24 @@ const (
 	SessionStatusKeepAlive SessionStatus = 0x04
 )
 
+func (v SessionStatus) String() string {
+	switch v {
+	case SessionStatusNew:
+		return "SessionStatusNew"
+	case SessionStatusKeep:
+		return "SessionStatusKeep"
+	case SessionStatusEnd:
+		return "SessionStatusEnd"
+	case SessionStatusKeepAlive:
+		return "SessionStatusKeepAlive"
+	default:
+		return "Unknown"
+	}
+}
+
 const (
-	OptionData  byte = 0x01
-	OptionError byte = 0x02
+	OptionData  Byte = 0x01
+	OptionError Byte = 0x02
 )
 
 type TargetNetwork byte
@@ -42,6 +57,12 @@ N bytes - address
 
 */
 
+type Byte byte
+
+func (b Byte) Has(bb Byte) bool {
+	return (b & bb) != 0
+}
+
 type Destination struct {
 	Network TargetNetwork
 	Address string
@@ -50,9 +71,10 @@ type Destination struct {
 type FrameMetadata struct {
 	SessionID     uint16
 	SessionStatus SessionStatus
-	Option        byte
+	Option        Byte
 
-	Target Destination
+	Target  Destination
+	DataLen int64
 }
 
 func (f FrameMetadata) WriteTo(b *buf.Buffer) error {
@@ -91,7 +113,19 @@ func (f *FrameMetadata) Unmarshal(reader io.Reader) error {
 	if _, err := b.ReadFullFrom(reader, int32(metaLen)); err != nil {
 		return err
 	}
-	return f.UnmarshalFromBuffer(b)
+	if err = f.UnmarshalFromBuffer(b); err != nil {
+		return err
+	}
+
+	if f.Option.Has(OptionData) {
+		dataLen, err := ReadUint16(reader)
+		if err != nil {
+			return err
+		}
+		f.DataLen = int64(dataLen)
+	}
+
+	return nil
 }
 
 // UnmarshalFromBuffer reads a FrameMetadata from the given buffer.
@@ -103,7 +137,7 @@ func (f *FrameMetadata) UnmarshalFromBuffer(b *buf.Buffer) error {
 
 	f.SessionID = binary.BigEndian.Uint16(b.BytesTo(2))
 	f.SessionStatus = SessionStatus(b.Byte(2))
-	f.Option = b.Byte(3)
+	f.Option = Byte(b.Byte(3))
 	f.Target.Network = TargetNetworkUnknown
 
 	if f.SessionStatus == SessionStatusNew {
@@ -123,6 +157,5 @@ func (f *FrameMetadata) UnmarshalFromBuffer(b *buf.Buffer) error {
 			return fmt.Errorf("unknown network type: %v", network)
 		}
 	}
-
 	return nil
 }

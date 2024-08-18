@@ -3,6 +3,7 @@ package mux
 import (
 	"errors"
 	"io"
+	"log"
 
 	"github.com/tiechui1994/tool/cmd/tcpover/over/buf"
 )
@@ -13,22 +14,26 @@ type Writer struct {
 	id       uint16
 	followup bool
 	hasError bool
+	err      error
+	network  TargetNetwork
 }
 
-func NewWriter(id uint16, dest Destination, writer io.Writer) *Writer {
+func NewWriter(id uint16, dest Destination, writer io.Writer, network TargetNetwork) *Writer {
 	return &Writer{
 		id:       id,
 		dest:     dest,
 		writer:   writer,
 		followup: false,
+		network:  network,
 	}
 }
 
-func NewResponseWriter(id uint16, writer io.Writer) *Writer {
+func NewResponseWriter(id uint16, writer io.Writer, network TargetNetwork) *Writer {
 	return &Writer{
 		id:       id,
 		writer:   writer,
 		followup: true,
+		network:  network,
 	}
 }
 
@@ -48,55 +53,48 @@ func (w *Writer) getNextFrameMeta() FrameMetadata {
 	return meta
 }
 
-func (w *Writer) writeMetaOnly() error {
+func (w *Writer) writeMetaOnly() (n int, err error) {
 	meta := w.getNextFrameMeta()
-	b := buf.New()
-	if err := meta.WriteTo(b); err != nil {
-		return err
-	}
-	_, err := w.writer.Write(b.Bytes())
-	return err
-}
-
-func writeMetaWithFrame(writer io.Writer, meta FrameMetadata, data []byte) error {
 	frame := buf.New()
 	if err := meta.WriteTo(frame); err != nil {
-		return err
+		return 0, err
 	}
-	if _, err := WriteUint16(frame, uint16(len(data))); err != nil {
-		return err
-	}
-
-	if len(data)+1 > 64*1024*1024 {
-		return errors.New("value too large")
-	}
-
-	_, err := writer.Write(append(frame.Bytes(), data...))
-	return err
+	n, err = w.writer.Write(frame.Bytes())
+	return n, err
 }
 
-func (w *Writer) writeData(data []byte) error {
+func (w *Writer) writeMetaWithFrame(data []byte) (n int, err error) {
 	meta := w.getNextFrameMeta()
 	meta.Option = OptionData
 
-	return writeMetaWithFrame(w.writer, meta, data)
+	frame := buf.New()
+	if err := meta.WriteTo(frame); err != nil {
+		return 0, err
+	}
+	if n, err = WriteUint16(frame, uint16(len(data))); err != nil {
+		return n, err
+	}
+
+	if len(data)+1 > 64*1024*1024 {
+		return 0, errors.New("value too large")
+	}
+
+	n, err = w.writer.Write(frame.Bytes())
+	if err != nil {
+		return n, err
+	}
+
+	n, err = w.writer.Write(data)
+	return n, err
 }
 
 // WriteMultiBuffer implements buf.Writer.
-func (w *Writer) WriteBuffer(b buf.Buffer) error {
-	defer b.Release()
-
-	if b.IsEmpty() {
+func (w *Writer) Write(p []byte) (n int, err error) {
+	if len(p) == 0 {
 		return w.writeMetaOnly()
 	}
 
-	if !b.IsEmpty() {
-		if err := w.writeData(b.Bytes()); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return w.writeMetaWithFrame(p)
 }
 
 // Close implements common.Closable.
@@ -109,12 +107,11 @@ func (w *Writer) Close() error {
 		meta.Option = OptionError
 	}
 
+	stack := callers()
+	log.Printf("close: [%v], %v", w.id, w.err)
+	log.Printf("close stack: %+v", stack)
 	frame := buf.New()
-	err := meta.WriteTo(frame)
-	if err != nil {
-		return err
-	}
-
-	w.writer.Write(frame.Bytes())
-	return nil
+	Must(meta.WriteTo(frame))
+	_, err := w.writer.Write(frame.Bytes())
+	return err
 }

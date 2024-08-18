@@ -1,6 +1,8 @@
 package buf
 
-import "sync"
+import (
+	"sync"
+)
 
 func createAllocFunc(size int32) func() interface{} {
 	return func() interface{} {
@@ -15,12 +17,17 @@ const (
 
 var (
 	poolStu struct {
+		once sync.Once
 		pool     [numPools]sync.Pool
 		poolSize [numPools]int32
 	}
 )
 
 func init() {
+	poolStu.once.Do(initPool)
+}
+
+func initPool()  {
 	size := int32(2048)
 	for i := 0; i < numPools; i++ {
 		poolStu.pool[i] = sync.Pool{
@@ -34,6 +41,7 @@ func init() {
 // GetPool returns a sync.Pool that generates bytes array with at least the given size.
 // It may return nil if no such pool exists.
 func GetPool(size int32) *sync.Pool {
+	poolStu.once.Do(initPool)
 	for idx, ps := range poolStu.poolSize {
 		if size <= ps {
 			return &poolStu.pool[idx]

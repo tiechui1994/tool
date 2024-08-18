@@ -26,3 +26,24 @@ func WriteUint64(writer io.Writer, value uint64) (int, error) {
 	binary.BigEndian.PutUint64(b[:], value)
 	return writer.Write(b[:])
 }
+
+func Interrupt(o interface{}) error {
+	if v, ok := o.(io.Closer); ok {
+		return v.Close()
+	}
+
+	return nil
+}
+
+func Must(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+
+func Close(obj interface{}) error {
+	if c, ok := obj.(io.Closer); ok {
+		return c.Close()
+	}
+	return nil
+}
