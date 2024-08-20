@@ -5,7 +5,6 @@ import (
 	"io"
 )
 
-
 const (
 	Size = 2048
 )

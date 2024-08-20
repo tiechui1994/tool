@@ -1,6 +1,7 @@
 package mux
 
 import (
+	"github.com/tiechui1994/tool/cmd/tcpover/over/buf"
 	"io"
 	"sync"
 )
@@ -123,8 +124,8 @@ func (m *SessionManager) Close() error {
 	m.closed = true
 
 	//for _, s := range m.sessions {
-		//common.Close(s.input)
-		//common.Close(s.output)
+	//common.Close(s.input)
+	//common.Close(s.output)
 	//}
 
 	m.sessions = nil
@@ -132,10 +133,10 @@ func (m *SessionManager) Close() error {
 }
 
 type Session struct {
-	input        io.Reader
-	output       io.Writer
-	ID           uint16
-	parent *SessionManager
+	input   io.Reader
+	output  io.Writer
+	ID      uint16
+	parent  *SessionManager
 	network TargetNetwork
 }
 
@@ -144,4 +145,12 @@ func (s *Session) Close() error {
 	Close(s.input)
 	s.parent.Remove(s.ID)
 	return nil
+}
+
+// NewReader creates a buf.Reader based on the transfer type of this Session.
+func (s *Session) NewReader(reader io.Reader) buf.Reader {
+	if s.network == TargetNetworkTCP {
+		return NewStreamReader(reader)
+	}
+	return NewPacketReader(reader)
 }

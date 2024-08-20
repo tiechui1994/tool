@@ -16,7 +16,6 @@ func main() {
 	runAsServer := flag.Bool("s", false, "as server")
 	runAsProxy := flag.Bool("p", false, "as proxy")
 
-	connectLocal := flag.Bool("ca", false, "connect local agent mode")
 	listenAddr := flag.String("l", "", "Listen address [SC]")
 	serverEndpoint := flag.String("e", "", "Server endpoint. [C]")
 	uid := flag.String("d", "", "The destination uid to [C]")
@@ -52,14 +51,8 @@ func main() {
 
 	if *runAsConnector {
 		c := over.NewClient(*serverEndpoint, nil)
-		if *connectLocal {
-			if err := c.Tcp(*uid); err != nil {
-				log.Fatalln(err)
-			}
-		} else {
-			if err := c.Std(*uid); err != nil {
-				log.Fatalln(err)
-			}
+		if err := c.Std(*uid); err != nil {
+			log.Fatalln(err)
 		}
 		return
 	}

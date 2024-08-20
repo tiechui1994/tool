@@ -16,16 +16,13 @@ func parseSocksAddr(target socks5.Addr) *ctx.Metadata {
 
 	switch target[0] {
 	case socks5.AtypDomainName:
-		// trim for FQDN
 		metadata.Host = strings.TrimRight(string(target[2:2+target[1]]), ".")
 		metadata.DstPort = uint16((int(target[2+target[1]]) << 8) | int(target[2+target[1]+1]))
 	case socks5.AtypIPv4:
-		ip := net.IP(target[1 : 1+net.IPv4len])
-		metadata.DstIP = ip
+		metadata.DstIP = net.IP(target[1 : 1+net.IPv4len])
 		metadata.DstPort = uint16((int(target[1+net.IPv4len]) << 8) | int(target[1+net.IPv4len+1]))
 	case socks5.AtypIPv6:
-		ip := net.IP(target[1 : 1+net.IPv6len])
-		metadata.DstIP = ip
+		metadata.DstIP = net.IP(target[1 : 1+net.IPv6len])
 		metadata.DstPort = uint16((int(target[1+net.IPv6len]) << 8) | int(target[1+net.IPv6len+1]))
 	}
 

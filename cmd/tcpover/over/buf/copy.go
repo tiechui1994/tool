@@ -1,28 +1,18 @@
 package buf
 
 import (
-	"fmt"
 	"io"
+	"log"
 )
 
-func copyBuffer(dst io.Writer, src io.Reader, buf []byte) (written int64, err error) {
+func copyBuffer(dst Writer, src Reader) (err error) {
+	buf := New()
 	for {
-		nr, er := src.Read(buf)
-		if nr > 0 {
-			nw, ew := dst.Write(buf[0:nr])
-			if nw < 0 || nr < nw {
-				nw = 0
-				if ew == nil {
-					ew = fmt.Errorf("invalid write result")
-				}
-			}
-			written += int64(nw)
+		er := src.ReadBuffer(buf)
+		if !buf.IsEmpty() {
+			ew := dst.WriteBuffer(buf)
 			if ew != nil {
 				err = writeError{ew}
-				break
-			}
-			if nr != nw {
-				err = fmt.Errorf("short buffer")
 				break
 			}
 		}
@@ -33,26 +23,19 @@ func copyBuffer(dst io.Writer, src io.Reader, buf []byte) (written int64, err er
 			break
 		}
 	}
-	return written, err
+	return err
 }
 
 // Copy dumps all payload from reader to writer or stops when an error occurs. It returns nil when EOF.
-func Copy(reader io.Reader, writer io.Writer) (written int64, err error) {
-	buf := New()
-	written, err = copyBuffer(writer, reader, buf.v)
-	if err != nil && err != io.EOF {
-		return written, err
+func Copy(reader Reader, writer Writer) (err error) {
+	err = copyBuffer(writer, reader)
+	if err != nil {
+		log.Printf("Copy:: %+v", err)
 	}
-	return written, nil
-}
-
-func CopyN(reader io.Reader, writer io.Writer, n int64) (written int64, err error) {
-	buf := New()
-	written, err = copyBuffer(writer, io.LimitReader(reader, n), buf.v)
 	if err != nil && err != io.EOF {
-		return written, err
+		return err
 	}
-	return written, nil
+	return nil
 }
 
 type readError struct {

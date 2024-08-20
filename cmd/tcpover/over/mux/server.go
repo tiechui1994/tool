@@ -11,6 +11,14 @@ import (
 	"github.com/tiechui1994/tool/cmd/tcpover/over/buf"
 )
 
+type echoDispatcher struct {
+}
+
+func (d *echoDispatcher) Dispatch(ctx context.Context, dest Destination) (*Link, error) {
+	reader, writer := io.Pipe()
+	return &Link{Reader: reader, Writer: writer}, nil
+}
+
 type dispatcher struct {
 }
 
@@ -33,7 +41,10 @@ func (d *dispatcher) Dispatch(ctx context.Context, dest Destination) (*Link, err
 	return &Link{Reader: conn, Writer: conn}, nil
 }
 
-func NewDispatcher() Dispatcher {
+func NewDispatcher(echo ...bool) Dispatcher {
+	if len(echo) > 0 {
+		return new(echoDispatcher)
+	}
 	return new(dispatcher)
 }
 
@@ -57,34 +68,13 @@ func NewServerWorker(ctx context.Context, d Dispatcher, link *Link) (*ServerWork
 	return worker, nil
 }
 
-func handle(ctx context.Context, s *Session, output io.Writer) {
-	writer := NewResponseWriter(s.ID, output, s.network)
-	if _, err := buf.Copy(s.input, writer); err != nil {
-		log.Printf("session %v ends. %v", s.ID, err)
-		writer.hasError = true
-		writer.err = err
-	}
-
-	writer.Close()
-	s.Close()
-}
-
-func (w *ServerWorker) handleStatusKeepAlive(meta *FrameMetadata, reader io.Reader) (err error) {
-	if meta.Option.Has(OptionData) {
-		_, err = buf.CopyN(reader, buf.Discard, meta.DataLen)
-	}
-	return err
-}
-
-func (w *ServerWorker) handleStatusNew(ctx context.Context, meta *FrameMetadata, reader io.Reader) error {
-	log.Printf("received request for: %v ", meta.Target)
+func (w *ServerWorker) handleStatusNew(ctx context.Context, meta *FrameMetadata, reader *buf.StdReader) error {
+	log.Printf("worker: %p, received request for: %v.", w, meta.Target)
 	link, err := w.dispatcher.Dispatch(ctx, meta.Target)
 	if err != nil {
-		if meta.Option.Has(OptionData) {
-			_, _ = buf.CopyN(reader, buf.Discard, meta.DataLen)
-		}
 		return fmt.Errorf("failed to dispatch request: %w", err)
 	}
+
 	s := &Session{
 		input:   link.Reader,
 		output:  link.Writer,
@@ -92,14 +82,24 @@ func (w *ServerWorker) handleStatusNew(ctx context.Context, meta *FrameMetadata,
 		ID:      meta.SessionID,
 		network: meta.Target.Network,
 	}
-
 	w.sessionManager.Add(s)
-	go handle(ctx, s, w.local.Writer)
+
+	go func() {
+		writer := NewResponseWriter(s.ID, w.local.Writer, s.network)
+		if err := buf.Copy(buf.NewStdReader(s.input), writer); err != nil {
+			writer.hasError = true
+			writer.err = err
+		}
+
+		log.Printf("ServerWorker::session %v ends. %v", s.ID, writer.err)
+		writer.Close()
+		s.Close()
+	}()
+
 	if !meta.Option.Has(OptionData) {
 		return nil
 	}
-
-	if _, err := buf.CopyN(reader, s.output, meta.DataLen); err != nil {
+	if err := buf.Copy(s.NewReader(reader), buf.NewStdWriter(s.output)); err != nil {
 		buf.Copy(reader, buf.Discard)
 		Interrupt(s.input)
 		return s.Close()
@@ -108,7 +108,14 @@ func (w *ServerWorker) handleStatusNew(ctx context.Context, meta *FrameMetadata,
 	return nil
 }
 
-func (w *ServerWorker) handleStatusKeep(meta *FrameMetadata, reader io.Reader) (err error) {
+func (w *ServerWorker) handleStatusKeepAlive(meta *FrameMetadata, reader *buf.StdReader) (err error) {
+	if meta.Option.Has(OptionData) {
+		err = buf.Copy(NewStreamReader(reader), buf.Discard)
+	}
+	return err
+}
+
+func (w *ServerWorker) handleStatusKeep(meta *FrameMetadata, reader *buf.StdReader) (err error) {
 	if !meta.Option.Has(OptionData) {
 		return nil
 	}
@@ -118,12 +125,10 @@ func (w *ServerWorker) handleStatusKeep(meta *FrameMetadata, reader io.Reader) (
 		// Notify remote peer to close this session.
 		closingWriter := NewResponseWriter(meta.SessionID, w.local.Writer, TargetNetworkTCP)
 		closingWriter.Close()
-		_, err = buf.CopyN(reader, buf.Discard, meta.DataLen)
-		return err
+		return buf.Copy(NewStreamReader(reader), buf.Discard)
 	}
 
-	var written int64
-	written, err = buf.CopyN(reader, s.output, meta.DataLen)
+	err = buf.Copy(s.NewReader(reader), buf.NewStdWriter(s.output))
 	if err != nil {
 		log.Printf("ServerWorker::handleStatusKeep read: %v, write: %v, %v", buf.IsReadError(err), buf.IsWriteError(err), err)
 	}
@@ -133,16 +138,15 @@ func (w *ServerWorker) handleStatusKeep(meta *FrameMetadata, reader io.Reader) (
 		closingWriter := NewResponseWriter(meta.SessionID, w.local.Writer, TargetNetworkTCP)
 		log.Printf("closingWriter close %v", closingWriter.Close())
 
-		_, drainErr := buf.CopyN(reader, buf.Discard, meta.DataLen-written)
 		Interrupt(s.input)
 		s.Close()
-		return drainErr
+		return err
 	}
 
 	return err
 }
 
-func (w *ServerWorker) handleStatusEnd(meta *FrameMetadata, reader io.Reader) (err error) {
+func (w *ServerWorker) handleStatusEnd(meta *FrameMetadata, reader *buf.StdReader) (err error) {
 	if s, found := w.sessionManager.Get(meta.SessionID); found {
 		if meta.Option.Has(OptionError) {
 			Interrupt(s.input)
@@ -151,12 +155,12 @@ func (w *ServerWorker) handleStatusEnd(meta *FrameMetadata, reader io.Reader) (e
 		s.Close()
 	}
 	if meta.Option.Has(OptionData) {
-		_, err = buf.CopyN(reader, buf.Discard, meta.DataLen)
+		err = buf.Copy(NewStreamReader(reader), buf.Discard)
 	}
 	return err
 }
 
-func (w *ServerWorker) handleFrame(ctx context.Context, reader io.Reader) error {
+func (w *ServerWorker) handleFrame(ctx context.Context, reader *buf.StdReader) error {
 	var meta FrameMetadata
 	err := meta.Unmarshal(reader)
 	if err != nil {
@@ -184,7 +188,7 @@ func (w *ServerWorker) handleFrame(ctx context.Context, reader io.Reader) error 
 }
 
 func (w *ServerWorker) run(ctx context.Context) {
-	reader := w.local.Reader
+	reader := buf.NewStdReader(w.local.Reader)
 	defer w.sessionManager.Close()
 
 	for {

@@ -69,29 +69,6 @@ func (c *Client) Std(destUid string) error {
 	return nil
 }
 
-func (c *Client) Tcp(destUid string) error {
-	conn, err := net.Dial("tcp", LocalAgentTCP)
-	if err != nil {
-		log.Printf("Tcp::Dial %v", err)
-		return err
-	}
-
-	var first [FirstDataLength]byte
-	copy(first[:], destUid)
-	n, err := conn.Write(first[:])
-	if err != nil || n != FirstDataLength {
-		log.Printf("Tcp::Write First Data %v", err)
-		return err
-	}
-
-	code := time.Now().Format("20060102150405__Tcp")
-	if err := c.connectServer(conn, destUid, code); err != nil {
-		log.Printf("Tcp::ConnectServer %v", err)
-		return err
-	}
-
-	return nil
-}
 
 func (c *Client) ServeAgent(destUid string) error {
 	lis, err := net.Listen("tcp", LocalAgentTCP)

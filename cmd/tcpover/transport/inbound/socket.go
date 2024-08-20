@@ -14,8 +14,6 @@ func NewSocket(target socks5.Addr, conn net.Conn, source ctx.Type) ctx.ConnConte
 		metadata.SrcIP = ip
 		metadata.SrcPort = uint16(port)
 	}
-	//if addrPort, err := netip.ParseAddrPort(conn.LocalAddr().String()); err == nil {
-	//	metadata.OriginDst = addrPort
-	//}
+	metadata.Origin = conn.LocalAddr().String()
 	return ctx.NewConnContext(conn, metadata)
 }

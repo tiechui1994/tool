@@ -73,8 +73,7 @@ type FrameMetadata struct {
 	SessionStatus SessionStatus
 	Option        Byte
 
-	Target  Destination
-	DataLen int64
+	Target Destination
 }
 
 func (f FrameMetadata) WriteTo(b *buf.Buffer) error {
@@ -113,19 +112,8 @@ func (f *FrameMetadata) Unmarshal(reader io.Reader) error {
 	if _, err := b.ReadFullFrom(reader, int32(metaLen)); err != nil {
 		return err
 	}
-	if err = f.UnmarshalFromBuffer(b); err != nil {
-		return err
-	}
 
-	if f.Option.Has(OptionData) {
-		dataLen, err := ReadUint16(reader)
-		if err != nil {
-			return err
-		}
-		f.DataLen = int64(dataLen)
-	}
-
-	return nil
+	return f.UnmarshalFromBuffer(b)
 }
 
 // UnmarshalFromBuffer reads a FrameMetadata from the given buffer.
