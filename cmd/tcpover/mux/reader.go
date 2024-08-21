@@ -50,7 +50,7 @@ type ChunkStreamReader struct {
 	numChunk     uint32
 }
 
-func NewChunkStreamReaderWithChunkCount(reader io.Reader, maxNumChunk uint32) *ChunkStreamReader {
+func NewChunkStreamReader(reader io.Reader, maxNumChunk uint32) *ChunkStreamReader {
 	r := &ChunkStreamReader{
 		maxNumChunk: maxNumChunk,
 		reader:      reader,
@@ -91,5 +91,5 @@ func (r *ChunkStreamReader) ReadBuffer(b *buf.Buffer) error {
 }
 
 func NewStreamReader(reader io.Reader) *ChunkStreamReader {
-	return NewChunkStreamReaderWithChunkCount(reader, 1)
+	return NewChunkStreamReader(reader, 1)
 }

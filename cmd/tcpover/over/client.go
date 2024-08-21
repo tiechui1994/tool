@@ -18,7 +18,6 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/tiechui1994/tool/cmd/tcpover/transport"
-	"github.com/tiechui1994/tool/cmd/tcpover/transport/ctx"
 )
 
 type Client struct {
@@ -124,7 +123,19 @@ func (c *Client) ServeProxy(localUid string) error {
 	}
 
 	done := make(chan struct{})
-	transport.RegisterProxy(&Proxy{c: c})
+	transport.RegisterProxy(&Proxy{client: c})
+	<-done
+	return nil
+}
+
+func (c *Client) ServeMuxProxy(localUid string) error {
+	err := transport.RegisterListener("mixed", localUid)
+	if err != nil {
+		return err
+	}
+
+	done := make(chan struct{})
+	transport.RegisterProxy(&Proxy{client: c})
 	<-done
 	return nil
 }
@@ -300,22 +311,4 @@ func (c *Client) webSocketConnect(ctx context.Context, uid, code, rule string) (
 	}()
 
 	return conn, err
-}
-
-type Proxy struct {
-	c *Client
-}
-
-func (p *Proxy) Name() string {
-	return "tcpover"
-}
-
-func (p *Proxy) DialContext(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
-	var uid = fmt.Sprintf("%v:%v", metadata.Host, metadata.DstPort)
-	conn, err := p.c.webSocketConnect(ctx, uid, "", RuleConnector)
-	if err != nil {
-		return nil, err
-	}
-
-	return NewSocketConn(conn), nil
 }

@@ -27,7 +27,6 @@ func NewWriter(id uint16, dest Destination, writer io.Writer, network TargetNetw
 		writer:   writer,
 		followup: false,
 		network:  network,
-		tag:      "===>",
 	}
 }
 
@@ -37,7 +36,6 @@ func NewResponseWriter(id uint16, writer io.Writer, network TargetNetwork) *Writ
 		writer:   writer,
 		followup: true,
 		network:  network,
-		tag:      "<===",
 	}
 }
 
