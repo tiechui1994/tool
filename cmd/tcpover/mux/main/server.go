@@ -5,7 +5,7 @@ import (
 	"log"
 	"net"
 
-	"github.com/tiechui1994/tool/cmd/tcpover/over/mux"
+	"github.com/tiechui1994/tool/cmd/tcpover/mux"
 )
 
 func init() {

@@ -36,6 +36,38 @@ func NewServer() *Server {
 	}
 }
 
+func (s *Server) copy(local, remote io.ReadWriteCloser, deferCallback func()) {
+	onceCloseLocal := &OnceCloser{Closer: local}
+	onceCloseRemote := &OnceCloser{Closer: remote}
+
+	defer func() {
+		_ = onceCloseRemote.Close()
+		_ = onceCloseLocal.Close()
+		if deferCallback != nil {
+			deferCallback()
+		}
+	}()
+
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+
+		defer onceCloseRemote.Close()
+		_, _ = io.CopyBuffer(remote, local, make([]byte, SocketBufferLength))
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		defer onceCloseLocal.Close()
+		_, _ = io.CopyBuffer(local, remote, make([]byte, SocketBufferLength))
+	}()
+
+	wg.Wait()
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	uid := r.URL.Query().Get("uid")
 	code := r.URL.Query().Get("code")
@@ -59,33 +91,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		local := conn
 		remote := NewSocketReadWriteCloser(socket)
-
-		onceCloseLocal := &OnceCloser{Closer: local}
-		onceCloseRemote := &OnceCloser{Closer: remote}
-
-		defer func() {
-			_ = onceCloseRemote.Close()
-			_ = onceCloseLocal.Close()
-		}()
-
-		wg := &sync.WaitGroup{}
-		wg.Add(2)
-
-		go func() {
-			defer wg.Done()
-
-			defer onceCloseRemote.Close()
-			_, _ = io.CopyBuffer(remote, local, make([]byte, SocketBufferLength))
-		}()
-
-		go func() {
-			defer wg.Done()
-
-			defer onceCloseLocal.Close()
-			_, _ = io.CopyBuffer(local, remote, make([]byte, SocketBufferLength))
-		}()
-
-		wg.Wait()
+		s.copy(local, remote, nil)
 		return
 	}
 
@@ -142,52 +148,26 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.groupMux.Lock()
-	if v, ok := s.groupConn[code]; ok {
-		v.conn = append(v.conn, conn)
+	if pair, ok := s.groupConn[code]; ok {
+		pair.conn = append(pair.conn, conn)
 		s.groupMux.Unlock()
 
-		local := NewSocketReadWriteCloser(v.conn[0])
-		remote := NewSocketReadWriteCloser(v.conn[1])
+		local := NewSocketReadWriteCloser(pair.conn[0])
+		remote := NewSocketReadWriteCloser(pair.conn[1])
 
-		onceCloseLocal := &OnceCloser{Closer: local}
-		onceCloseRemote := &OnceCloser{Closer: remote}
-
-		defer func() {
-			close(v.done)
+		s.copy(local, remote, func() {
+			close(pair.done)
 			s.groupMux.Lock()
 			delete(s.groupConn, code)
 			s.groupMux.Unlock()
-
-			_ = onceCloseRemote.Close()
-			_ = onceCloseLocal.Close()
-		}()
-
-		wg := &sync.WaitGroup{}
-		wg.Add(2)
-
-		go func() {
-			defer wg.Done()
-
-			defer onceCloseRemote.Close()
-			_, _ = io.CopyBuffer(remote, local, make([]byte, SocketBufferLength))
-		}()
-
-		go func() {
-			defer wg.Done()
-
-			defer onceCloseLocal.Close()
-			_, _ = io.CopyBuffer(local, remote, make([]byte, SocketBufferLength))
-		}()
-
-		wg.Wait()
+		})
 	} else {
-		pg := &PairGroup{
+		pair := &PairGroup{
 			done: make(chan struct{}),
 			conn: []*websocket.Conn{conn},
 		}
-		s.groupConn[code] = pg
+		s.groupConn[code] = pair
 		s.groupMux.Unlock()
-
-		<-pg.done
+		<-pair.done
 	}
 }

@@ -2,13 +2,13 @@ package mux
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
 
-	"github.com/pkg/errors"
-	"github.com/tiechui1994/tool/cmd/tcpover/over/buf"
+	"github.com/tiechui1994/tool/cmd/tcpover/mux/buf"
 )
 
 type echoDispatcher struct {
@@ -99,7 +99,7 @@ func (w *ServerWorker) handleStatusNew(ctx context.Context, meta *FrameMetadata,
 	if !meta.Option.Has(OptionData) {
 		return nil
 	}
-	if err := buf.Copy(s.NewReader(reader), buf.NewStdWriter(s.output)); err != nil {
+	if err := buf.Copy(s.NewOnceReader(reader), buf.NewStdWriter(s.output)); err != nil {
 		buf.Copy(reader, buf.Discard)
 		Interrupt(s.input)
 		return s.Close()
@@ -128,7 +128,7 @@ func (w *ServerWorker) handleStatusKeep(meta *FrameMetadata, reader *buf.StdRead
 		return buf.Copy(NewStreamReader(reader), buf.Discard)
 	}
 
-	err = buf.Copy(s.NewReader(reader), buf.NewStdWriter(s.output))
+	err = buf.Copy(s.NewOnceReader(reader), buf.NewStdWriter(s.output))
 	if err != nil {
 		log.Printf("ServerWorker::handleStatusKeep read: %v, write: %v, %v", buf.IsReadError(err), buf.IsWriteError(err), err)
 	}
@@ -199,7 +199,7 @@ func (w *ServerWorker) run(ctx context.Context) {
 		default:
 			err := w.handleFrame(ctx, reader)
 			if err != nil {
-				if errors.Cause(err) != io.EOF {
+				if !errors.Is(err, io.EOF) {
 					log.Printf("unexpected EOF: %v", err)
 					Interrupt(reader)
 				}

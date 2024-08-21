@@ -2,11 +2,11 @@ package mux
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log"
 
-	"github.com/pkg/errors"
-	"github.com/tiechui1994/tool/cmd/tcpover/over/buf"
+	"github.com/tiechui1994/tool/cmd/tcpover/mux/buf"
 )
 
 type Link struct {
@@ -14,26 +14,56 @@ type Link struct {
 	Writer io.Writer
 }
 
+type ClientStrategy struct {
+	MaxConcurrency uint32
+	MaxConnection  uint32
+}
+
 type ClientWorker struct {
 	sessionManager *SessionManager
 	remote         *Link
+	limit          ClientStrategy
 }
 
 func NewClientWorker(remote *Link) *ClientWorker {
 	m := &ClientWorker{
 		remote:         remote,
 		sessionManager: NewSessionManager(),
+		limit: ClientStrategy{
+			MaxConnection:  16,
+			MaxConcurrency: 16,
+		},
 	}
 	go m.pullRemoteOutput()
 
 	return m
 }
 
+func (m *ClientWorker) IsClosing() bool {
+	sm := m.sessionManager
+	if m.limit.MaxConnection > 0 && sm.Count() >= int(m.limit.MaxConnection) {
+		return true
+	}
+	return false
+}
+
+func (m *ClientWorker) IsFull() bool {
+	if m.IsClosing() {
+		return true
+	}
+
+	sm := m.sessionManager
+	if m.limit.MaxConcurrency > 0 && sm.Size() >= int(m.limit.MaxConcurrency) {
+		return true
+	}
+	return false
+}
+
 // N => 1 转发
 func (m *ClientWorker) Dispatch(ctx context.Context, conn *Link) bool {
-	//if m.IsFull() || m.Closed() {
-	//	return false
-	//}
+	if m.IsFull() {
+		return false
+	}
 
 	session := m.sessionManager.Allocate()
 	if session == nil {
@@ -79,7 +109,7 @@ func (m *ClientWorker) pullRemoteOutput() {
 	for {
 		err := meta.Unmarshal(reader)
 		if err != nil {
-			if errors.Cause(err) != io.EOF {
+			if !errors.Is(err, io.EOF) {
 				log.Printf("failed to read metadata: %v", err)
 			}
 			break
@@ -116,7 +146,7 @@ func (m *ClientWorker) handleStatueKeepAlive(meta *FrameMetadata, reader *buf.St
 
 func (m *ClientWorker) handleStatusNew(meta *FrameMetadata, reader *buf.StdReader) (err error) {
 	if meta.Option.Has(OptionData) {
-		 err = buf.Copy(NewStreamReader(reader), buf.Discard)
+		err = buf.Copy(NewStreamReader(reader), buf.Discard)
 	}
 	return err
 }
@@ -135,7 +165,7 @@ func (m *ClientWorker) handleStatusKeep(meta *FrameMetadata, reader *buf.StdRead
 		return buf.Copy(NewStreamReader(reader), buf.Discard)
 	}
 
-	err = buf.Copy(s.NewReader(reader), buf.NewStdWriter(s.output))
+	err = buf.Copy(s.NewOnceReader(reader), buf.NewStdWriter(s.output))
 	if err != nil {
 		log.Printf("ClientWorker::handleStatusKeep read: %v, write: %v, %v", buf.IsReadError(err), buf.IsWriteError(err), err)
 	}

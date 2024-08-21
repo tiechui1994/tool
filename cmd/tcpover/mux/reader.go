@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/tiechui1994/tool/cmd/tcpover/over/buf"
+	"github.com/tiechui1994/tool/cmd/tcpover/mux/buf"
 )
 
 type PacketReader struct {

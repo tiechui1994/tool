@@ -8,7 +8,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/tiechui1994/tool/cmd/tcpover/over/mux"
+	"github.com/tiechui1994/tool/cmd/tcpover/mux"
 	"github.com/tiechui1994/tool/cmd/tcpover/transport"
 	"github.com/tiechui1994/tool/cmd/tcpover/transport/ctx"
 )
@@ -79,7 +79,7 @@ func (p *Proxy) DialContext(ctx context.Context, metadata *ctx.Metadata) (net.Co
 		remote: remote,
 	}
 
-	fmt.Println("destination: ", fmt.Sprintf("%v:%v", metadata.DstIP, metadata.DstPort),)
+	fmt.Println("destination: ", fmt.Sprintf("%v:%v", metadata.DstIP, metadata.DstPort))
 	ctx = context.WithValue(ctx, "destination", mux.Destination{
 		Network: mux.TargetNetworkTCP,
 		Address: fmt.Sprintf("%v:%v", metadata.DstIP, metadata.DstPort),

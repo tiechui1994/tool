@@ -1,9 +1,8 @@
 package buf
 
 import (
+	"errors"
 	"io"
-
-	"github.com/pkg/errors"
 )
 
 type Reader interface {
@@ -30,7 +29,7 @@ func (noOpWriter) ReadFrom(reader io.Reader) (int64, error) {
 		_, err := b.ReadFrom(reader)
 		totalBytes += int64(b.Len())
 		if err != nil {
-			if errors.Cause(err) == io.EOF {
+			if errors.Is(err, io.EOF) {
 				return totalBytes, nil
 			}
 			return totalBytes, err
@@ -44,7 +43,6 @@ func (noOpWriter) WriteBuffer(buf *Buffer) error {
 }
 
 var (
-	// Discard is a Writer that swallows all contents written in.
 	Discard = noOpWriter(0)
 )
 

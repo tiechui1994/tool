@@ -1,9 +1,10 @@
 package mux
 
 import (
-	"github.com/tiechui1994/tool/cmd/tcpover/over/buf"
 	"io"
 	"sync"
+
+	"github.com/tiechui1994/tool/cmd/tcpover/mux/buf"
 )
 
 type SessionManager struct {
@@ -122,11 +123,10 @@ func (m *SessionManager) Close() error {
 	}
 
 	m.closed = true
-
-	//for _, s := range m.sessions {
-	//common.Close(s.input)
-	//common.Close(s.output)
-	//}
+	for _, s := range m.sessions {
+		Close(s.input)
+		Close(s.output)
+	}
 
 	m.sessions = nil
 	return nil
@@ -148,7 +148,7 @@ func (s *Session) Close() error {
 }
 
 // NewReader creates a buf.Reader based on the transfer type of this Session.
-func (s *Session) NewReader(reader io.Reader) buf.Reader {
+func (s *Session) NewOnceReader(reader io.Reader) buf.Reader {
 	if s.network == TargetNetworkTCP {
 		return NewStreamReader(reader)
 	}

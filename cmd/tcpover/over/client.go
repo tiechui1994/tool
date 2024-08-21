@@ -5,11 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/tiechui1994/tool/cmd/tcpover/transport"
-	"github.com/tiechui1994/tool/cmd/tcpover/transport/ctx"
 	"io"
 	"log"
-	random "math/rand"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
@@ -18,6 +16,9 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/tiechui1994/tool/cmd/tcpover/transport"
+	"github.com/tiechui1994/tool/cmd/tcpover/transport/ctx"
 )
 
 type Client struct {
@@ -42,7 +43,7 @@ func NewClient(server string, proxy map[string][]string) *Client {
 			NetDialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				v := addr
 				if val, ok := proxy[addr]; ok {
-					v = val[random.Intn(len(val))]
+					v = val[rand.Intn(len(val))]
 				}
 				log.Printf("DialContext [%v]: %v", addr, v)
 				return (&net.Dialer{}).DialContext(context.Background(), network, v)
@@ -68,7 +69,6 @@ func (c *Client) Std(destUid string) error {
 
 	return nil
 }
-
 
 func (c *Client) ServeAgent(destUid string) error {
 	lis, err := net.Listen("tcp", LocalAgentTCP)
@@ -117,6 +117,18 @@ func (c *Client) ServeAgent(destUid string) error {
 	}
 }
 
+func (c *Client) ServeProxy(localUid string) error {
+	err := transport.RegisterListener("mixed", localUid)
+	if err != nil {
+		return err
+	}
+
+	done := make(chan struct{})
+	transport.RegisterProxy(&Proxy{c: c})
+	<-done
+	return nil
+}
+
 func (c *Client) manage(uid string) {
 	times := 1
 try:
@@ -124,20 +136,10 @@ try:
 	if times >= 64 {
 		times = 1
 	}
-	query := url.Values{}
-	query.Set("rule", RuleManage)
-	query.Set("uid", uid)
-	conn, resp, err := c.dialer.DialContext(context.Background(), c.server+"?"+query.Encode(), nil)
+
+	conn, err := c.webSocketConnect(context.Background(), uid, "", RuleManage)
 	if err != nil {
 		log.Printf("Manage::DialContext: %v", err)
-		times = times * 2
-		goto try
-	}
-
-	if resp.StatusCode != http.StatusSwitchingProtocols {
-		buf := bytes.NewBuffer(nil)
-		_ = resp.Write(buf)
-		log.Printf("Manage::StatusCode not 101: %v", buf.String())
 		times = times * 2
 		goto try
 	}
@@ -148,22 +150,6 @@ try:
 		c.manage(uid)
 		log.Printf("Reconnect to server success")
 	}
-
-	go func() {
-		ticker := time.NewTicker(20 * time.Second)
-		defer onceClose.Do(closeFunc)
-		defer ticker.Stop()
-
-		for range ticker.C {
-			err = conn.WriteControl(websocket.PingMessage, []byte(nil), time.Now().Add(time.Second))
-			if isClose(err) {
-				return
-			}
-			if err != nil {
-				log.Printf("Ping: %v", err)
-			}
-		}
-	}()
 
 	go func() {
 		defer onceClose.Do(closeFunc)
@@ -202,20 +188,9 @@ func (c *Client) connectServer(local io.ReadWriteCloser, destUid, code string) e
 	onceCloseLocal := &OnceCloser{Closer: local}
 	defer onceCloseLocal.Close()
 
-	query := url.Values{}
-	query.Set("uid", destUid)
-	query.Set("code", code)
-	query.Set("rule", RuleConnector)
-	u := c.server + "?" + query.Encode()
-	conn, resp, err := c.dialer.DialContext(context.Background(), u, nil)
+	conn, err := c.webSocketConnect(context.Background(), destUid, code, RuleConnector)
 	if err != nil {
 		return err
-	}
-
-	if resp.StatusCode != http.StatusSwitchingProtocols {
-		buf := bytes.NewBuffer(nil)
-		_ = resp.Write(buf)
-		return fmt.Errorf("statusCode != 101:\n%s", buf.String())
 	}
 
 	remote := NewSocketReadWriteCloser(conn)
@@ -224,22 +199,6 @@ func (c *Client) connectServer(local io.ReadWriteCloser, destUid, code string) e
 
 	wg := &sync.WaitGroup{}
 	wg.Add(2)
-
-	go func() {
-		ticker := time.NewTicker(20 * time.Second)
-		defer ticker.Stop()
-
-		for range ticker.C {
-			err = conn.WriteControl(websocket.PingMessage, []byte(nil), time.Now().Add(time.Second))
-			if isClose(err) {
-				return
-			}
-			if err != nil {
-				log.Printf("Ping: %v", err)
-			}
-		}
-	}()
-
 	go func() {
 		defer wg.Done()
 
@@ -276,19 +235,9 @@ func (c *Client) connectLocal(code string) error {
 	c.localConn.Store(code, onceCloseLocal)
 	defer c.localConn.Delete(code)
 
-	query := url.Values{}
-	query.Set("uid", "anonymous")
-	query.Set("code", code)
-	query.Set("rule", RuleAgent)
-	conn, resp, err := c.dialer.DialContext(context.Background(), c.server+"?"+query.Encode(), nil)
+	conn, err := c.webSocketConnect(context.Background(), "anonymous", code, RuleAgent)
 	if err != nil {
 		return err
-	}
-
-	if resp.StatusCode != http.StatusSwitchingProtocols {
-		buf := bytes.NewBuffer(nil)
-		_ = resp.Write(buf)
-		return fmt.Errorf("statusCode != 101:\n%s", buf.String())
 	}
 
 	remote := NewSocketReadWriteCloser(conn)
@@ -297,21 +246,6 @@ func (c *Client) connectLocal(code string) error {
 
 	wg := &sync.WaitGroup{}
 	wg.Add(2)
-
-	go func() {
-		ticker := time.NewTicker(20 * time.Second)
-		defer ticker.Stop()
-
-		for range ticker.C {
-			err = conn.WriteControl(websocket.PingMessage, []byte(nil), time.Now().Add(time.Second))
-			if isClose(err) {
-				return
-			}
-			if err != nil {
-				log.Printf("Ping: %v", err)
-			}
-		}
-	}()
 
 	go func() {
 		defer wg.Done()
@@ -333,21 +267,13 @@ func (c *Client) connectLocal(code string) error {
 	return nil
 }
 
-type Proxy struct {
-	c *Client
-}
-
-func (p *Proxy) Name() string {
-	return "tcpover"
-}
-
-func (p *Proxy) DialContext(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
-	var uid = fmt.Sprintf("%v:%v", metadata.Host, metadata.DstPort)
+func (c *Client) webSocketConnect(ctx context.Context, uid, code, rule string) (*websocket.Conn, error) {
 	query := url.Values{}
 	query.Set("uid", uid)
-	query.Set("rule", RuleConnector)
-	u := p.c.server + "?" + query.Encode()
-	conn, resp, err := p.c.dialer.DialContext(ctx, u, nil)
+	query.Set("code", code)
+	query.Set("rule", rule)
+	u := c.server + "?" + query.Encode()
+	conn, resp, err := c.dialer.DialContext(ctx, u, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -373,17 +299,23 @@ func (p *Proxy) DialContext(ctx context.Context, metadata *ctx.Metadata) (net.Co
 		}
 	}()
 
-	return NewSocketConn(conn), nil
+	return conn, err
 }
 
-func (c *Client) ServeProxy(localUid string) error {
-	err := transport.RegisterListener("mixed", localUid)
+type Proxy struct {
+	c *Client
+}
+
+func (p *Proxy) Name() string {
+	return "tcpover"
+}
+
+func (p *Proxy) DialContext(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
+	var uid = fmt.Sprintf("%v:%v", metadata.Host, metadata.DstPort)
+	conn, err := p.c.webSocketConnect(ctx, uid, "", RuleConnector)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	done := make(chan struct{})
-	transport.RegisterProxy(&Proxy{c: c})
-	<-done
-	return nil
+	return NewSocketConn(conn), nil
 }

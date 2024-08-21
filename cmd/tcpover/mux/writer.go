@@ -6,7 +6,7 @@ import (
 	"io"
 	"log"
 
-	"github.com/tiechui1994/tool/cmd/tcpover/over/buf"
+	"github.com/tiechui1994/tool/cmd/tcpover/mux/buf"
 )
 
 type Writer struct {
