@@ -16,8 +16,9 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-
+	"github.com/tiechui1994/tool/cmd/tcpover/mux"
 	"github.com/tiechui1994/tool/cmd/tcpover/transport"
+	"github.com/tiechui1994/tool/cmd/tcpover/transport/ctx"
 )
 
 type Client struct {
@@ -54,14 +55,14 @@ func NewClient(server string, proxy map[string][]string) *Client {
 	}
 }
 
-func (c *Client) Std(destUid string) error {
+func (c *Client) Std(remoteName, remoteAddr string) error {
 	var std io.ReadWriteCloser = NewStdReadWriteCloser()
 	if Debug {
 		std = NewEchoReadWriteCloser()
 	}
 
 	code := time.Now().Format("20060102150405__Std")
-	if err := c.connectServer(std, destUid, code); err != nil {
+	if err := c.stdConnectServer(std, remoteName, remoteAddr, code); err != nil {
 		log.Printf("Std::ConnectServer %v", err)
 		return err
 	}
@@ -69,78 +70,68 @@ func (c *Client) Std(destUid string) error {
 	return nil
 }
 
-func (c *Client) ServeAgent(destUid string) error {
-	lis, err := net.Listen("tcp", LocalAgentTCP)
-	if err != nil {
-		log.Printf("Serve::Listen %v", err)
-		return err
-	}
-	defer lis.Close()
+func (c *Client) ServeAgent(name, listenAddr, remoteName string) error {
+	c.manage(name)
+	log.Printf("Agent start ....")
 
-	c.manage(destUid)
-	log.Printf("Connect Server Success")
-
-	for {
-		conn, err := lis.Accept()
+	manager, err := NewClientConnManager(func(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
+		addr := fmt.Sprintf("%v:%v", metadata.Host, metadata.DstPort)
+		code := time.Now().Format("20060102150405__Agent")
+		conn, err := c.webSocketConnect(ctx, remoteName, addr, code, RuleConnector)
 		if err != nil {
-			time.Sleep(time.Second * 5)
-			continue
+			return nil, err
 		}
 
-		go func(conn io.ReadWriteCloser) {
-			defer conn.Close()
-			var first [FirstDataLength]byte
-			n, err := conn.Read(first[:])
-			if n != FirstDataLength || err != nil {
-				log.Printf("Serve::Read Uid %v", err)
-				return
-			}
-
-			var destUid string
-			for i, v := range first {
-				if v == 0 {
-					destUid = string(first[:i])
-					break
-				}
-			}
-			if destUid == "" {
-				log.Printf("Serve::destUid is empty")
-				return
-			}
-
-			code := time.Now().Format("20060102150405__Serve")
-			if err := c.connectServer(conn, destUid, code); err != nil {
-				log.Printf("Serve::ConnectServer %v", err)
-			}
-		}(conn)
+		return conn.UnderlyingConn(), nil
+	})
+	if err != nil {
+		return err
 	}
-}
 
-func (c *Client) ServeProxy(localUid string) error {
-	err := transport.RegisterListener("mixed", localUid)
+	err = transport.RegisterListener("mixed", listenAddr)
 	if err != nil {
 		return err
 	}
 
 	done := make(chan struct{})
-	transport.RegisterProxy(&Proxy{client: c})
+	transport.RegisterProxy(&Proxy{manager: manager})
 	<-done
 	return nil
 }
 
-func (c *Client) ServeMuxProxy(localUid string) error {
-	err := transport.RegisterListener("mixed", localUid)
+func (c *Client) ServeMuxAgent(name, listenAddr, remoteName string) error {
+	c.manage(name)
+	log.Printf("MuxAgent start ....")
+
+	manager, err := NewClientWorkerManager(func() (*mux.ClientWorker, error) {
+		addr := ""
+		code := time.Now().Format("20060102150405__MuxAgent")
+		conn, err := c.webSocketConnect(context.Background(), remoteName, addr, code, RuleAgent)
+		if err != nil {
+			return nil, err
+		}
+
+		return mux.NewClientWorker(&mux.Link{
+			Reader: conn.UnderlyingConn(),
+			Writer: conn.UnderlyingConn(),
+		}), nil
+	})
+	if err != nil {
+		return err
+	}
+
+	err = transport.RegisterListener("mixed", listenAddr)
 	if err != nil {
 		return err
 	}
 
 	done := make(chan struct{})
-	transport.RegisterProxy(&Proxy{client: c})
+	transport.RegisterProxy(&MuxProxy{manager: manager})
 	<-done
 	return nil
 }
 
-func (c *Client) manage(uid string) {
+func (c *Client) manage(name string) {
 	times := 1
 try:
 	time.Sleep(time.Second * time.Duration(times))
@@ -148,7 +139,7 @@ try:
 		times = 1
 	}
 
-	conn, err := c.webSocketConnect(context.Background(), uid, "", RuleManage)
+	conn, err := c.webSocketConnect(context.Background(), name, "", "", RuleManage)
 	if err != nil {
 		log.Printf("Manage::DialContext: %v", err)
 		times = times * 2
@@ -158,7 +149,7 @@ try:
 	var onceClose sync.Once
 	closeFunc := func() {
 		log.Printf("Manage Socket Close: %v", conn.Close())
-		c.manage(uid)
+		c.manage(name)
 		log.Printf("Reconnect to server success")
 	}
 
@@ -185,7 +176,15 @@ try:
 			case CommandLink:
 				log.Printf("ControlMessage => cmd %v, data: %v", cmd.Command, cmd.Data)
 				go func() {
-					err = c.connectLocal(cmd.Data["Code"].(string))
+					code := cmd.Data["Code"].(string)
+					addr := cmd.Data["Addr"].(string)
+					network := cmd.Data["Network"].(string)
+
+					if _, ok := cmd.Data["Mux"]; ok {
+						err = c.connectLocalMux(code, network, addr)
+					} else {
+						err = c.connectLocal(code, network, addr)
+					}
 					if err != nil {
 						log.Println("ConnectLocal:", err)
 					}
@@ -195,11 +194,11 @@ try:
 	}()
 }
 
-func (c *Client) connectServer(local io.ReadWriteCloser, destUid, code string) error {
+func (c *Client) stdConnectServer(local io.ReadWriteCloser, remoteName, remoteAddr, code string) error {
 	onceCloseLocal := &OnceCloser{Closer: local}
 	defer onceCloseLocal.Close()
 
-	conn, err := c.webSocketConnect(context.Background(), destUid, code, RuleConnector)
+	conn, err := c.webSocketConnect(context.Background(), remoteName, remoteAddr, code, RuleConnector)
 	if err != nil {
 		return err
 	}
@@ -228,10 +227,31 @@ func (c *Client) connectServer(local io.ReadWriteCloser, destUid, code string) e
 	return nil
 }
 
-func (c *Client) connectLocal(code string) error {
+func (c *Client) connectLocalMux(code, network, addr string) error {
+	conn, err := c.webSocketConnect(context.Background(), "anonymous", "", code, RuleAgent)
+	if err != nil {
+		return err
+	}
+
+	remote := NewSocketReadWriteCloser(conn)
+	onceCloseRemote := &OnceCloser{Closer: remote}
+	defer onceCloseRemote.Close()
+
+	_, err = mux.NewServerWorker(context.Background(), mux.NewDispatcher(), &mux.Link{
+		Reader: remote,
+		Writer: remote,
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *Client) connectLocal(code, network, addr string) error {
 	var local io.ReadWriteCloser
 	var err error
-	local, err = net.Dial("tcp", "127.0.0.1:22")
+	local, err = net.Dial(network, addr)
 	if err != nil {
 		return err
 	}
@@ -246,7 +266,7 @@ func (c *Client) connectLocal(code string) error {
 	c.localConn.Store(code, onceCloseLocal)
 	defer c.localConn.Delete(code)
 
-	conn, err := c.webSocketConnect(context.Background(), "anonymous", code, RuleAgent)
+	conn, err := c.webSocketConnect(context.Background(), "anonymous", "", code, RuleAgent)
 	if err != nil {
 		return err
 	}
@@ -278,9 +298,10 @@ func (c *Client) connectLocal(code string) error {
 	return nil
 }
 
-func (c *Client) webSocketConnect(ctx context.Context, uid, code, rule string) (*websocket.Conn, error) {
+func (c *Client) webSocketConnect(ctx context.Context, name, addr, code, rule string) (*websocket.Conn, error) {
 	query := url.Values{}
-	query.Set("uid", uid)
+	query.Set("name", name)
+	query.Set("addr", addr)
 	query.Set("code", code)
 	query.Set("rule", rule)
 	u := c.server + "?" + query.Encode()

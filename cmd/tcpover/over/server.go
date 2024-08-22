@@ -69,15 +69,16 @@ func (s *Server) copy(local, remote io.ReadWriteCloser, deferCallback func()) {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	uid := r.URL.Query().Get("uid")
+	name := r.URL.Query().Get("name")
+	addr := r.URL.Query().Get("addr")
 	code := r.URL.Query().Get("code")
 	rule := r.URL.Query().Get("rule")
 
 	regex := regexp.MustCompile(`^([a-zA-Z0-9.]+):(\d+)$`)
-	if rule == RuleConnector && regex.MatchString(uid) {
-		conn, err := net.Dial("tcp", uid)
+	if rule == RuleConnector && regex.MatchString(addr) {
+		conn, err := net.Dial("tcp", addr)
 		if err != nil {
-			log.Printf("tcp connect [%v] : %v", uid, err)
+			log.Printf("tcp connect [%v] : %v", addr, err)
 			http.Error(w, fmt.Sprintf("tcp connect failed: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -96,15 +97,20 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if rule == RuleConnector {
-		manage, ok := s.manageConn.Load(uid)
+		manage, ok := s.manageConn.Load(name)
 		if !ok {
-			log.Printf("agent [%v] not running", uid)
-			http.Error(w, fmt.Sprintf("Agent [%v] not connect", uid), http.StatusBadRequest)
+			log.Printf("agent [%v] not running", name)
+			http.Error(w, fmt.Sprintf("Agent [%v] not connect", name), http.StatusBadRequest)
 			return
 		}
 		_ = manage.(*websocket.Conn).WriteJSON(ControlMessage{
 			Command: CommandLink,
-			Data:    map[string]interface{}{"Code": code},
+			Data: map[string]interface{}{
+				"Code":    code,
+				"Addr":    addr,
+				"Network": "tcp",
+				"Mux":     1,
+			},
 		})
 	}
 
@@ -114,15 +120,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("upgrade error: %v", err), http.StatusBadRequest)
 		return
 	}
-	log.Printf("enter connections:%v, code:%v, uid:%v, rule:%v", atomic.AddInt32(&s.conn, +1), code, uid, rule)
+	log.Printf("enter connections:%v, code:%v, name:%v, rule:%v", atomic.AddInt32(&s.conn, +1), code, name, rule)
 	defer func() {
-		log.Printf("leave connections:%v  code:%v, uid:%v, rule:%v", atomic.AddInt32(&s.conn, -1), code, uid, rule)
+		log.Printf("leave connections:%v  code:%v, uid:%v, rule:%v", atomic.AddInt32(&s.conn, -1), code, name, rule)
 	}()
 
 	// manage channel
 	if rule == RuleManage {
-		s.manageConn.Store(uid, conn)
-		defer s.manageConn.Delete(uid)
+		s.manageConn.Store(name, conn)
+		defer s.manageConn.Delete(name)
 
 		done := make(chan struct{})
 		conn.SetPingHandler(func(message string) error {

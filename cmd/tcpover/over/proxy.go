@@ -13,7 +13,7 @@ import (
 )
 
 type Proxy struct {
-	client *Client
+	manager *clientConnManager
 }
 
 func (p *Proxy) Name() string {
@@ -21,13 +21,27 @@ func (p *Proxy) Name() string {
 }
 
 func (p *Proxy) DialContext(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
-	var uid = fmt.Sprintf("%v:%v", metadata.Host, metadata.DstPort)
-	conn, err := p.client.webSocketConnect(ctx, uid, "", RuleConnector)
+	return p.manager.Dispatch(ctx, metadata)
+}
+
+type clientConnManager struct {
+	connCount uint32
+	create    func(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error)
+}
+
+func NewClientConnManager(create func(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error)) (*clientConnManager, error) {
+	c := &clientConnManager{create: create}
+	return c, nil
+}
+
+func (c *clientConnManager) Dispatch(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
+	conn, err := c.create(ctx, metadata)
 	if err != nil {
 		return nil, err
 	}
+	atomic.AddUint32(&c.connCount, 1)
 
-	return NewSocketConn(conn), nil
+	return conn, nil
 }
 
 type MuxProxy struct {

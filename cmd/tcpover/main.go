@@ -14,14 +14,16 @@ func main() {
 	runAsConnector := flag.Bool("c", false, "as connector")
 	runAsAgent := flag.Bool("a", false, "as agent")
 	runAsServer := flag.Bool("s", false, "as server")
-	runAsProxy := flag.Bool("p", false, "as proxy")
 
 	listenAddr := flag.String("l", "", "Listen address [SC]")
 	serverEndpoint := flag.String("e", "", "Server endpoint. [C]")
-	uid := flag.String("d", "", "The destination uid to [C]")
+	name := flag.String("name", "", "name [SC]")
+	remoteName := flag.String("remoteName", "", "remoteName. [C]")
+	remoteAddr := flag.String("remoteAddr", "", "remoteAddr. [C]")
+
 	flag.Parse()
 
-	if !*runAsServer && !*runAsConnector && !*runAsAgent && !*runAsProxy {
+	if !*runAsServer && !*runAsConnector && !*runAsAgent {
 		log.Fatalln("must be run as one mode")
 	}
 
@@ -29,16 +31,12 @@ func main() {
 		log.Fatalln("server must set listen addr")
 	}
 
-	if *runAsConnector && (*serverEndpoint == "" || *uid == "") {
-		log.Fatalln("connector must set server endpoint and destination")
+	if *runAsConnector && (*serverEndpoint == "" || *remoteName == "" || *remoteAddr == "") {
+		log.Fatalln("agent must set server endpoint and remoteName, remoteAddr")
 	}
 
-	if *runAsAgent && (*serverEndpoint == "" || *uid == "") {
-		log.Fatalln("agent must set server endpoint and destination")
-	}
-
-	if *runAsProxy && (*serverEndpoint == "" || *listenAddr == "") {
-		log.Fatalln("agent must set server endpoint  and listen addr")
+	if *runAsAgent && (*serverEndpoint == "" || *name == "" || *remoteName == "") {
+		log.Fatalln("agent must set server endpoint and remoteName, remoteName")
 	}
 
 	if *runAsServer {
@@ -51,7 +49,7 @@ func main() {
 
 	if *runAsConnector {
 		c := over.NewClient(*serverEndpoint, nil)
-		if err := c.Std(*uid); err != nil {
+		if err := c.Std(*remoteName, *remoteAddr); err != nil {
 			log.Fatalln(err)
 		}
 		return
@@ -59,15 +57,7 @@ func main() {
 
 	if *runAsAgent {
 		c := over.NewClient(*serverEndpoint, nil)
-		if err := c.ServeAgent(*uid); err != nil {
-			log.Fatalln(err)
-		}
-		return
-	}
-
-	if *runAsProxy {
-		c := over.NewClient(*serverEndpoint, nil)
-		if err := c.ServeProxy(*listenAddr); err != nil {
+		if err := c.ServeAgent(*name, *listenAddr, *remoteName); err != nil {
 			log.Fatalln(err)
 		}
 		return
