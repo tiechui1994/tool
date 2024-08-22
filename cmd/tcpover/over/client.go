@@ -70,19 +70,19 @@ func (c *Client) Std(remoteName, remoteAddr string) error {
 	return nil
 }
 
-func (c *Client) ServeAgent(name, listenAddr, remoteName string) error {
+func (c *Client) ServeAgent(name, listenAddr string) error {
 	c.manage(name)
 	log.Printf("Agent start ....")
 
 	manager, err := NewClientConnManager(func(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
 		addr := fmt.Sprintf("%v:%v", metadata.Host, metadata.DstPort)
 		code := time.Now().Format("20060102150405__Agent")
-		conn, err := c.webSocketConnect(ctx, remoteName, addr, code, RuleConnector)
+		conn, err := c.webSocketConnect(ctx, "", addr, code, RuleConnector)
 		if err != nil {
 			return nil, err
 		}
 
-		return conn.UnderlyingConn(), nil
+		return NewSocketConn(conn), nil
 	})
 	if err != nil {
 		return err
@@ -99,21 +99,22 @@ func (c *Client) ServeAgent(name, listenAddr, remoteName string) error {
 	return nil
 }
 
-func (c *Client) ServeMuxAgent(name, listenAddr, remoteName string) error {
+func (c *Client) ServeMuxAgent(name, listenAddr  string) error {
 	c.manage(name)
 	log.Printf("MuxAgent start ....")
 
 	manager, err := NewClientWorkerManager(func() (*mux.ClientWorker, error) {
 		addr := ""
 		code := time.Now().Format("20060102150405__MuxAgent")
-		conn, err := c.webSocketConnect(context.Background(), remoteName, addr, code, RuleAgent)
+		conn, err := c.webSocketConnect(context.Background(), "", addr, code, RuleAgent)
 		if err != nil {
 			return nil, err
 		}
 
+		connTemp := NewSocketConn(conn)
 		return mux.NewClientWorker(&mux.Link{
-			Reader: conn.UnderlyingConn(),
-			Writer: conn.UnderlyingConn(),
+			Reader: connTemp,
+			Writer: connTemp,
 		}), nil
 	})
 	if err != nil {
@@ -317,7 +318,7 @@ func (c *Client) webSocketConnect(ctx context.Context, name, addr, code, rule st
 	}
 
 	go func() {
-		ticker := time.NewTicker(20 * time.Second)
+		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
 
 		for range ticker.C {

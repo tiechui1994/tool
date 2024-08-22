@@ -10,10 +10,16 @@ import (
 
 var debug bool
 
+func init() {
+	log.SetFlags(log.Lshortfile|log.Ltime)
+}
+
 func main() {
 	runAsConnector := flag.Bool("c", false, "as connector")
 	runAsAgent := flag.Bool("a", false, "as agent")
 	runAsServer := flag.Bool("s", false, "as server")
+
+	mux := flag.Bool("m", false, "mux connect")
 
 	listenAddr := flag.String("l", "", "Listen address [SC]")
 	serverEndpoint := flag.String("e", "", "Server endpoint. [C]")
@@ -35,8 +41,8 @@ func main() {
 		log.Fatalln("agent must set server endpoint and remoteName, remoteAddr")
 	}
 
-	if *runAsAgent && (*serverEndpoint == "" || *name == "" || *remoteName == "") {
-		log.Fatalln("agent must set server endpoint and remoteName, remoteName")
+	if *runAsAgent && (*serverEndpoint == "" || *name == "" ) {
+		log.Fatalln("agent must set server endpoint and name, remoteName")
 	}
 
 	if *runAsServer {
@@ -57,8 +63,14 @@ func main() {
 
 	if *runAsAgent {
 		c := over.NewClient(*serverEndpoint, nil)
-		if err := c.ServeAgent(*name, *listenAddr, *remoteName); err != nil {
-			log.Fatalln(err)
+		if *mux {
+			if err := c.ServeMuxAgent(*name, *listenAddr); err != nil {
+				log.Fatalln(err)
+			}
+		} else {
+			if err := c.ServeAgent(*name, *listenAddr); err != nil {
+				log.Fatalln(err)
+			}
 		}
 		return
 	}

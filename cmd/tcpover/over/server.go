@@ -151,6 +151,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return err
 		})
 		<-done
+		return
 	}
 
 	s.groupMux.Lock()
