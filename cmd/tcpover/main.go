@@ -42,7 +42,7 @@ func main() {
 	}
 
 	if *runAsAgent && (*serverEndpoint == "" || *name == "" ) {
-		log.Fatalln("agent must set server endpoint and name, remoteName")
+		log.Fatalln("agent must set server endpoint and name")
 	}
 
 	if *runAsServer {

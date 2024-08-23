@@ -9,12 +9,14 @@ import (
 )
 
 const (
-	FirstDataLength    = 20
 	SocketBufferLength = 16384
 
 	RuleManage    = "manage"
 	RuleAgent     = "Agent"
 	RuleConnector = "Connector"
+
+	ModeDirect  = "direct"
+	ModeForward = "forward"
 
 	LocalAgentTCP = "127.0.0.1:9988"
 

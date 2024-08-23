@@ -73,9 +73,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	addr := r.URL.Query().Get("addr")
 	code := r.URL.Query().Get("code")
 	rule := r.URL.Query().Get("rule")
+	mode := r.URL.Query().Get("mode")
+
+	log.Printf("enter connections:%v, code:%v, name:%v, rule:%v", atomic.AddInt32(&s.conn, +1), code, name, rule)
+	defer func() {
+		log.Printf("leave connections:%v  code:%v, uid:%v, rule:%v", atomic.AddInt32(&s.conn, -1), code, name, rule)
+	}()
 
 	regex := regexp.MustCompile(`^([a-zA-Z0-9.]+):(\d+)$`)
-	if rule == RuleConnector && regex.MatchString(addr) {
+
+	// 情况1: 直接连接
+	if rule == RuleConnector && mode == ModeDirect && regex.MatchString(addr) {
 		conn, err := net.Dial("tcp", addr)
 		if err != nil {
 			log.Printf("tcp connect [%v] : %v", addr, err)
@@ -96,21 +104,27 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if rule == RuleConnector {
+	// 情况2: Connector Or Agent
+	if (rule == RuleConnector || rule == RuleAgent) && name != "" {
 		manage, ok := s.manageConn.Load(name)
 		if !ok {
 			log.Printf("agent [%v] not running", name)
 			http.Error(w, fmt.Sprintf("Agent [%v] not connect", name), http.StatusBadRequest)
 			return
 		}
+
+		data := map[string]interface{}{
+			"Code":    code,
+			"Addr":    addr,
+			"Network": "tcp",
+		}
+		if rule == RuleAgent {
+			data["Mux"] = 1
+		}
+
 		_ = manage.(*websocket.Conn).WriteJSON(ControlMessage{
 			Command: CommandLink,
-			Data: map[string]interface{}{
-				"Code":    code,
-				"Addr":    addr,
-				"Network": "tcp",
-				"Mux":     1,
-			},
+			Data:    data,
 		})
 	}
 
@@ -120,17 +134,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("upgrade error: %v", err), http.StatusBadRequest)
 		return
 	}
-	log.Printf("enter connections:%v, code:%v, name:%v, rule:%v", atomic.AddInt32(&s.conn, +1), code, name, rule)
-	defer func() {
-		log.Printf("leave connections:%v  code:%v, uid:%v, rule:%v", atomic.AddInt32(&s.conn, -1), code, name, rule)
-	}()
 
-	// manage channel
+	// 情况3: 管理员通道
 	if rule == RuleManage {
 		s.manageConn.Store(name, conn)
 		defer s.manageConn.Delete(name)
 
-		done := make(chan struct{})
 		conn.SetPingHandler(func(message string) error {
 			err := conn.WriteControl(websocket.PongMessage, []byte(message), time.Now().Add(time.Second))
 			if err == websocket.ErrCloseSent {
@@ -142,18 +151,22 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if isClose(err) {
-				close(done)
 				log.Printf("closing ..... : %v", conn.Close())
 				return err
 			}
-
 			log.Printf("pong error: %v", err)
 			return err
 		})
-		<-done
-		return
+		for {
+			_, _, err = conn.ReadMessage()
+			if isClose(err) {
+				log.Printf("closing ..... : %v", conn.Close())
+				return
+			}
+		}
 	}
 
+	//
 	s.groupMux.Lock()
 	if pair, ok := s.groupConn[code]; ok {
 		pair.conn = append(pair.conn, conn)

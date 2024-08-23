@@ -75,9 +75,16 @@ func (c *Client) ServeAgent(name, listenAddr string) error {
 	log.Printf("Agent start ....")
 
 	manager, err := NewClientConnManager(func(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
+		fmt.Println("addr", metadata.Host, metadata.NetWork, metadata.Type)
+
 		addr := fmt.Sprintf("%v:%v", metadata.Host, metadata.DstPort)
 		code := time.Now().Format("20060102150405__Agent")
-		conn, err := c.webSocketConnect(ctx, "", addr, code, RuleConnector)
+		conn, err := c.webSocketConnect(ctx, &ConnectParam{
+			addr: addr,
+			code: code,
+			rule: RuleConnector,
+			mode: ModeDirect,
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -99,14 +106,16 @@ func (c *Client) ServeAgent(name, listenAddr string) error {
 	return nil
 }
 
-func (c *Client) ServeMuxAgent(name, listenAddr  string) error {
+func (c *Client) ServeMuxAgent(name, listenAddr string) error {
 	c.manage(name)
 	log.Printf("MuxAgent start ....")
 
 	manager, err := NewClientWorkerManager(func() (*mux.ClientWorker, error) {
-		addr := ""
 		code := time.Now().Format("20060102150405__MuxAgent")
-		conn, err := c.webSocketConnect(context.Background(), "", addr, code, RuleAgent)
+		conn, err := c.webSocketConnect(context.Background(), &ConnectParam{
+			code: code,
+			rule: RuleAgent,
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -140,7 +149,10 @@ try:
 		times = 1
 	}
 
-	conn, err := c.webSocketConnect(context.Background(), name, "", "", RuleManage)
+	conn, err := c.webSocketConnect(context.Background(), &ConnectParam{
+		name: name,
+		rule: RuleManage,
+	})
 	if err != nil {
 		log.Printf("Manage::DialContext: %v", err)
 		times = times * 2
@@ -199,7 +211,13 @@ func (c *Client) stdConnectServer(local io.ReadWriteCloser, remoteName, remoteAd
 	onceCloseLocal := &OnceCloser{Closer: local}
 	defer onceCloseLocal.Close()
 
-	conn, err := c.webSocketConnect(context.Background(), remoteName, remoteAddr, code, RuleConnector)
+	conn, err := c.webSocketConnect(context.Background(), &ConnectParam{
+		name: remoteName,
+		addr: remoteAddr,
+		code: code,
+		rule: RuleConnector,
+		mode: ModeForward,
+	})
 	if err != nil {
 		return err
 	}
@@ -229,7 +247,10 @@ func (c *Client) stdConnectServer(local io.ReadWriteCloser, remoteName, remoteAd
 }
 
 func (c *Client) connectLocalMux(code, network, addr string) error {
-	conn, err := c.webSocketConnect(context.Background(), "anonymous", "", code, RuleAgent)
+	conn, err := c.webSocketConnect(context.Background(), &ConnectParam{
+		code: code,
+		rule: RuleAgent,
+	})
 	if err != nil {
 		return err
 	}
@@ -267,7 +288,10 @@ func (c *Client) connectLocal(code, network, addr string) error {
 	c.localConn.Store(code, onceCloseLocal)
 	defer c.localConn.Delete(code)
 
-	conn, err := c.webSocketConnect(context.Background(), "anonymous", "", code, RuleAgent)
+	conn, err := c.webSocketConnect(context.Background(), &ConnectParam{
+		code: code,
+		rule: RuleConnector,
+	})
 	if err != nil {
 		return err
 	}
@@ -299,12 +323,21 @@ func (c *Client) connectLocal(code, network, addr string) error {
 	return nil
 }
 
-func (c *Client) webSocketConnect(ctx context.Context, name, addr, code, rule string) (*websocket.Conn, error) {
+type ConnectParam struct {
+	name string
+	addr string
+	code string
+	rule string
+	mode string
+}
+
+func (c *Client) webSocketConnect(ctx context.Context, param *ConnectParam) (*websocket.Conn, error) {
 	query := url.Values{}
-	query.Set("name", name)
-	query.Set("addr", addr)
-	query.Set("code", code)
-	query.Set("rule", rule)
+	query.Set("name", param.name)
+	query.Set("addr", param.addr)
+	query.Set("code", param.code)
+	query.Set("rule", param.rule)
+	query.Set("mode", param.mode)
 	u := c.server + "?" + query.Encode()
 	conn, resp, err := c.dialer.DialContext(ctx, u, nil)
 	if err != nil {
@@ -318,7 +351,7 @@ func (c *Client) webSocketConnect(ctx context.Context, name, addr, code, rule st
 	}
 
 	go func() {
-		ticker := time.NewTicker(10 * time.Second)
+		ticker := time.NewTicker(3 * time.Second)
 		defer ticker.Stop()
 
 		for range ticker.C {
