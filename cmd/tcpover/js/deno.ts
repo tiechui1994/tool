@@ -6,6 +6,13 @@ const manageSocket = {}
 const groupSocket = {}
 const mutex = new Mutex()
 
+const ruleManage = "manage"
+const ruleAgent = "Agent"
+const ruleConnector = "Connector"
+
+const modeDirect = "direct"
+const modeForward = "forward"
+
 class EmendWebsocket {
     public socket: WebSocket
     public attrs: string
@@ -100,16 +107,18 @@ app.get("/api/ssh", async (c) => {
         return new Response("request isn't trying to upgrade to websocket.");
     }
 
-    const uid = c.req.query("uid")
+    const name = c.req.query("name")
+    const addr = c.req.query("addr")
     const code = c.req.query("code")
     const rule = c.req.query("rule")
+    const mode = c.req.query("mode")
 
     const regex = /^([a-zA-Z0-9.]+):(\d+)$/
-    if (rule === "Connector" && regex.test(uid)) {
-        const tokens = regex.exec(uid)
+    if (rule === ruleConnector && mode == modeDirect && regex.test(addr)) {
+        const tokens = regex.exec(addr)
         const hostname = tokens[1]
         const port = parseInt(tokens[2])
-        console.log(`${uid} hostname: ${hostname}, port:${port}`)
+        console.log(`${addr} hostname: ${hostname}, port:${port}`)
         const {response, socket} = Deno.upgradeWebSocket(c.req.raw)
         socket.onerror = (e) => {
             console.log("socket onerror", e.message);
@@ -118,7 +127,7 @@ app.get("/api/ssh", async (c) => {
             console.log("socket closed");
         }
         socket.onopen = () => {
-            const local = new WebSocketStream(new EmendWebsocket(socket, `${rule}_${code}_${uid}`))
+            const local = new WebSocketStream(new EmendWebsocket(socket, `${rule}_${code}_${addr}`))
             Deno.connect({
                 port: port,
                 hostname: hostname,
@@ -138,27 +147,27 @@ app.get("/api/ssh", async (c) => {
     }
 
     let targetConn
-    if (rule === "Connector") {
-        targetConn = manageSocket[uid]
+    if ((rule === ruleConnector || rule == ruleAgent) && name != "") {
+        targetConn = manageSocket[name]
         if (!targetConn) {
-            console.log("the target Agent websocket not exist", uid)
+            console.log("the target Agent websocket not exist", name)
             return new Response("agent not running.");
         }
     }
-    console.log(`uid: ${uid}, code: ${code}, rule: ${rule}`)
+    console.log(`name: ${name}, code: ${code}, rule: ${rule}`)
 
     const {response, socket} = Deno.upgradeWebSocket(c.req.raw)
-    if (rule === "manage") {
+    if (rule === ruleManage) {
         socket.onopen = () => {
-            manageSocket[uid] = new EmendWebsocket(socket, `${rule}_${uid}`)
+            manageSocket[name] = new EmendWebsocket(socket, `${rule}_${name}`)
         }
         socket.onerror = (e) => {
             console.log("socket onerror", e.message, socket.extensions);
-            manageSocket[uid] = null
+            manageSocket[name] = null
         }
         socket.onclose = () => {
             console.log("socket closed", socket.extensions);
-            manageSocket[uid] = null
+            manageSocket[name] = null
         }
         return response
     }
@@ -166,34 +175,43 @@ app.get("/api/ssh", async (c) => {
     await mutex.acquire();
     if (groupSocket[code]) {
         socket.onopen = () => {
-            groupSocket[code].second = new WebSocketStream(new EmendWebsocket(socket, `${rule}_${code}_${uid}`))
+            groupSocket[code].second = new WebSocketStream(new EmendWebsocket(socket, `${rule}_${code}_${name}`))
             const connPair = groupSocket[code]
             mutex.release()
 
             const first = connPair.first
             const second = connPair.second
             first.readable.pipeTo(second.writable).catch((e) => {
-               console.log("socket exception", first.socket.attrs, e.message)
-               groupSocket[code] = null
+                console.log("socket exception", first.socket.attrs, e.message)
+                groupSocket[code] = null
             })
             second.readable.pipeTo(first.writable).catch((e) => {
-               console.log("socket exception", second.socket.attrs, e.message)
-               groupSocket[code] = null
+                console.log("socket exception", second.socket.attrs, e.message)
+                groupSocket[code] = null
             })
         }
     } else {
         socket.onopen = () => {
             groupSocket[code] = {
-                first: new WebSocketStream(new EmendWebsocket(socket, `${rule}_${code}_${uid}`)),
+                first: new WebSocketStream(new EmendWebsocket(socket, `${rule}_${code}_${name}`)),
             }
             mutex.release()
         }
-        const data = JSON.stringify({
+
+        const messageData = {
+            Code: code,
+            Addr: addr,
+            Network: "tcp",
+        }
+        if (mode == ruleAgent) {
+            messageData["Mux"] = 1
+        }
+        const message = JSON.stringify({
             Command: 0x01,
-            Data: {Code: code}
+            Data: messageData
         })
-        console.log("send data:", data)
-        targetConn.send(data)
+        console.log("send data:", message)
+        targetConn.send(message)
     }
 
     return response;
@@ -207,7 +225,7 @@ app.on(['GET', 'DELETE', 'HEAD', 'OPTIONS', 'PUT', 'POST'], "*", async (c) => {
     let endpoint = ""
     if (path.startsWith("/https://") || path.startsWith("/http://")) {
         endpoint = path.substring(1)
-    }  else {
+    } else {
         endpoint = "https://www.bing.com"
     }
 
