@@ -25,7 +25,7 @@ func main() {
 	serverEndpoint := flag.String("e", "", "Server endpoint. [C]")
 	name := flag.String("name", "", "name [SC]")
 	remoteName := flag.String("remoteName", "", "remoteName. [C]")
-	remoteAddr := flag.String("remoteAddr", "", "remoteAddr. [C]")
+	remoteAddr := flag.String("addr", "", "remoteAddr. [C]")
 
 	flag.Parse()
 
@@ -37,8 +37,8 @@ func main() {
 		log.Fatalln("server must set listen addr")
 	}
 
-	if *runAsConnector && (*serverEndpoint == "" || *remoteName == "" || *remoteAddr == "") {
-		log.Fatalln("agent must set server endpoint and remoteName, remoteAddr")
+	if *runAsConnector && (*serverEndpoint == "" || *remoteAddr == "") {
+		log.Fatalln("agent must set server endpoint and addr")
 	}
 
 	if *runAsAgent && (*serverEndpoint == "" || *name == "" ) {

@@ -211,12 +211,17 @@ func (c *Client) stdConnectServer(local io.ReadWriteCloser, remoteName, remoteAd
 	onceCloseLocal := &OnceCloser{Closer: local}
 	defer onceCloseLocal.Close()
 
+	var mode = ModeForward
+	if remoteName == "" || remoteName == remoteAddr {
+		mode = ModeDirect
+	}
+
 	conn, err := c.webSocketConnect(context.Background(), &ConnectParam{
 		name: remoteName,
 		addr: remoteAddr,
 		code: code,
 		rule: RuleConnector,
-		mode: ModeForward,
+		mode: mode,
 	})
 	if err != nil {
 		return err
