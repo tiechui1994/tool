@@ -76,13 +76,16 @@ func (c *Client) ServeAgent(name, listenAddr string) error {
 
 	manager, err := NewClientConnManager(func(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
 		fmt.Println("addr", metadata.Host, metadata.NetWork, metadata.Type)
-
+		// name: 直接连接, name is empty
+		//       远程代理, name not empty
+		// mode: ModeDirect | ModeForward
 		addr := fmt.Sprintf("%v:%v", metadata.Host, metadata.DstPort)
 		code := time.Now().Format("20060102150405__Agent")
 		conn, err := c.webSocketConnect(ctx, &ConnectParam{
+			name: "",
 			addr: addr,
 			code: code,
-			rule: RuleConnector,
+			rule: RuleAgent,
 			mode: ModeDirect,
 		})
 		if err != nil {
@@ -110,10 +113,15 @@ func (c *Client) ServeMuxAgent(name, listenAddr string) error {
 	c.manage(name)
 	log.Printf("MuxAgent start ....")
 
-	manager, err := NewClientWorkerManager(func() (*mux.ClientWorker, error) {
+	// name: 直接连接, name is empty
+	//       远程代理, name not empty
+	// mode: ModeDirectMux | ModeForwardMux
+ 	manager, err := NewClientWorkerManager(func() (*mux.ClientWorker, error) {
 		code := time.Now().Format("20060102150405__MuxAgent")
 		conn, err := c.webSocketConnect(context.Background(), &ConnectParam{
+			name: "",
 			code: code,
+			mode: ModeDirectMux,
 			rule: RuleAgent,
 		})
 		if err != nil {
@@ -192,8 +200,7 @@ try:
 					code := cmd.Data["Code"].(string)
 					addr := cmd.Data["Addr"].(string)
 					network := cmd.Data["Network"].(string)
-
-					if _, ok := cmd.Data["Mux"]; ok {
+					if v := cmd.Data["Mux"]; v.(bool) {
 						err = c.connectLocalMux(code, network, addr)
 					} else {
 						err = c.connectLocal(code, network, addr)

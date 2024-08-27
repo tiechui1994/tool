@@ -82,66 +82,86 @@ class WebSocketStream {
 }
 
 class MuxSocketStream {
-    public socket: EmendWebsocket;
+    public socket: WebSocketStream;
     private sessions: object;
-    public readable: ReadableStream<Uint8Array>;
 
-    constructor(socket: EmendWebsocket) {
+    constructor(socket: WebSocketStream) {
         this.socket = socket;
         this.sessions = {};
-        this.readable = new ReadableStream({
-            async start(controller) {
-                const buffer = new Buffer()
-                let remain = -1
-
-                const handle = async function (data: Uint8Array) {
-                    // if (remain == -1) {
-                    //     const len = data[0] | data[1] << 8
-                    //     data = data.slice(2)
-                    //     const frame = data.slice(0, len)
-                    //     controller.enqueue(buffer.bytes({copy: true}));
-                    // }
-                    //
-                    // if (remain > 0) {
-                    //     if (data.byteLength > remain) {
-                    //         await buffer.write(data.bytes(0, remain))
-                    //     } else {
-                    //         remain -= data.byteLength
-                    //         await buffer.write(new Uint8Array(data))
-                    //     }
-                    // }
-                }
-
-
-                socket.socket.onmessage = async (event) => {
-
-                };
-                socket.socket.onerror = (e: any) => {
-                    console.log("<readable onerror>", e.message)
-                    controller.error(e)
-                };
-                socket.socket.onclose = () => {
-                    console.log("<readable onclose>:", socket.attrs)
-                    controller.close()
-                }
-            },
-            pull(controller) {
-            },
-            cancel() {
-                socket.close(1000, socket.attrs + "readable cancel");
-            },
-        });
+        this.run().catch((err) => {
+            console.log(err)
+        })
     }
 
-    private handleNew(data: Uint8Array) {
+
+    async run() {
+        const StatusNew = 0x01
+        const StatusKeep = 0x02
+        const StatusEnd = 0x03
+        const StatusKeepAlive = 0x04
+
+        const buffer = new Buffer()
+        let remain = -1
+
+        const handleNew = (network :number, data: Uint8Array) => {
+
+        }
+
+        const handleKeep = (data: Uint8Array) => {
+        }
+
+        const handleEnd = () => {
+        }
+
+        const reader = this.socket.readable.getReader()
+        reader.releaseLock()
+
+        while (true) {
+            const data = await reader.read()
+            console.log(data)
+        }
+
+        // const handle = async function (data: Uint8Array) {
+        //     if (remain == -1) {
+        //         if (data.byteLength < 6) {
+        //             return
+        //         }
+        //         const frameLen = data[0] | data[1] << 8
+        //         const frame = data.slice(0, frameLen)
+        //         const sessionID = data[0] | data[1] << 8
+        //         const status = data[2]
+        //         const option = data[3]
+        //
+        //         let hasData:Uint8Array
+        //
+        //
+        //         switch (status) {
+        //             case StatusNew:
+        //                 handleNew(data[4], frame.slice(4))
+        //             case StatusEnd:
+        //             case StatusKeep:
+        //             case StatusKeepAlive:
+        //         }
+        //
+        //         return
+        //     }
+        //
+        //     if (remain > 0) {
+        //         if (data.byteLength > remain) {
+        //             await buffer.write(data.slice(0, remain))
+        //             controller.enqueue(buffer.bytes({copy: false}));
+        //
+        //             buffer.reset()
+        //             remain = -1
+        //             await handle(data.slice(remain))
+        //         } else {
+        //             remain -= data.byteLength
+        //             await buffer.write(data)
+        //         }
+        //     }
+        // }
     }
 
-    private handleKeep(data: Uint8Array) {
-    }
-
-    private handleEnd() {
-
-    }
 }
 
 async function proxy(request: any, endpoint: string) {
@@ -192,20 +212,24 @@ app.get("/api/ssh", async (c) => {
         }
         socket.onopen = () => {
             const local = new WebSocketStream(new EmendWebsocket(socket, `${rule}_${code}_${addr}`))
-            Deno.connect({
-                port: port,
-                hostname: hostname,
-            }).then((remote) => {
-                local.readable.pipeTo(remote.writable).catch((e) => {
-                    console.log("socket exception", e.message)
-                })
-                remote.readable.pipeTo(local.writable).catch((e) => {
-                    console.log("socket exception", e.message)
-                })
-            }).catch((e) => {
-                local.socket.close()
-                console.log("socket exception", e.message)
-            })
+            new MuxSocketStream(local)
+
+            // Deno.connect({
+            //     port: port,
+            //     hostname: hostname,
+            // }).then((remote) => {
+            //
+            //
+            //     local.readable.pipeTo(remote.writable).catch((e) => {
+            //         console.log("socket exception", e.message)
+            //     })
+            //     remote.readable.pipeTo(local.writable).catch((e) => {
+            //         console.log("socket exception", e.message)
+            //     })
+            // }).catch((e) => {
+            //     local.socket.close()
+            //     console.log("socket exception", e.message)
+            // })
         }
         return response
     }

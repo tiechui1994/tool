@@ -1,6 +1,7 @@
 package over
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/tiechui1994/tool/cmd/tcpover/mux"
 )
 
 type PairGroup struct {
@@ -68,6 +70,76 @@ func (s *Server) copy(local, remote io.ReadWriteCloser, deferCallback func()) {
 	wg.Wait()
 }
 
+func (s *Server) directConnect(addr string, r *http.Request, w http.ResponseWriter) {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		log.Printf("tcp connect [%v] : %v", addr, err)
+		http.Error(w, fmt.Sprintf("tcp connect failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	socket, err := s.upgrade.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("upgrade error: %v", err)
+		http.Error(w, fmt.Sprintf("upgrade error: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	local := conn
+	remote := NewSocketReadWriteCloser(socket)
+	s.copy(local, remote, nil)
+}
+
+func (s *Server) muxConnect(r *http.Request, w http.ResponseWriter) {
+	socket, err := s.upgrade.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("upgrade error: %v", err)
+		http.Error(w, fmt.Sprintf("upgrade error: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	remote := NewSocketReadWriteCloser(socket)
+	_, err = mux.NewServerWorker(context.Background(), mux.NewDispatcher(), &mux.Link{
+		Reader: remote,
+		Writer: remote,
+	})
+	if err != nil {
+		log.Printf("new mux serverWorker error: %v", err)
+		http.Error(w, fmt.Sprintf("Mux ServerWorker error: %v", err), http.StatusInternalServerError)
+		return
+	}
+}
+
+func (s *Server) manageConnect(name string,conn *websocket.Conn)  {
+	s.manageConn.Store(name, conn)
+	defer s.manageConn.Delete(name)
+
+	conn.SetPingHandler(func(message string) error {
+		err := conn.WriteControl(websocket.PongMessage, []byte(message), time.Now().Add(time.Second))
+		if err == websocket.ErrCloseSent {
+			return nil
+		} else if e, ok := err.(net.Error); ok && e.Temporary() {
+			return nil
+		} else if err == nil {
+			return nil
+		}
+
+		if isClose(err) {
+			log.Printf("closing ..... : %v", conn.Close())
+			return err
+		}
+		log.Printf("pong error: %v", err)
+		return err
+	})
+	for {
+		_, _, err := conn.ReadMessage()
+		if isClose(err) {
+			log.Printf("closing ..... : %v", conn.Close())
+			return
+		}
+	}
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Query().Get("name")
 	addr := r.URL.Query().Get("addr")
@@ -83,28 +155,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	regex := regexp.MustCompile(`^([a-zA-Z0-9.]+):(\d+)$`)
 
 	// 情况1: 直接连接
-	if rule == RuleConnector && mode == ModeDirect && regex.MatchString(addr) {
-		conn, err := net.Dial("tcp", addr)
-		if err != nil {
-			log.Printf("tcp connect [%v] : %v", addr, err)
-			http.Error(w, fmt.Sprintf("tcp connect failed: %v", err), http.StatusInternalServerError)
-			return
+	if (rule == RuleConnector || rule == RuleAgent) && (mode == ModeDirect || mode == ModeDirectMux) &&
+		regex.MatchString(addr) {
+		if mode == ModeDirectMux {
+			s.muxConnect(r, w)
+		} else {
+			s.directConnect(addr, r, w)
 		}
-
-		socket, err := s.upgrade.Upgrade(w, r, nil)
-		if err != nil {
-			log.Printf("upgrade error: %v", err)
-			http.Error(w, fmt.Sprintf("upgrade error: %v", err), http.StatusBadRequest)
-			return
-		}
-
-		local := conn
-		remote := NewSocketReadWriteCloser(socket)
-		s.copy(local, remote, nil)
 		return
 	}
 
-	// 情况2: Connector Or Agent
+	// 情况2: 主动连接方, 需要通过被动方
 	if (rule == RuleConnector || rule == RuleAgent) && name != "" {
 		manage, ok := s.manageConn.Load(name)
 		if !ok {
@@ -117,11 +178,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"Code":    code,
 			"Addr":    addr,
 			"Network": "tcp",
+			"Mux":     mode == ModeForwardMux,
 		}
-		if rule == RuleAgent {
-			data["Mux"] = 1
-		}
-
 		_ = manage.(*websocket.Conn).WriteJSON(ControlMessage{
 			Command: CommandLink,
 			Data:    data,
@@ -137,36 +195,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// 情况3: 管理员通道
 	if rule == RuleManage {
-		s.manageConn.Store(name, conn)
-		defer s.manageConn.Delete(name)
-
-		conn.SetPingHandler(func(message string) error {
-			err := conn.WriteControl(websocket.PongMessage, []byte(message), time.Now().Add(time.Second))
-			if err == websocket.ErrCloseSent {
-				return nil
-			} else if e, ok := err.(net.Error); ok && e.Temporary() {
-				return nil
-			} else if err == nil {
-				return nil
-			}
-
-			if isClose(err) {
-				log.Printf("closing ..... : %v", conn.Close())
-				return err
-			}
-			log.Printf("pong error: %v", err)
-			return err
-		})
-		for {
-			_, _, err = conn.ReadMessage()
-			if isClose(err) {
-				log.Printf("closing ..... : %v", conn.Close())
-				return
-			}
-		}
+		s.manageConnect(name, conn)
+		return
 	}
 
-	//
+	// 情況4: 正常配对连接
 	s.groupMux.Lock()
 	if pair, ok := s.groupConn[code]; ok {
 		pair.conn = append(pair.conn, conn)

@@ -15,10 +15,10 @@ const (
 	RuleAgent     = "Agent"
 	RuleConnector = "Connector"
 
-	ModeDirect  = "direct"
-	ModeForward = "forward"
-
-	LocalAgentTCP = "127.0.0.1:9988"
+	ModeDirect     = "direct"
+	ModeForward    = "forward"
+	ModeDirectMux  = "directMux"
+	ModeForwardMux = "forwardMux"
 
 	CommandLink = 0x01
 )
