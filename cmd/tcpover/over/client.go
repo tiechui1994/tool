@@ -176,7 +176,7 @@ try:
 				return
 			}
 			if err != nil {
-				log.Printf("ReadMessage: %v", err)
+				log.Printf("ReadMessage: %+v", err)
 				continue
 			}
 			err = json.Unmarshal(p, &cmd)
