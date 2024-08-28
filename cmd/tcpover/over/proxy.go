@@ -56,14 +56,14 @@ func (p *MuxProxy) DialContext(ctx context.Context, metadata *ctx.Metadata) (net
 	upInput, upOutput := io.Pipe()
 	downInput, downOutput := io.Pipe()
 
-	ctx = context.WithValue(ctx, "destination", mux.Destination{
+	destination := mux.Destination{
 		Network: mux.TargetNetworkTCP,
 		Address: fmt.Sprintf("%v:%v", metadata.DstIP, metadata.DstPort),
-	})
-	p.manager.Dispatch(ctx, &mux.Link{
-		Reader: downInput,
-		Writer: upOutput,
-	})
+	}
+	err := p.manager.Dispatch(destination, NewPipeConn(downInput, upOutput, metadata))
+	if err != nil {
+		return nil, err
+	}
 
 	return NewPipeConn(upInput, downOutput, metadata), nil
 }
@@ -83,28 +83,40 @@ type clientWorkerManager struct {
 	create  func() (*mux.ClientWorker, error)
 }
 
-func (c *clientWorkerManager) Dispatch(ctx context.Context, link *mux.Link) {
+func (c *clientWorkerManager) Dispatch(destination mux.Destination, conn io.ReadWriteCloser) error {
+	var dispatch bool
+again:
 	c.workers.Range(func(key, value interface{}) bool {
 		worker := value.(*mux.ClientWorker)
-		if worker.IsClosing() {
+		if worker.Closed() {
 			c.workers.Delete(key)
+			return false
 		}
-		return worker.Dispatch(ctx, link)
+
+		dispatch = worker.Dispatch(destination, conn)
+		return dispatch
 	})
+
+	fmt.Println("dispatch:", dispatch)
+	if !dispatch {
+		err := c.createClientWorker()
+		if err != nil {
+			return err
+		}
+		goto again
+	}
 
 	atomic.AddUint32(&c.connCount, 1)
 	if float64(atomic.LoadUint32(&c.connCount))/float64(atomic.LoadUint32(&c.workersCount)) > 7.5 {
 		go c.createClientWorker()
 	}
+
+	return nil
 }
 
 func (c *clientWorkerManager) createClientWorker() error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
-
-	if float64(atomic.LoadUint32(&c.connCount))/float64(atomic.LoadUint32(&c.workersCount)) < 7.5 {
-		return nil
-	}
 
 	worker, err := c.create()
 	if err != nil {

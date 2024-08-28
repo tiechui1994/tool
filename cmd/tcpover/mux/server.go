@@ -11,18 +11,36 @@ import (
 	"github.com/tiechui1994/tool/cmd/tcpover/mux/buf"
 )
 
+type pipeReadWriteCloser struct {
+	io.ReadCloser
+	io.WriteCloser
+}
+
+func (p *pipeReadWriteCloser) Close() error {
+	e1 := p.ReadCloser.Close()
+	e2 := p.WriteCloser.Close()
+	if e1 != nil {
+		return e1
+	}
+	if e2 != nil {
+		return e2
+	}
+
+	return nil
+}
+
 type echoDispatcher struct {
 }
 
-func (d *echoDispatcher) Dispatch(ctx context.Context, dest Destination) (*Link, error) {
+func (d *echoDispatcher) Dispatch(ctx context.Context, dest Destination) (io.ReadWriteCloser, error) {
 	reader, writer := io.Pipe()
-	return &Link{Reader: reader, Writer: writer}, nil
+	return &pipeReadWriteCloser{reader, writer}, nil
 }
 
 type dispatcher struct {
 }
 
-func (d *dispatcher) Dispatch(ctx context.Context, dest Destination) (*Link, error) {
+func (d *dispatcher) Dispatch(ctx context.Context, dest Destination) (io.ReadWriteCloser, error) {
 	var conn net.Conn
 	var err error
 	switch dest.Network {
@@ -38,7 +56,7 @@ func (d *dispatcher) Dispatch(ctx context.Context, dest Destination) (*Link, err
 		return nil, err
 	}
 
-	return &Link{Reader: conn, Writer: conn}, nil
+	return conn, nil
 }
 
 func NewDispatcher(echo ...bool) Dispatcher {
@@ -49,23 +67,31 @@ func NewDispatcher(echo ...bool) Dispatcher {
 }
 
 type Dispatcher interface {
-	Dispatch(ctx context.Context, dest Destination) (*Link, error)
+	Dispatch(ctx context.Context, dest Destination) (io.ReadWriteCloser, error)
 }
 
 type ServerWorker struct {
-	local          *Link
+	local          io.ReadWriteCloser
 	dispatcher     Dispatcher
 	sessionManager *SessionManager
 }
 
-func NewServerWorker(ctx context.Context, d Dispatcher, link *Link) (*ServerWorker, error) {
+func NewServerWorker(ctx context.Context, d Dispatcher, conn io.ReadWriteCloser) (*ServerWorker, error) {
 	worker := &ServerWorker{
 		dispatcher:     d,
-		local:          link,
+		local:          conn,
 		sessionManager: NewSessionManager(),
 	}
 	go worker.run(ctx)
 	return worker, nil
+}
+
+func (w *ServerWorker) ActiveConnections() uint32 {
+	return uint32(w.sessionManager.Size())
+}
+
+func (w *ServerWorker) Closed() bool {
+	return w.sessionManager.Closed()
 }
 
 func (w *ServerWorker) handleStatusNew(ctx context.Context, meta *FrameMetadata, reader *buf.StdReader) error {
@@ -76,8 +102,7 @@ func (w *ServerWorker) handleStatusNew(ctx context.Context, meta *FrameMetadata,
 	}
 
 	s := &Session{
-		input:   link.Reader,
-		output:  link.Writer,
+		conn:    link,
 		parent:  w.sessionManager,
 		ID:      meta.SessionID,
 		network: meta.Target.Network,
@@ -85,8 +110,8 @@ func (w *ServerWorker) handleStatusNew(ctx context.Context, meta *FrameMetadata,
 	w.sessionManager.Add(s)
 
 	go func() {
-		writer := NewResponseWriter(s.ID, w.local.Writer, s.network)
-		if err := buf.Copy(buf.NewStdReader(s.input), writer); err != nil {
+		writer := NewResponseWriter(s.ID, w.local, s.network)
+		if err := buf.Copy(buf.NewStdReader(s.conn), writer); err != nil {
 			writer.hasError = true
 			writer.err = err
 		}
@@ -99,9 +124,8 @@ func (w *ServerWorker) handleStatusNew(ctx context.Context, meta *FrameMetadata,
 	if !meta.Option.Has(OptionData) {
 		return nil
 	}
-	if err := buf.Copy(s.NewOnceReader(reader), buf.NewStdWriter(s.output)); err != nil {
+	if err := buf.Copy(s.NewOnceReader(reader), buf.NewStdWriter(s.conn)); err != nil {
 		buf.Copy(reader, buf.Discard)
-		Interrupt(s.input)
 		return s.Close()
 	}
 
@@ -123,22 +147,21 @@ func (w *ServerWorker) handleStatusKeep(meta *FrameMetadata, reader *buf.StdRead
 	s, found := w.sessionManager.Get(meta.SessionID)
 	if !found {
 		// Notify remote peer to close this session.
-		closingWriter := NewResponseWriter(meta.SessionID, w.local.Writer, TargetNetworkTCP)
+		closingWriter := NewResponseWriter(meta.SessionID, w.local, TargetNetworkTCP)
 		closingWriter.Close()
 		return buf.Copy(NewStreamReader(reader), buf.Discard)
 	}
 
-	err = buf.Copy(s.NewOnceReader(reader), buf.NewStdWriter(s.output))
+	err = buf.Copy(s.NewOnceReader(reader), buf.NewStdWriter(s.conn))
 	if err != nil {
 		log.Printf("ServerWorker::handleStatusKeep read: %v, write: %v, %v", buf.IsReadError(err), buf.IsWriteError(err), err)
 	}
 	if err != nil && buf.IsWriteError(err) {
 		log.Printf("failed to write to downstream writer. closing session: %v, %v", s.ID, err)
 		// Notify remote peer to close this session.
-		closingWriter := NewResponseWriter(meta.SessionID, w.local.Writer, TargetNetworkTCP)
+		closingWriter := NewResponseWriter(meta.SessionID, w.local, TargetNetworkTCP)
 		log.Printf("closingWriter close %v", closingWriter.Close())
 
-		Interrupt(s.input)
 		s.Close()
 		return err
 	}
@@ -148,10 +171,6 @@ func (w *ServerWorker) handleStatusKeep(meta *FrameMetadata, reader *buf.StdRead
 
 func (w *ServerWorker) handleStatusEnd(meta *FrameMetadata, reader *buf.StdReader) (err error) {
 	if s, found := w.sessionManager.Get(meta.SessionID); found {
-		if meta.Option.Has(OptionError) {
-			Interrupt(s.input)
-			Interrupt(s.output)
-		}
 		s.Close()
 	}
 	if meta.Option.Has(OptionData) {
@@ -188,8 +207,9 @@ func (w *ServerWorker) handleFrame(ctx context.Context, reader *buf.StdReader) e
 }
 
 func (w *ServerWorker) run(ctx context.Context) {
-	reader := buf.NewStdReader(w.local.Reader)
+	reader := buf.NewStdReader(w.local)
 	defer w.sessionManager.Close()
+	defer w.local.Close()
 
 	for {
 		select {
@@ -201,7 +221,6 @@ func (w *ServerWorker) run(ctx context.Context) {
 			if err != nil {
 				if !errors.Is(err, io.EOF) {
 					log.Printf("unexpected EOF: %v", err)
-					Interrupt(reader)
 				}
 				return
 			}

@@ -1,18 +1,13 @@
 package mux
 
 import (
-	"context"
 	"errors"
 	"io"
 	"log"
+	"time"
 
 	"github.com/tiechui1994/tool/cmd/tcpover/mux/buf"
 )
-
-type Link struct {
-	Reader io.Reader
-	Writer io.Writer
-}
 
 type ClientStrategy struct {
 	MaxConcurrency uint32
@@ -21,11 +16,12 @@ type ClientStrategy struct {
 
 type ClientWorker struct {
 	sessionManager *SessionManager
-	remote         *Link
+	remote         io.ReadWriteCloser
 	limit          ClientStrategy
+	done           chan struct{}
 }
 
-func NewClientWorker(remote *Link) *ClientWorker {
+func NewClientWorker(remote io.ReadWriteCloser) *ClientWorker {
 	m := &ClientWorker{
 		remote:         remote,
 		sessionManager: NewSessionManager(),
@@ -33,8 +29,10 @@ func NewClientWorker(remote *Link) *ClientWorker {
 			MaxConnection:  16,
 			MaxConcurrency: 16,
 		},
+		done: make(chan struct{}),
 	}
 	go m.pullRemoteOutput()
+	go m.monitor()
 
 	return m
 }
@@ -48,7 +46,7 @@ func (m *ClientWorker) IsClosing() bool {
 }
 
 func (m *ClientWorker) IsFull() bool {
-	if m.IsClosing() {
+	if m.IsClosing() || m.Closed() {
 		return true
 	}
 
@@ -59,12 +57,17 @@ func (m *ClientWorker) IsFull() bool {
 	return false
 }
 
-func (m *ClientWorker) Close() error {
-	return m.sessionManager.Close()
+func (m *ClientWorker) Closed() bool {
+	select {
+	case <-m.done:
+		return true
+	default:
+		return false
+	}
 }
 
-// N => 1 转发
-func (m *ClientWorker) Dispatch(ctx context.Context, conn *Link) bool {
+// forward conn by local
+func (m *ClientWorker) Dispatch(destination Destination, conn io.ReadWriteCloser) bool {
 	if m.IsFull() {
 		return false
 	}
@@ -73,31 +76,28 @@ func (m *ClientWorker) Dispatch(ctx context.Context, conn *Link) bool {
 	if session == nil {
 		return false
 	}
-	session.input = conn.Reader
-	session.output = conn.Writer
-	go m.pushLocalInput(ctx, session, m.remote.Writer)
+
+	session.conn = conn
+	go m.pushLocalInput(destination, session, m.remote)
 	return true
 }
 
-// N => 1 转发
-func (m *ClientWorker) pushLocalInput(ctx context.Context, s *Session, output io.Writer) {
-	dest := ctx.Value("destination").(Destination)
-	s.network = dest.Network
-	writer := NewWriter(s.ID, dest, output, dest.Network)
-	defer s.Close()
+// write data to remote
+func (m *ClientWorker) pushLocalInput(destination Destination, s *Session, output io.Writer) {
+	s.network = destination.Network
+	writer := NewWriter(s.ID, destination, output, destination.Network)
 	defer writer.Close()
+	defer s.Close()
 
-	if err := writeFirstPayload(buf.NewStdReader(s.input), writer); err != nil {
+	if err := writeFirstPayload(buf.NewStdReader(s.conn), writer); err != nil {
 		writer.hasError = true
 		writer.err = err
-		Interrupt(s.input)
 		return
 	}
 
-	if err := buf.Copy(buf.NewStdReader(s.input), writer); err != nil {
+	if err := buf.Copy(buf.NewStdReader(s.conn), writer); err != nil {
 		writer.hasError = true
 		writer.err = err
-		Interrupt(s.input)
 		return
 	}
 }
@@ -106,9 +106,32 @@ func writeFirstPayload(reader io.Reader, writer *Writer) error {
 	return writer.WriteBuffer(&buf.Buffer{})
 }
 
-// 1 => N 转发, 读取远程
+func (m *ClientWorker) monitor() {
+	timer := time.NewTicker(time.Minute * 30)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-m.done:
+			m.sessionManager.Close()
+			m.remote.Close()
+			return
+		case <-timer.C:
+			size := m.sessionManager.Size()
+			if size == 0 && m.sessionManager.CloseIfNoSession() {
+				close(m.done)
+			}
+		}
+	}
+}
+
+// read data from remote
 func (m *ClientWorker) pullRemoteOutput() {
-	reader := buf.NewStdReader(m.remote.Reader)
+	defer func() {
+		close(m.done)
+	}()
+
+	reader := buf.NewStdReader(m.remote)
 	var meta FrameMetadata
 	for {
 		err := meta.Unmarshal(reader)
@@ -163,23 +186,22 @@ func (m *ClientWorker) handleStatusKeep(meta *FrameMetadata, reader *buf.StdRead
 	s, found := m.sessionManager.Get(meta.SessionID)
 	if !found {
 		// Notify remote peer to close this session.
-		closingWriter := NewResponseWriter(meta.SessionID, m.remote.Writer, meta.Target.Network)
+		closingWriter := NewResponseWriter(meta.SessionID, m.remote, meta.Target.Network)
 		closingWriter.Close()
 
 		return buf.Copy(NewStreamReader(reader), buf.Discard)
 	}
 
-	err = buf.Copy(s.NewOnceReader(reader), buf.NewStdWriter(s.output))
+	err = buf.Copy(s.NewOnceReader(reader), buf.NewStdWriter(s.conn))
 	if err != nil {
 		log.Printf("ClientWorker::handleStatusKeep read: %v, write: %v, %v", buf.IsReadError(err), buf.IsWriteError(err), err)
 	}
 	if err != nil && buf.IsWriteError(err) {
 		log.Printf("failed to write to downstream. closing session %v", s.ID)
 		// Notify remote peer to close this session.
-		closingWriter := NewResponseWriter(meta.SessionID, m.remote.Writer, meta.Target.Network)
+		closingWriter := NewResponseWriter(meta.SessionID, m.remote, meta.Target.Network)
 		closingWriter.Close()
 
-		Interrupt(s.input)
 		s.Close()
 		return err
 	}
@@ -190,10 +212,6 @@ func (m *ClientWorker) handleStatusKeep(meta *FrameMetadata, reader *buf.StdRead
 func (m *ClientWorker) handleStatusEnd(meta *FrameMetadata, reader *buf.StdReader) (err error) {
 	log.Printf("ClientWorker::session [%v] end.", meta.SessionID)
 	if s, found := m.sessionManager.Get(meta.SessionID); found {
-		if meta.Option.Has(OptionError) {
-			Interrupt(s.input)
-			Interrupt(s.output)
-		}
 		s.Close()
 	}
 	if meta.Option.Has(OptionData) {

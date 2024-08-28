@@ -129,11 +129,7 @@ func (c *Client) ServeMuxAgent(name, listenAddr string) error {
 			return nil, err
 		}
 
-		connTemp := NewSocketConn(conn)
-		return mux.NewClientWorker(&mux.Link{
-			Reader: connTemp,
-			Writer: connTemp,
-		}), nil
+		return mux.NewClientWorker(NewSocketConn(conn)), nil
 	})
 	if err != nil {
 		return err
@@ -272,10 +268,7 @@ func (c *Client) connectLocalMux(code, network, addr string) error {
 	onceCloseRemote := &OnceCloser{Closer: remote}
 	defer onceCloseRemote.Close()
 
-	_, err = mux.NewServerWorker(context.Background(), mux.NewDispatcher(), &mux.Link{
-		Reader: remote,
-		Writer: remote,
-	})
+	_, err = mux.NewServerWorker(context.Background(), mux.NewDispatcher(), remote)
 	if err != nil {
 		return err
 	}

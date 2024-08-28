@@ -124,8 +124,7 @@ func (m *SessionManager) Close() error {
 
 	m.closed = true
 	for _, s := range m.sessions {
-		Close(s.input)
-		Close(s.output)
+		Close(s.conn)
 	}
 
 	m.sessions = nil
@@ -133,16 +132,14 @@ func (m *SessionManager) Close() error {
 }
 
 type Session struct {
-	input   io.Reader
-	output  io.Writer
+	conn    io.ReadWriteCloser
 	ID      uint16
 	parent  *SessionManager
 	network TargetNetwork
 }
 
 func (s *Session) Close() error {
-	Close(s.output)
-	Close(s.input)
+	Close(s.conn)
 	s.parent.Remove(s.ID)
 	return nil
 }

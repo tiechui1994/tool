@@ -99,10 +99,7 @@ func (s *Server) muxConnect(r *http.Request, w http.ResponseWriter) {
 	}
 
 	remote := NewSocketReadWriteCloser(socket)
-	_, err = mux.NewServerWorker(context.Background(), mux.NewDispatcher(), &mux.Link{
-		Reader: remote,
-		Writer: remote,
-	})
+	_, err = mux.NewServerWorker(context.Background(), mux.NewDispatcher(), remote)
 	if err != nil {
 		log.Printf("new mux serverWorker error: %v", err)
 		http.Error(w, fmt.Sprintf("Mux ServerWorker error: %v", err), http.StatusInternalServerError)
@@ -149,7 +146,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("enter connections:%v, code:%v, name:%v, rule:%v", atomic.AddInt32(&s.conn, +1), code, name, rule)
 	defer func() {
-		log.Printf("leave connections:%v  code:%v, uid:%v, rule:%v", atomic.AddInt32(&s.conn, -1), code, name, rule)
+		log.Printf("leave connections:%v  code:%v, name:%v, rule:%v", atomic.AddInt32(&s.conn, -1), code, name, rule)
 	}()
 
 	regex := regexp.MustCompile(`^([a-zA-Z0-9.]+):(\d+)$`)
