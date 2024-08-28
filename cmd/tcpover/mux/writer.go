@@ -82,13 +82,12 @@ func (w *Writer) writeMetaWithFrame(data *buf.Buffer) (err error) {
 		return errors.New("value too large")
 	}
 
-	_, err = w.writer.Write(frame.Bytes())
+	_, err = w.writer.Write(append(frame.Bytes(), data.Bytes()...))
 	if err != nil {
 		return err
 	}
 
-	_, err = w.writer.Write(data.Bytes())
-	return err
+	return nil
 }
 
 // WriteMultiBuffer implements buf.Writer.

@@ -59,6 +59,10 @@ func (m *ClientWorker) IsFull() bool {
 	return false
 }
 
+func (m *ClientWorker) Close() error {
+	return m.sessionManager.Close()
+}
+
 // N => 1 转发
 func (m *ClientWorker) Dispatch(ctx context.Context, conn *Link) bool {
 	if m.IsFull() {
@@ -110,7 +114,7 @@ func (m *ClientWorker) pullRemoteOutput() {
 		err := meta.Unmarshal(reader)
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
-				log.Printf("failed to read metadata: %v", err)
+				log.Printf("failed to read remote: %v", err)
 			}
 			break
 		}

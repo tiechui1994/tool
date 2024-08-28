@@ -13,6 +13,8 @@ const ruleConnector = "Connector"
 
 const modeDirect = "direct"
 const modeForward = "forward"
+const modeDirectMux = "directMux"
+const modeForwardMux = "forwardMux"
 
 class EmendWebsocket {
     public socket: WebSocket
@@ -83,16 +85,15 @@ class WebSocketStream {
 
 class MuxSocketStream {
     public socket: WebSocketStream;
-    private sessions: object;
+    private sessions: Map<number, Deno.Conn>;
 
     constructor(socket: WebSocketStream) {
         this.socket = socket;
-        this.sessions = {};
+        this.sessions = new Map<number, Deno.Conn>();
         this.run().catch((err) => {
-            console.log(err)
+            console.error("catch", err)
         })
     }
-
 
     async run() {
         const StatusNew = 0x01
@@ -100,10 +101,10 @@ class MuxSocketStream {
         const StatusEnd = 0x03
         const StatusKeepAlive = 0x04
 
-        const buffer = new Buffer()
-        let remain = -1
+        const OptionData = 0x01
+        const OptionError = 0x02
 
-        const handleNew = (network :number, data: Uint8Array) => {
+        const handleNew = (network: number, data: Uint8Array) => {
 
         }
 
@@ -113,58 +114,121 @@ class MuxSocketStream {
         const handleEnd = () => {
         }
 
-        const reader = this.socket.readable.getReader()
-        reader.releaseLock()
+        let sessionID: number = -1, option: number;
 
-        while (true) {
-            const data = await reader.read()
-            console.log(data)
+        let needParse = true
+        let needDataLen: number = 0
+        const buffer = new Buffer()
+        for await (let chunk of this.socket.readable) {
+            console.log("read from socket", chunk.byteLength)
+            if (!needParse) {
+                if (needDataLen > chunk.byteLength) {
+                    needDataLen -= chunk.byteLength
+                    buffer.writeSync(chunk)
+                    continue
+                } else {
+                    buffer.writeSync(chunk.slice(0, needDataLen))
+                    console.log("write to conn", sessionID)
+                    await this.sessions.get(1)?.write(buffer.bytes())
+
+                    buffer.reset()
+                    needDataLen = 0
+                    needParse = true
+                    chunk = chunk.slice(needDataLen)
+                    if (chunk.byteLength == 0) continue
+                }
+            }
+
+            if (needParse) {
+                const frameLen = chunk[1] | chunk[0] << 8
+                const frame = chunk.slice(2, 2 + frameLen)
+
+                sessionID = frame[1] | frame[0] << 8
+                const status = frame[2]
+                option = frame[3]
+
+                // StatusNew
+                if (status === StatusNew) {
+                    const network = frame[4];
+                    const decoder = new TextDecoder();
+                    const domain = decoder.decode(frame.slice(5));
+
+                    Deno.connect({
+                        hostname: "127.0.0.3",
+                        port: 22
+                    }).then(async (conn) => {
+                        const id = sessionID
+                        console.log(`network: ${network} domain: ${domain}, ${id}`)
+                        this.sessions.set(id, conn)
+                        const buf = new Buffer()
+                        const socket = this.socket.socket
+                        const writeable = new WritableStream({
+                            start(controller) {
+                            },
+                            write(raw, controller) {
+                                console.log("read from conn", raw.byteLength, id)
+                                const header = new Uint8Array([0, 4, 0, id, StatusKeep, OptionData])
+                                const length = new Uint8Array([(raw.byteLength >> 8) & 127, (raw.byteLength) & 127])
+                                buf.writeSync(header)
+                                buf.writeSync(length)
+                                buf.writeSync(raw)
+                                console.log("write to socket header, length", header, length, id, buf.length)
+                                socket.send(buf.bytes())
+                                buf.reset()
+                            },
+                            close() {
+                                socket.close(1000, socket.attrs + "writable close");
+                            },
+                            abort(e) {
+                                socket.close(1006, socket.attrs + "writable abort");
+                            },
+                        })
+
+                        conn.readable.pipeTo(writeable).catch(() => {
+
+                        })
+                    }).catch((err) => {
+                        console.log("err", err)
+                    })
+                    continue
+                }
+
+                // StatusEnd
+                if (status === StatusEnd) {
+                    console.log(`StatusEnd end`)
+                    continue
+                }
+
+                // StatusKeepAlive
+                if (status === StatusKeepAlive) {
+                    console.log(`StatusKeepAlive end`)
+                    continue
+                }
+
+                // StatusKeep
+                if (status == StatusKeep) {
+                    let data = chunk.slice(2 + frameLen)
+                    needDataLen = data[1] | data[0] << 8
+                    data = data.slice(2)
+                    console.log(`needDataLen: ${needDataLen} ${data.byteLength}`)
+                    needDataLen -= data.byteLength
+                    buffer.writeSync(data)
+                    if (needDataLen === 0) {
+                        await this.sessions.get(1)?.write(buffer.bytes())
+                        buffer.reset()
+                        continue
+                    }
+
+                    needParse = !(needDataLen > 0)
+                    console.log(`needDataLen: ${needDataLen} needParse: ${needParse}`)
+                }
+            }
         }
-
-        // const handle = async function (data: Uint8Array) {
-        //     if (remain == -1) {
-        //         if (data.byteLength < 6) {
-        //             return
-        //         }
-        //         const frameLen = data[0] | data[1] << 8
-        //         const frame = data.slice(0, frameLen)
-        //         const sessionID = data[0] | data[1] << 8
-        //         const status = data[2]
-        //         const option = data[3]
-        //
-        //         let hasData:Uint8Array
-        //
-        //
-        //         switch (status) {
-        //             case StatusNew:
-        //                 handleNew(data[4], frame.slice(4))
-        //             case StatusEnd:
-        //             case StatusKeep:
-        //             case StatusKeepAlive:
-        //         }
-        //
-        //         return
-        //     }
-        //
-        //     if (remain > 0) {
-        //         if (data.byteLength > remain) {
-        //             await buffer.write(data.slice(0, remain))
-        //             controller.enqueue(buffer.bytes({copy: false}));
-        //
-        //             buffer.reset()
-        //             remain = -1
-        //             await handle(data.slice(remain))
-        //         } else {
-        //             remain -= data.byteLength
-        //             await buffer.write(data)
-        //         }
-        //     }
-        // }
     }
 
 }
 
-async function proxy(request: any, endpoint: string) {
+function proxy(request: any, endpoint: string) {
     const headers = new Headers({})
     headers.set('host', (new URL(endpoint)).host)
     for (const [key, value] of request.headers.entries()) {
@@ -181,8 +245,10 @@ async function proxy(request: any, endpoint: string) {
     if (['POST', 'PUT'].includes(request.method.toUpperCase())) {
         init.body = request.body
     }
-    const response = await fetch(endpoint, init)
-    return new Response(response.body, response)
+
+    return fetch(endpoint, init).then((response) => {
+        return new Response(response.body, response)
+    })
 }
 
 app.get("/api/ssh", async (c) => {
@@ -198,7 +264,7 @@ app.get("/api/ssh", async (c) => {
     const mode = c.req.query("mode") || ""
 
     const regex = /^([a-zA-Z0-9.]+):(\d+)$/
-    if (rule === ruleConnector && mode == modeDirect && regex.test(addr)) {
+    if ([ruleConnector, ruleAgent].includes(rule) && [modeDirect, modeDirectMux].includes(mode) && regex.test(addr)) {
         const tokens = regex.exec(addr) || []
         const hostname = tokens[1]
         const port = parseInt(tokens[2])
@@ -235,7 +301,7 @@ app.get("/api/ssh", async (c) => {
     }
 
     let targetConn
-    if ((rule === ruleConnector || rule == ruleAgent) && name != "") {
+    if ([ruleConnector, ruleAgent].includes(rule) && name != "") {
         targetConn = manageSocket[name]
         if (!targetConn) {
             console.log("the target Agent websocket not exist", name)
@@ -251,11 +317,11 @@ app.get("/api/ssh", async (c) => {
         }
         socket.onerror = (e: any) => {
             console.log("socket onerror", e.message, socket.extensions);
-            manageSocket[name] = null
+            delete manageSocket[name]
         }
         socket.onclose = () => {
             console.log("socket closed", socket.extensions);
-            manageSocket[name] = null
+            delete manageSocket[name]
         }
         return response
     }
@@ -286,19 +352,18 @@ app.get("/api/ssh", async (c) => {
             mutex.release()
         }
 
-        const messageData: any = {
+        const messageData = {
             Code: code,
             Addr: addr,
             Network: "tcp",
-        }
-        if (mode == ruleAgent) {
-            messageData["Mux"] = 1
+            Mux: [modeDirectMux, modeDirectMux].includes(mode)
         }
         const message = JSON.stringify({
             Command: 0x01,
             Data: messageData
         })
         console.log("send data:", message)
+        console.log("xxx", targetConn)
         targetConn.send(message)
     }
 

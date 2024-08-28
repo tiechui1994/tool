@@ -52,6 +52,7 @@ func (c *StdReadWriteCloser) Close() error {
 }
 
 type socketReadWriteCloser struct {
+	lock sync.Mutex
 	buf  bytes.Buffer
 	conn *websocket.Conn
 }
@@ -65,6 +66,8 @@ func (s *socketReadWriteCloser) Close() error {
 }
 
 func (s *socketReadWriteCloser) Write(p []byte) (n int, err error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	err = s.conn.WriteMessage(websocket.BinaryMessage, p)
 	return len(p), err
 }
@@ -172,4 +175,3 @@ func (s *randomReadWriteCloser) Read(p []byte) (n int, err error) {
 	_, _ = s.in.Write(p[:n])
 	return n, err
 }
-

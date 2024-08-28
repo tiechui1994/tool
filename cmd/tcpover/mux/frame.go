@@ -103,7 +103,7 @@ func (f *FrameMetadata) Unmarshal(reader io.Reader) error {
 		return err
 	}
 	if metaLen > 512 {
-		return fmt.Errorf("invalid metalen %v", metaLen)
+		return fmt.Errorf("invalid frame len %v", metaLen)
 	}
 
 	b := buf.New()

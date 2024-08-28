@@ -110,7 +110,7 @@ func (s *Server) muxConnect(r *http.Request, w http.ResponseWriter) {
 	}
 }
 
-func (s *Server) manageConnect(name string,conn *websocket.Conn)  {
+func (s *Server) manageConnect(name string, conn *websocket.Conn) {
 	s.manageConn.Store(name, conn)
 	defer s.manageConn.Delete(name)
 
@@ -178,7 +178,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"Code":    code,
 			"Addr":    addr,
 			"Network": "tcp",
-			"Mux":     mode == ModeForwardMux,
+			"Mux":     mode == ModeForwardMux || mode == ModeDirectMux,
 		}
 		_ = manage.(*websocket.Conn).WriteJSON(ControlMessage{
 			Command: CommandLink,

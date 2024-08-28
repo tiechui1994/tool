@@ -116,10 +116,11 @@ func (c *Client) ServeMuxAgent(name, listenAddr string) error {
 	// name: 直接连接, name is empty
 	//       远程代理, name not empty
 	// mode: ModeDirectMux | ModeForwardMux
- 	manager, err := NewClientWorkerManager(func() (*mux.ClientWorker, error) {
+	manager, err := NewClientWorkerManager(func() (*mux.ClientWorker, error) {
 		code := time.Now().Format("20060102150405__MuxAgent")
 		conn, err := c.webSocketConnect(context.Background(), &ConnectParam{
 			name: "",
+			addr: "mux.cool:9527",
 			code: code,
 			mode: ModeDirectMux,
 			rule: RuleAgent,
