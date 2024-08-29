@@ -380,7 +380,7 @@ export default {
                     return check(request)
                 default:
                     return new Response("<h1>Hello World</h1>", {
-                        status: 404,
+                        status: 200,
                     });
             }
         } else {

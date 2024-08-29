@@ -6,6 +6,7 @@ import (
 	"github.com/tiechui1994/tool/cmd/tcpover/mux"
 	"github.com/tiechui1994/tool/cmd/tcpover/transport/ctx"
 	"io"
+	"log"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -85,10 +86,16 @@ type clientWorkerManager struct {
 
 func (c *clientWorkerManager) Dispatch(destination mux.Destination, conn io.ReadWriteCloser) error {
 	var dispatch bool
+	var tryCount int
 again:
+	if tryCount > 1 {
+		log.Printf("retry to manay, please try again later")
+		return fmt.Errorf("retry to manay, please try again later")
+	}
 	c.workers.Range(func(key, value interface{}) bool {
 		worker := value.(*mux.ClientWorker)
 		if worker.Closed() {
+			log.Printf("worker %v close", key)
 			c.workers.Delete(key)
 			return false
 		}
@@ -101,8 +108,10 @@ again:
 	if !dispatch {
 		err := c.createClientWorker()
 		if err != nil {
+			log.Printf("createClientWorker: %v", err)
 			return err
 		}
+		tryCount += 1
 		goto again
 	}
 

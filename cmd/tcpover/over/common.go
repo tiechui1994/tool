@@ -3,6 +3,7 @@ package over
 import (
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"syscall"
 
@@ -48,6 +49,13 @@ var (
 	}
 )
 
+func isSyscallError(v syscall.Errno) bool {
+	return v.Is(syscall.ECONNABORTED) || v.Is(syscall.ECONNRESET) ||
+		v.Is(syscall.ETIMEDOUT) || v.Is(syscall.ECONNREFUSED) ||
+		v.Is(syscall.ENETUNREACH) || v.Is(syscall.ENETRESET) ||
+		v.Is(syscall.EPIPE)
+}
+
 func isClose(err error) bool {
 	if err == nil {
 		return false
@@ -57,27 +65,27 @@ func isClose(err error) bool {
 		return websocket.IsCloseError(err, webSocketCloseCode...)
 	}
 
-	if errors.Is(err, syscall.ECONNABORTED) || errors.Is(err, syscall.ECONNRESET) ||
-		errors.Is(err, syscall.ETIMEDOUT) || errors.Is(err, syscall.ECONNREFUSED) ||
-		errors.Is(err, syscall.ENETUNREACH) || errors.Is(err, syscall.ENETRESET) ||
-		errors.Is(err, syscall.EPIPE) {
-		fmt.Println("errors.Is", err)
-		return true
+	if v, ok := err.(*net.OpError); ok {
+		if vv, ok := v.Err.(syscall.Errno); ok {
+			result := isSyscallError(vv)
+			if result {
+				fmt.Println("net.OpError", err)
+			}
+			return result
+		}
 	}
 
 	if v, ok := err.(syscall.Errno); ok {
-		result := v.Is(syscall.ECONNABORTED) || v.Is(syscall.ECONNRESET) ||
-			v.Is(syscall.ETIMEDOUT) || v.Is(syscall.ECONNREFUSED) ||
-			v.Is(syscall.ENETUNREACH) || v.Is(syscall.ENETRESET) ||
-			v.Is(syscall.EPIPE)
+		result := isSyscallError(v)
 		if result {
-			fmt.Println("syscall.Is", err)
+			fmt.Println("syscall.Errno", err)
 		}
 		return result
 	}
 
 	if strings.Contains(err.Error(), "use of closed network connection") ||
-		strings.Contains(err.Error(), "broken pipe") {
+		strings.Contains(err.Error(), "broken pipe") ||
+		strings.Contains(err.Error(), "connection reset by peer") {
 		return true
 	}
 
