@@ -97,11 +97,15 @@ again:
 		if worker.Closed() {
 			log.Printf("worker %v close", key)
 			c.workers.Delete(key)
-			return false
+			return true
 		}
 
-		dispatch = worker.Dispatch(destination, conn)
-		return dispatch
+		if worker.Dispatch(destination, conn) {
+			dispatch = true
+			return false
+		}
+		
+		return true
 	})
 
 	fmt.Println("dispatch:", dispatch)

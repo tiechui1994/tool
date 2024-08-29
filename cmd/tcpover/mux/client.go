@@ -27,7 +27,7 @@ func NewClientWorker(remote io.ReadWriteCloser) *ClientWorker {
 		sessionManager: NewSessionManager(),
 		limit: ClientStrategy{
 			MaxConnection:  16,
-			MaxConcurrency: 16,
+			MaxConcurrency: 8,
 		},
 		done: make(chan struct{}),
 	}
