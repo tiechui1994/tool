@@ -2,6 +2,7 @@ package over
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"syscall"
 
@@ -56,11 +57,23 @@ func isClose(err error) bool {
 		return websocket.IsCloseError(err, webSocketCloseCode...)
 	}
 
+	if errors.Is(err, syscall.ECONNABORTED) || errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.ETIMEDOUT) || errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.Is(err, syscall.ENETUNREACH) || errors.Is(err, syscall.ENETRESET) ||
+		errors.Is(err, syscall.EPIPE) {
+		fmt.Println("errors.Is", err)
+		return true
+	}
+
 	if v, ok := err.(syscall.Errno); ok {
-		return v.Is(syscall.ECONNABORTED) || v.Is(syscall.ECONNRESET) ||
+		result := v.Is(syscall.ECONNABORTED) || v.Is(syscall.ECONNRESET) ||
 			v.Is(syscall.ETIMEDOUT) || v.Is(syscall.ECONNREFUSED) ||
 			v.Is(syscall.ENETUNREACH) || v.Is(syscall.ENETRESET) ||
 			v.Is(syscall.EPIPE)
+		if result {
+			fmt.Println("syscall.Is", err)
+		}
+		return result
 	}
 
 	if strings.Contains(err.Error(), "use of closed network connection") ||

@@ -55,10 +55,10 @@ func (p *MuxProxy) Name() string {
 func (p *MuxProxy) DialContext(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
 	upInput, upOutput := io.Pipe()
 	downInput, downOutput := io.Pipe()
-
+	fmt.Println(metadata.RemoteAddress())
 	destination := mux.Destination{
 		Network: mux.TargetNetworkTCP,
-		Address: fmt.Sprintf("%v:%v", metadata.DstIP, metadata.DstPort),
+		Address: metadata.RemoteAddress(),
 	}
 	err := p.manager.Dispatch(destination, NewPipeConn(downInput, upOutput, metadata))
 	if err != nil {

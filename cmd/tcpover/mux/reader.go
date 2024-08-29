@@ -81,6 +81,7 @@ func (r *ChunkStreamReader) ReadBuffer(b *buf.Buffer) error {
 	}
 	r.leftOverSize = size
 
+	b.Clear()
 	buffer := b.Extend(r.leftOverSize)
 	n, err := io.ReadFull(r.reader, buffer)
 	if n > 0 {

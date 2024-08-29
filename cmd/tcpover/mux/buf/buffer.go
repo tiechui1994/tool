@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	Size = 2048
+	Size = 4096
 )
 
 var pool = GetPool(Size)

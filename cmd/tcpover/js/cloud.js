@@ -45,6 +45,30 @@ class EmendWebsocket {
     }
 }
 
+class Buffer {
+    constructor() {
+        this.start = 0
+        this.end = 0
+        this.data = new Uint8Array(8192)
+    }
+
+    write(data, length) {
+        for (let i = 0; i < length; i++) {
+            this.data[this.end] = data[i]
+            this.end++
+        }
+    }
+
+    bytes() {
+        return this.data.slice(this.start, this.end)
+    }
+
+    reset() {
+        this.start = 0
+        this.end = 0
+    }
+}
+
 class WebSocketStream {
     constructor(socket) {
         this.socket = socket;
@@ -90,8 +114,159 @@ class WebSocketStream {
     }
 }
 
+class MuxSocketStream {
+    constructor(stream) {
+        this.stream = stream;
+        this.sessions = {}
+        this.run().catch((err) => {
+            console.error("run::catch", err)
+            this.socket.socket.close(1000)
+        })
+    }
+
+    async run() {
+        const StatusNew = 0x01
+        const StatusKeep = 0x02
+        const StatusEnd = 0x03
+        const StatusKeepAlive = 0x04
+
+        const OptionData = 0x01
+        const OptionError = 0x02
+
+        const Mask = 255
+
+        let sessionID = 0;
+
+        let needParse = true
+        let needDataLen = 0
+        const buffer = new Buffer()
+        for await (let chunk of this.stream.readable) {
+            this.stream.readable.getReader().releaseLock()
+
+            console.log("read from websocket", chunk.byteLength)
+            if (!needParse) {
+                if (needDataLen > chunk.byteLength) {
+                    needDataLen -= chunk.byteLength
+                    buffer.write(chunk, chunk.byteLength)
+                    continue
+                } else {
+                    buffer.write(chunk, needDataLen)
+                    await this.sessions[sessionID]?.writable.getWriter().write(buffer.bytes())
+                    this.sessions[sessionID]?.writable.getWriter().releaseLock()
+
+                    needDataLen = 0
+                    needParse = true
+                    chunk = chunk.slice(needDataLen)
+                    if (chunk.byteLength == 0) continue
+                }
+            }
+
+            if (needParse) {
+                const frameLen = chunk[1] | chunk[0] << 8
+                const frame = chunk.slice(2, 2 + frameLen)
+
+                sessionID = frame[1] | frame[0] << 8
+                const status = frame[2]
+                const option = frame[3]
+
+                // StatusNew
+                if (status === StatusNew) {
+                    const network = frame[4];
+                    const domain = (new TextDecoder()).decode(frame.slice(5));
+                    const common = {
+                        id: sessionID,
+                        buf: new Buffer(),
+                        socket: this.stream.socket
+                    }
+
+                    console.log(`network: ${network} domain: ${domain}, ${common.id}`)
+                    const conn = connect(domain, {secureTransport: "off"})
+                    this.sessions[common.id] = conn
+                    conn.readable.pipeTo(new WritableStream({
+                        start(controller) {
+                        },
+                        write(raw, controller) {
+                            console.log("read from conn", raw.byteLength, common.id)
+                            const N = raw.byteLength
+                            let index = 0
+                            while (index < N) {
+                                common.buf.reset()
+
+                                const size = index + 2048 < N ? 2048 : N - index
+                                const header = new Uint8Array([0, 4, 0, common.id, StatusKeep, OptionData])
+                                const length = new Uint8Array([(size >> 8) & Mask, size & Mask])
+                                common.buf.write(header, header.length)
+                                common.buf.write(length, length.length)
+                                common.buf.write(raw.slice(index, index + size), size)
+                                console.log("write to socket header, length", header, length, common.id, size, index, common.buf.bytes())
+                                common.socket.send(common.buf.bytes())
+                                index = index + size
+                            }
+                        },
+                        close() {
+                        },
+                        abort(e) {
+                        },
+                    })).catch((err) => {
+                        console.log("connect::catch", err)
+                        common.buf.reset()
+                        const header = new Uint8Array([0, 4, 0, common.id, StatusEnd, OptionError])
+                        common.buf.write(header, header.length)
+                        common.socket.send(common.buf.bytes())
+                        delete this.sessions[common.id]
+                    })
+
+                    continue
+                }
+
+                // StatusEnd
+                if (status === StatusEnd) {
+                    console.log(`StatusEnd end`)
+                    delete this.sessions[sessionID]
+                    continue
+                }
+
+                // StatusKeepAlive
+                if (status === StatusKeepAlive) {
+                    console.log(`StatusKeepAlive end`)
+                    continue
+                }
+
+                // StatusKeep
+                if (status == StatusKeep) {
+                    let data = chunk.slice(2 + frameLen)
+                    needDataLen = data[1] | data[0] << 8
+                    data = data.slice(2)
+                    buffer.reset()
+                    needDataLen -= data.byteLength
+                    buffer.write(data, data.byteLength)
+                    if (needDataLen === 0) {
+                        await this.sessions[sessionID]?.writable.getWriter().write(buffer.bytes())
+                        this.sessions[sessionID]?.writable.getWriter().releaseLock()
+                        continue
+                    }
+
+                    needParse = !(needDataLen > 0)
+                    console.log(`needDataLen: ${needDataLen} needParse: ${needParse}`)
+                }
+            }
+        }
+    }
+
+}
+
 let uuid = null;
 const mutex = new Lock()
+
+const ruleManage = "manage"
+const ruleAgent = "Agent"
+const ruleConnector = "Connector"
+
+const modeDirect = "direct"
+const modeForward = "forward"
+const modeDirectMux = "directMux"
+const modeForwardMux = "forwardMux"
+
 
 function check(request) {
     if (!uuid) {
@@ -112,31 +287,50 @@ function safeCloseWebSocket(socket) {
 
 async function ws(request) {
     const url = new URL(request.url);
-    const uid = url.searchParams.get("uid")
+
+    const name = url.searchParams.get("name")
+    const addr = url.searchParams.get("addr")
+    const code = url.searchParams.get("code")
     const rule = url.searchParams.get("rule")
+    const mode = url.searchParams.get("mode")
 
     const regex = /^([a-zA-Z0-9.]+):(\d+)$/
-    if (rule === "Connector" && regex.test(uid)) {
-        const tokens = regex.exec(uid)
-        const hostname = tokens[1]
-        const port = parseInt(tokens[2])
-        console.log(`${uid} hostname: ${hostname}, port:${port}`)
 
+    if ([ruleConnector, ruleAgent].includes(rule) && [modeDirect, modeDirectMux].includes(mode) && regex.test(addr)) {
         const webSocketPair = new WebSocketPair();
         const [client, webSocket] = Object.values(webSocketPair);
         webSocket.accept();
 
-        const remote = new WebSocketStream(new EmendWebsocket(webSocket, `${rule}_${uid}`))
-        const local = connect(uid, { secureTransport: "off" })
-        remote.readable.pipeTo(local.writable).catch((e) => {
-            console.log("socket exception", e.message)
-            safeCloseWebSocket(webSocket)
-        })
-        local.readable.pipeTo(remote.writable).catch((e) => {
-            console.log("socket exception", e.message)
-            safeCloseWebSocket(webSocket)
-        })
-        
+        if (modeDirect === mode) {
+            const remote = new WebSocketStream(new EmendWebsocket(webSocket, `${rule}_${addr}`))
+            const local = connect(addr, {secureTransport: "off"})
+            remote.readable.pipeTo(local.writable).catch((e) => {
+                console.log("socket exception", e.message)
+                safeCloseWebSocket(webSocket)
+            })
+            local.readable.pipeTo(remote.writable).catch((e) => {
+                console.log("socket exception", e.message)
+                safeCloseWebSocket(webSocket)
+            })
+        } else {
+            new MuxSocketStream(new WebSocketStream(new EmendWebsocket(webSocket, `${rule}_${addr}`)))
+        }
+
+        return new Response(null, {
+            status: 101,
+            webSocket: client,
+        });
+    }
+
+    if (rule === ruleManage) {
+        const webSocketPair = new WebSocketPair();
+        const [client, webSocket] = Object.values(webSocketPair);
+        webSocket.accept();
+
+        webSocket.addEventListener("open", (event) => {
+            new WebSocketStream(new EmendWebsocket(webSocket, `${rule}_${addr}`))
+        });
+
         return new Response(null, {
             status: 101,
             webSocket: client,
@@ -185,7 +379,9 @@ export default {
                 case "/check":
                     return check(request)
                 default:
-                    return await proxy(request, "https://www.bing.com"+path)
+                    return new Response("<h1>Hello World</h1>", {
+                        status: 404,
+                    });
             }
         } else {
             return await ws(request)

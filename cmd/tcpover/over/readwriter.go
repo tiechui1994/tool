@@ -1,8 +1,8 @@
 package over
 
 import (
-	"bytes"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -52,9 +52,9 @@ func (c *StdReadWriteCloser) Close() error {
 }
 
 type socketReadWriteCloser struct {
-	lock sync.Mutex
-	buf  bytes.Buffer
-	conn *websocket.Conn
+	lock   sync.Mutex
+	conn   *websocket.Conn
+	reader io.Reader
 }
 
 func NewSocketReadWriteCloser(socket *websocket.Conn) io.ReadWriteCloser {
@@ -68,27 +68,50 @@ func (s *socketReadWriteCloser) Close() error {
 func (s *socketReadWriteCloser) Write(p []byte) (n int, err error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
+
 	err = s.conn.WriteMessage(websocket.BinaryMessage, p)
 	return len(p), err
 }
 
-func (s *socketReadWriteCloser) Read(p []byte) (n int, err error) {
-	if s.buf.Len() > 0 {
-		return s.buf.Read(p)
+func (s *socketReadWriteCloser) dump(data []byte)  {
+	dup, err := os.Create(fmt.Sprintf("./dup_%v.log", time.Now().Format("150405.9999")))
+	if err != nil {
+		return
 	}
 
-	_, data, err := s.conn.ReadMessage()
+	defer dup.Close()
+	dup.Write(data)
+	dup.Sync()
+}
+
+func (s *socketReadWriteCloser) Read(b []byte) (int, error) {
+	for {
+		reader, err := s.getReader()
+		if err != nil {
+			return 0, err
+		}
+
+		nBytes, err := reader.Read(b)
+		if errors.Is(err, io.EOF) {
+			s.reader = nil
+			continue
+		}
+		//s.dump(b[:nBytes])
+		return nBytes, err
+	}
+}
+
+func (s *socketReadWriteCloser) getReader() (io.Reader, error) {
+	if s.reader != nil {
+		return s.reader, nil
+	}
+
+	_, reader, err := s.conn.NextReader()
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	if len(data) >= len(p) {
-		n = copy(p, data)
-		s.buf.Write(data[n:])
-		return n, nil
-	} else {
-		n = copy(p, data)
-		return n, nil
-	}
+	s.reader = reader
+	return reader, nil
 }
 
 type echoReadWriteCloser struct {

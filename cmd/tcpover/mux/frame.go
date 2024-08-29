@@ -100,8 +100,9 @@ func (f FrameMetadata) WriteTo(b *buf.Buffer) error {
 func (f *FrameMetadata) Unmarshal(reader io.Reader) error {
 	metaLen, err := ReadUint16(reader)
 	if err != nil {
-		return err
+		return fmt.Errorf("read size: %w", err)
 	}
+
 	if metaLen > 512 {
 		return fmt.Errorf("invalid frame len %v", metaLen)
 	}

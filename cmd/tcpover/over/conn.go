@@ -1,12 +1,12 @@
 package over
 
 import (
-	"github.com/tiechui1994/tool/cmd/tcpover/transport/ctx"
 	"io"
 	"net"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/tiechui1994/tool/cmd/tcpover/transport/ctx"
 )
 
 type socketConn struct {

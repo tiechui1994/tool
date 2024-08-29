@@ -79,11 +79,10 @@ func (c *Client) ServeAgent(name, listenAddr string) error {
 		// name: 直接连接, name is empty
 		//       远程代理, name not empty
 		// mode: ModeDirect | ModeForward
-		addr := fmt.Sprintf("%v:%v", metadata.Host, metadata.DstPort)
 		code := time.Now().Format("20060102150405__Agent")
 		conn, err := c.webSocketConnect(ctx, &ConnectParam{
 			name: "",
-			addr: addr,
+			addr: metadata.RemoteAddress(),
 			code: code,
 			rule: RuleAgent,
 			mode: ModeDirect,

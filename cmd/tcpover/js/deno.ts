@@ -1,6 +1,5 @@
 import {Hono} from "https://deno.land/x/hono@v3.4.1/mod.ts";
 import {Mutex} from "https://deno.land/x/async@v2.1.0/mutex.ts";
-import {Buffer} from "https://deno.land/std@0.224.0/io/buffer.ts";
 
 const app = new Hono();
 const manageSocket: any = {}
@@ -15,6 +14,34 @@ const modeDirect = "direct"
 const modeForward = "forward"
 const modeDirectMux = "directMux"
 const modeForwardMux = "forwardMux"
+
+class Buffer {
+    private start: number;
+    private end: number;
+    private data: Uint8Array;
+
+    constructor() {
+        this.start = 0
+        this.end = 0
+        this.data = new Uint8Array(8192)
+    }
+
+    write(data: ArrayBufferLike, length: number) {
+        for (let i = 0; i < length; i++) {
+            this.data[this.end] = data[i]
+            this.end++
+        }
+    }
+
+    bytes(): Uint8Array {
+        return this.data.slice(this.start, this.end)
+    }
+
+    reset() {
+        this.start = 0
+        this.end = 0
+    }
+}
 
 class EmendWebsocket {
     public socket: WebSocket
@@ -71,6 +98,7 @@ class WebSocketStream {
                 }
             },
             write(chunk, controller) {
+                console.log("size", chunk.byteLength)
                 socket.send(chunk);
             },
             close() {
@@ -84,14 +112,15 @@ class WebSocketStream {
 }
 
 class MuxSocketStream {
-    public socket: WebSocketStream;
+    private socket: WebSocketStream;
     private sessions: Map<number, Deno.Conn>;
 
     constructor(socket: WebSocketStream) {
         this.socket = socket;
         this.sessions = new Map<number, Deno.Conn>();
         this.run().catch((err) => {
-            console.error("catch", err)
+            console.error("run::catch", err)
+            this.socket.socket.close(1000)
         })
     }
 
@@ -104,32 +133,24 @@ class MuxSocketStream {
         const OptionData = 0x01
         const OptionError = 0x02
 
-        const handleNew = (network: number, data: Uint8Array) => {
+        const Mask = 255
 
-        }
-
-        const handleKeep = (data: Uint8Array) => {
-        }
-
-        const handleEnd = () => {
-        }
-
-        let sessionID: number = -1, option: number;
+        let sessionID: number = 0, option: number;
 
         let needParse = true
         let needDataLen: number = 0
         const buffer = new Buffer()
         for await (let chunk of this.socket.readable) {
-            console.log("read from socket", chunk.byteLength)
+            console.log("read from websocket", chunk.byteLength, chunk[2])
             if (!needParse) {
                 if (needDataLen > chunk.byteLength) {
                     needDataLen -= chunk.byteLength
-                    buffer.writeSync(chunk)
+                    buffer.write(chunk, chunk.byteLength)
                     continue
                 } else {
-                    buffer.writeSync(chunk.slice(0, needDataLen))
-                    console.log("write to conn", sessionID)
-                    await this.sessions.get(1)?.write(buffer.bytes())
+                    buffer.write(chunk, needDataLen)
+                    // console.log("write to conn", sessionID)
+                    await this.sessions.get(sessionID)?.write(buffer.bytes())
 
                     buffer.reset()
                     needDataLen = 0
@@ -153,42 +174,47 @@ class MuxSocketStream {
                     const decoder = new TextDecoder();
                     const domain = decoder.decode(frame.slice(5));
 
+                    const token = domain.split(':')
+                    const common = {
+                        id: sessionID,
+                        buf: new Buffer(),
+                        socket: this.socket.socket
+                    }
+                    console.log(`domain: ${domain}`, token[0], token[1])
                     Deno.connect({
-                        hostname: "127.0.0.3",
-                        port: 22
+                        hostname: token[0],
+                        port: parseInt(token[1])
                     }).then(async (conn) => {
-                        const id = sessionID
-                        console.log(`network: ${network} domain: ${domain}, ${id}`)
-                        this.sessions.set(id, conn)
-                        const buf = new Buffer()
-                        const socket = this.socket.socket
-                        const writeable = new WritableStream({
+                        console.log(`network: ${network} domain: ${domain}, ${common.id}`)
+                        this.sessions.set(common.id, conn)
+                        await conn.readable.pipeTo(new WritableStream({
                             start(controller) {
                             },
                             write(raw, controller) {
-                                console.log("read from conn", raw.byteLength, id)
-                                const header = new Uint8Array([0, 4, 0, id, StatusKeep, OptionData])
-                                const length = new Uint8Array([(raw.byteLength >> 8) & 127, (raw.byteLength) & 127])
-                                buf.writeSync(header)
-                                buf.writeSync(length)
-                                buf.writeSync(raw)
-                                console.log("write to socket header, length", header, length, id, buf.length)
-                                socket.send(buf.bytes())
-                                buf.reset()
+                                console.log("read from conn", raw.byteLength, common.id)
+                                const N = raw.byteLength
+                                let index = 0
+                                while (index < N) {
+                                    common.buf.reset()
+                                    const size = index + 2048 < N ? 2048 : N - index
+                                    const header = new Uint8Array([0, 4, 0, common.id, StatusKeep, OptionData])
+                                    const length = new Uint8Array([(size >> 8) & Mask, size & Mask])
+                                    common.buf.write(header, header.length)
+                                    common.buf.write(length, length.length)
+                                    common.buf.write(raw.slice(index, index + size), size)
+                                    console.log("write to socket header, length", common.buf.bytes())
+                                    common.socket.send(common.buf.bytes())
+                                    index = index + size
+                                }
                             },
-                            close() {
-                                socket.close(1000, socket.attrs + "writable close");
-                            },
-                            abort(e) {
-                                socket.close(1006, socket.attrs + "writable abort");
-                            },
-                        })
-
-                        conn.readable.pipeTo(writeable).catch(() => {
-
-                        })
+                        }))
                     }).catch((err) => {
-                        console.log("err", err)
+                        console.log("connect::catch", err)
+                        common.buf.reset()
+                        const header = new Uint8Array([0, 4, 0, common.id, StatusEnd, OptionError])
+                        common.buf.write(header, header.length)
+                        common.socket.send(common.buf.bytes())
+                        this.sessions.delete(common.id)
                     })
                     continue
                 }
@@ -196,6 +222,7 @@ class MuxSocketStream {
                 // StatusEnd
                 if (status === StatusEnd) {
                     console.log(`StatusEnd end`)
+                    this.sessions.delete(sessionID)
                     continue
                 }
 
@@ -209,13 +236,13 @@ class MuxSocketStream {
                 if (status == StatusKeep) {
                     let data = chunk.slice(2 + frameLen)
                     needDataLen = data[1] | data[0] << 8
+                    buffer.reset()
                     data = data.slice(2)
-                    console.log(`needDataLen: ${needDataLen} ${data.byteLength}`)
+                    // console.log(`needDataLen: ${needDataLen} ${data.byteLength}, ${sessionID}`)
                     needDataLen -= data.byteLength
-                    buffer.writeSync(data)
+                    buffer.write(data, data.byteLength)
                     if (needDataLen === 0) {
-                        await this.sessions.get(1)?.write(buffer.bytes())
-                        buffer.reset()
+                        await this.sessions.get(sessionID)?.write(buffer.bytes())
                         continue
                     }
 
@@ -277,8 +304,7 @@ app.get("/api/ssh", async (c) => {
             console.log("socket closed");
         }
         socket.onopen = () => {
-            const local = new WebSocketStream(new EmendWebsocket(socket, `${rule}_${code}_${addr}`))
-            new MuxSocketStream(local)
+            new MuxSocketStream(new WebSocketStream(new EmendWebsocket(socket, `${rule}_${code}_${addr}`)))
 
             // Deno.connect({
             //     port: port,
