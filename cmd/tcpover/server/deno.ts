@@ -41,6 +41,10 @@ class Buffer {
         this.start = 0
         this.end = 0
     }
+
+    length() {
+        return this.end - this.start
+    }
 }
 
 class EmendWebsocket {
@@ -135,44 +139,51 @@ class MuxSocketStream {
 
         const Mask = 255
 
-        let sessionID: number = 0, option: number;
-
-        let needParse = true
-        let needDataLen: number = 0
+        let sessionID: number = 0
+        let needParse = true, remainLen: number = 0, remainChunk: Uint8Array
         const buffer = new Buffer()
+
         for await (let chunk of this.socket.readable) {
-            console.log("read from websocket", chunk.byteLength, chunk[2])
+            console.log("read from websocket", chunk.byteLength)
             if (!needParse) {
-                if (needDataLen > chunk.byteLength) {
-                    needDataLen -= chunk.byteLength
+                if (remainLen > chunk.byteLength) {
+                    remainLen -= chunk.byteLength
                     buffer.write(chunk, chunk.byteLength)
                     continue
                 } else {
-                    buffer.write(chunk, needDataLen)
-                    // console.log("write to conn", sessionID)
+                    buffer.write(chunk, remainLen)
                     await this.sessions.get(sessionID)?.write(buffer.bytes())
 
-                    buffer.reset()
-                    needDataLen = 0
                     needParse = true
-                    chunk = chunk.slice(needDataLen)
+                    chunk = chunk.slice(remainLen)
                     if (chunk.byteLength == 0) continue
                 }
             }
 
             if (needParse) {
+                if (remainChunk && remainChunk.byteLength > 0) {
+                    const newChunk = new Uint8Array(chunk.byteLength + remainChunk.length)
+                    let index = 0
+                    for (let i=0; i<remainChunk.length; i++) {
+                        newChunk[index++] = remainChunk[i]
+                    }
+                    for (let i=0; i<chunk.byteLength; i++) {
+                        newChunk[index++] = chunk[i]
+                    }
+                    chunk = newChunk
+                }
+
                 const frameLen = chunk[1] | chunk[0] << 8
                 const frame = chunk.slice(2, 2 + frameLen)
 
                 sessionID = frame[1] | frame[0] << 8
                 const status = frame[2]
-                option = frame[3]
+                const option = frame[3]
 
                 // StatusNew
                 if (status === StatusNew) {
                     const network = frame[4];
-                    const decoder = new TextDecoder();
-                    const domain = decoder.decode(frame.slice(5));
+                    const domain = (new TextDecoder()).decode(frame.slice(5));
 
                     const token = domain.split(':')
                     const common = {
@@ -188,21 +199,19 @@ class MuxSocketStream {
                         console.log(`network: ${network} domain: ${domain}, ${common.id}`)
                         this.sessions.set(common.id, conn)
                         await conn.readable.pipeTo(new WritableStream({
-                            start(controller) {
-                            },
                             write(raw, controller) {
                                 console.log("read from conn", raw.byteLength, common.id)
                                 const N = raw.byteLength
                                 let index = 0
                                 while (index < N) {
                                     common.buf.reset()
-                                    const size = index + 2048 < N ? 2048 : N - index
+                                    const size = index + 4096 < N ? 4096 : N - index
                                     const header = new Uint8Array([0, 4, 0, common.id, StatusKeep, OptionData])
                                     const length = new Uint8Array([(size >> 8) & Mask, size & Mask])
                                     common.buf.write(header, header.length)
                                     common.buf.write(length, length.length)
                                     common.buf.write(raw.slice(index, index + size), size)
-                                    console.log("write to socket header, length", common.buf.bytes())
+                                    console.log("write to socket header, length", common.buf.length())
                                     common.socket.send(common.buf.bytes())
                                     index = index + size
                                 }
@@ -234,20 +243,25 @@ class MuxSocketStream {
 
                 // StatusKeep
                 if (status == StatusKeep) {
-                    let data = chunk.slice(2 + frameLen)
-                    needDataLen = data[1] | data[0] << 8
-                    buffer.reset()
-                    data = data.slice(2)
-                    // console.log(`needDataLen: ${needDataLen} ${data.byteLength}, ${sessionID}`)
-                    needDataLen -= data.byteLength
-                    buffer.write(data, data.byteLength)
-                    if (needDataLen === 0) {
-                        await this.sessions.get(sessionID)?.write(buffer.bytes())
-                        continue
-                    }
+                    chunk = chunk.slice(2 + frameLen)
+                    remainLen = chunk[1] | chunk[0] << 8
 
-                    needParse = !(needDataLen > 0)
-                    console.log(`needDataLen: ${needDataLen} needParse: ${needParse}`)
+                    chunk = chunk.slice(2)
+                    if (remainLen <= chunk.byteLength) {
+                        buffer.reset()
+                        buffer.write(chunk, remainLen)
+                        await this.sessions.get(sessionID)?.write(buffer.bytes())
+
+                        remainChunk = chunk.slice(remainLen)
+                        remainLen = 0
+                        needParse = true
+                    } else {
+                        buffer.reset()
+                        remainLen -= chunk.byteLength
+                        needParse = false
+                        buffer.write(chunk, chunk.byteLength)
+                    }
+                    console.log(`remainLen: ${remainLen} needParse: ${needParse}`)
                 }
             }
         }

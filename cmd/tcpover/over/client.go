@@ -75,7 +75,6 @@ func (c *Client) ServeAgent(name, listenAddr string) error {
 	log.Printf("Agent start ....")
 
 	manager, err := NewClientConnManager(func(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
-		fmt.Println("addr", metadata.Host, metadata.NetWork, metadata.Type)
 		// name: 直接连接, name is empty
 		//       远程代理, name not empty
 		// mode: ModeDirect | ModeForward

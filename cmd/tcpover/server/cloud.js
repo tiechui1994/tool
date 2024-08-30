@@ -60,6 +60,9 @@ class Buffer {
     }
 
     bytes() {
+        if (arguments.length > 0) {
+            return new Uint8Array(this.data.slice(this.start, this.end))
+        }
         return this.data.slice(this.start, this.end)
     }
 
@@ -119,8 +122,8 @@ class MuxSocketStream {
         this.stream = stream;
         this.sessions = {}
         this.run().catch((err) => {
-            console.error("run::catch", err)
-            this.socket.socket.close(1000)
+            console.error("run::catch", err.stack)
+            this.stream.socket.close(1000)
         })
     }
 
@@ -138,124 +141,156 @@ class MuxSocketStream {
         let sessionID = 0;
 
         let needParse = true
-        let needDataLen = 0
+        let remainLen = 0
+        let remainChunk
+
+        const socket = this.stream.socket
         const buffer = new Buffer()
-        const reader = this.stream.readable.getReader()
-        while (true) {
-            let chunk = reader.read()
-            console.log("read from websocket", chunk.byteLength)
-            reader.releaseLock()
+        const sessions = this.sessions
 
-            const frameLen = chunk[1] | chunk[0] << 8
-            const frame = chunk.slice(2, 2 + frameLen)
-
-            sessionID = frame[1] | frame[0] << 8
-            const status = frame[2]
-            const option = frame[3]
-
-            // StatusNew
-            if (status === StatusNew) {
-                const network = frame[4];
-                const domain = (new TextDecoder()).decode(frame.slice(5));
-                const common = {
-                    id: sessionID,
-                    buf: new Buffer(),
-                    socket: this.stream.socket
+        const writableStream = new WritableStream({
+            start(controller) {},
+            async write(chunk, controller) {
+                if (remainChunk && remainChunk.byteLength > 0) {
+                    const newChunk = new Uint8Array(chunk.length + remainChunk.length)
+                    let index = 0
+                    for (let i = 0; i < remainChunk.length; i++) {
+                        newChunk[index++] = remainChunk[i]
+                    }
+                    for (let i = 0; i < chunk.byteLength; i++) {
+                        newChunk[index++] = chunk[i]
+                    }
+                    chunk = newChunk
                 }
 
-                console.log(`network: ${network} domain: ${domain}, ${common.id}`)
-                const conn = connect(domain, {secureTransport: "off"})
-                this.sessions[common.id] = conn
-                conn.readable.pipeTo(new WritableStream({
-                    start(controller) {
-                    },
-                    write(raw, controller) {
-                        console.log("read from conn", raw.byteLength, common.id)
-                        const N = raw.byteLength
-                        let index = 0
-                        while (index < N) {
-                            common.buf.reset()
-
-                            const size = index + 2048 < N ? 2048 : N - index
-                            const header = new Uint8Array([0, 4, 0, common.id, StatusKeep, OptionData])
-                            const length = new Uint8Array([(size >> 8) & Mask, size & Mask])
-                            common.buf.write(header, header.length)
-                            common.buf.write(length, length.length)
-                            common.buf.write(raw.slice(index, index + size), size)
-                            console.log("write to socket header, length", header, length, common.id, size, index, common.buf.bytes())
-                            common.socket.send(common.buf.bytes())
-                            index = index + size
-                        }
-                    },
-                    close() {
-                    },
-                    abort(e) {
-                    },
-                })).catch((err) => {
-                    console.log("connect::catch", err)
-                    common.buf.reset()
-                    const header = new Uint8Array([0, 4, 0, common.id, StatusEnd, OptionError])
-                    common.buf.write(header, header.length)
-                    common.socket.send(common.buf.bytes())
-                    delete this.sessions[common.id]
-                })
-
-                continue
-            }
-
-            // StatusEnd
-            if (status === StatusEnd) {
-                console.log(`StatusEnd end`)
-                delete this.sessions[sessionID]
-                continue
-            }
-
-            // StatusKeepAlive
-            if (status === StatusKeepAlive) {
-                console.log(`StatusKeepAlive end`)
-                continue
-            }
-
-            // StatusKeep
-            if (status == StatusKeep) {
-                let data = chunk.slice(2 + frameLen)
-                needDataLen = data[1] | data[0] << 8
-                data = data.slice(2)
-                buffer.reset()
-                needDataLen -= data.byteLength
-                buffer.write(data, data.byteLength)
-                if (needDataLen === 0) {
-                    await this.sessions[sessionID]?.writable.getWriter().write(buffer.bytes())
-                    this.sessions[sessionID]?.writable.getWriter().releaseLock()
-                    continue
-                }
-
-                console.log(`needDataLen: ${needDataLen} needParse: ${needParse}`)
-
-                while (needDataLen > 0) {
-                    chunk = reader.read()
-                    console.log("read from websocket", chunk.byteLength)
-                    reader.releaseLock()
-                    if (needDataLen > chunk.byteLength) {
-                          needDataLen -= chunk.byteLength
-                          buffer.write(chunk, chunk.byteLength)
-                          continue
+                // needParse == false
+                if (needParse === false) {
+                    if (remainLen > chunk.byteLength) {
+                        remainLen -= chunk.byteLength
+                        buffer.write(chunk, chunk.byteLength)
+                        return
                     } else {
-                        buffer.write(chunk, needDataLen)
-                        await this.sessions[sessionID]?.writable.getWriter().write(buffer.bytes())
-                        this.sessions[sessionID]?.writable.getWriter().releaseLock()
+                        buffer.write(chunk, remainLen)
+                        const {conn, writer} = sessions[sessionID]
+                        if (writer) {
+                            await writer.write(buffer.bytes())
+                        }
 
-                        needDataLen = 0
-                        chunk = chunk.slice(needDataLen)
+                        needParse = true
+                        remainLen = 0
+                        chunk = chunk.slice(remainLen)
                         if (chunk.byteLength == 0) {
-                            chunk = reader.read()
-                            console.log("read from websocket", chunk.byteLength)
-                            reader.releaseLock()
+                            return
                         }
                     }
                 }
-            }
-        }
+
+                // needParse == true
+                const frameLen = chunk[1] | chunk[0] << 8
+                const frame = chunk.slice(2, 2 + frameLen)
+
+                sessionID = frame[1] | frame[0] << 8
+                const status = frame[2]
+                const option = frame[3]
+
+                // StatusNew
+                if (status === StatusNew) {
+                    const network = frame[4];
+                    const domain = (new TextDecoder()).decode(frame.slice(5));
+                    const common = {
+                        id: sessionID,
+                        buf: new Buffer(),
+                        socket: socket
+                    }
+
+                    console.log(`network: ${network} domain: ${domain}, ${common.id}`)
+                    const conn = connect(domain, {secureTransport: "off"})
+                    const writer = conn.writable.getWriter()
+                    sessions[common.id] = {
+                        conn: conn,
+                        writer: writer
+                    }
+                    conn.readable.pipeTo(new WritableStream({
+                        start(controller) {
+                        },
+                        write(raw, controller) {
+                            const N = raw.byteLength
+                            let index = 0
+                            while (index < N) {
+                                common.buf.reset()
+
+                                const size = index + 2048 < N ? 2048 : N - index
+                                const header = new Uint8Array([0, 4, 0, common.id, StatusKeep, OptionData])
+                                const length = new Uint8Array([(size >> 8) & Mask, size & Mask])
+                                common.buf.write(header, header.length)
+                                common.buf.write(length, length.length)
+                                common.buf.write(raw.slice(index, index + size), size)
+                                common.socket.send(common.buf.bytes())
+                                index = index + size
+                            }
+                        },
+                        close() {
+                        },
+                        abort(e) {
+                        },
+                    })).catch((err) => {
+                        console.log("connect::catch", err.stack)
+                        common.buf.reset()
+                        const header = new Uint8Array([0, 4, 0, common.id, StatusEnd, OptionError])
+                        common.buf.write(header, header.length)
+                        common.socket.send(common.buf.bytes())
+                        delete sessions[common.id]
+                    })
+
+                    return
+                }
+
+                // StatusEnd
+                if (status === StatusEnd) {
+                    console.log(`StatusEnd end`)
+                    delete sessions[sessionID]
+                    return;
+                }
+
+                // StatusKeepAlive
+                if (status === StatusKeepAlive) {
+                    console.log(`StatusKeepAlive end`)
+                    return;
+                }
+
+                // StatusKeep
+                if (status == StatusKeep) {
+                    chunk = chunk.slice(2 + frameLen)
+                    remainLen = chunk[1] | chunk[0] << 8
+                    chunk = chunk.slice(2)
+                    if (remainLen <= chunk.length) {
+                        buffer.reset()
+                        buffer.write(chunk, remainLen)
+                        const {conn, writer} = sessions[sessionID]
+                        if (writer) {
+                            await writer.write(buffer.bytes())
+                        }
+
+                        remainChunk = chunk.slice(remainLen)
+                        remainLen = 0
+                        needParse = true
+                        return
+                    }
+
+                    buffer.reset()
+                    remainLen -= chunk.length
+                    buffer.write(chunk, chunk.length)
+                    needParse = false
+                    console.log(`remainLen: ${remainLen} needParse: ${needParse}`)
+                }
+            },
+            close() {
+            },
+            abort(e) {
+            },
+        });
+
+        await this.stream.readable.pipeTo(writableStream)
     }
 }
 

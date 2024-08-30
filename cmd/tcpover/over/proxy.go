@@ -56,7 +56,6 @@ func (p *MuxProxy) Name() string {
 func (p *MuxProxy) DialContext(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
 	upInput, upOutput := io.Pipe()
 	downInput, downOutput := io.Pipe()
-	fmt.Println(metadata.RemoteAddress())
 	destination := mux.Destination{
 		Network: mux.TargetNetworkTCP,
 		Address: metadata.RemoteAddress(),
@@ -108,7 +107,6 @@ again:
 		return true
 	})
 
-	fmt.Println("dispatch:", dispatch)
 	if !dispatch {
 		err := c.createClientWorker()
 		if err != nil {

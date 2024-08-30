@@ -115,9 +115,7 @@ func (w *Writer) Close() error {
 		meta.Option = OptionError
 	}
 
-	stack := callers()
 	log.Printf("close: [%v], %v", w.id, w.err)
-	log.Printf("close stack: %+v", stack)
 	frame := buf.New()
 	Must(meta.WriteTo(frame))
 	_, err := w.writer.Write(frame.Bytes())
