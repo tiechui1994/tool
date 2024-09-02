@@ -1,0 +1,35 @@
+package bencode
+
+import (
+	"bytes"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"testing"
+)
+
+func TestDecode(t *testing.T) {
+	var d = "64383a616e6e6f756e636532383a7773733a2f2f776f726d686f6c652e6170702f776562736f636b657431333a616e6e6f756e63652d6c6973746c6c32383a7773733a2f2f776f726d686f6c652e6170702f776562736f636b6574656531303a6372656174656420627931353a576562546f7272656e742f3031303831333a6372656174696f6e2064617465693137323532373232373265343a696e666f64363a6c656e67746869313337303665343a6e616d6531343a736f6a736f6e2e636f6d2e747874353a6e6f6e636533323a316461386465396538363437373432313066653863613136333630663365663731323a7069656365206c656e67746869313633383465363a70696563657332303abd2617ea72f64a1e1196cb4dfe70851cc785d467373a7072697661746569316565373a70726976617465693165383a75726c2d6c6973746c6565"
+	raw, _ := hex.DecodeString(d)
+	fmt.Println(string(raw))
+	data, err := Decode(bytes.NewBuffer(raw))
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	if v, ok := data.(map[string]interface{}); ok {
+		if vv, ok := v["info"].(map[string]interface{}); ok {
+			t.Logf("===: %+v", hex.EncodeToString(vv["pieces"].([]byte)))
+		}
+	}
+
+
+	var buf bytes.Buffer
+	en := json.NewEncoder(&buf)
+	en.SetIndent("", " ")
+	en.Encode(data)
+
+
+	t.Logf("%v", buf.String())
+}
