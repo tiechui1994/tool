@@ -63,7 +63,7 @@ func FileTorrentCompute(file *os.File) (infoHash, torrentBase64 string, err erro
 	if err != nil {
 		return "", "", err
 	}
-	torrentBase64 = base64.StdEncoding.EncodeToString(buf.Bytes())
+	torrentBase64 = base64.RawStdEncoding.EncodeToString(buf.Bytes())
 
 	buf.Reset()
 	err = Marshal(&buf, torrent)
