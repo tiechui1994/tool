@@ -3,7 +3,7 @@ package rules
 import "C"
 import (
 	"fmt"
-	"github.com/tiechui1994/tool/cmd/tcpover/transport/ctx"
+	"github.com/tiechui1994/tool/cmd/tcpover/ctx"
 	"strconv"
 	"strings"
 )

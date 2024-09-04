@@ -1,7 +1,7 @@
 package inbound
 
 import (
-	"github.com/tiechui1994/tool/cmd/tcpover/transport/ctx"
+	"github.com/tiechui1994/tool/cmd/tcpover/ctx"
 	"github.com/tiechui1994/tool/cmd/tcpover/transport/socks5"
 	"net"
 )

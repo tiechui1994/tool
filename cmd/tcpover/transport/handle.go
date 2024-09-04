@@ -3,14 +3,14 @@ package transport
 import (
 	"context"
 	"fmt"
-	"github.com/tiechui1994/tool/cmd/tcpover/transport/listener/mixed"
 	"hash/crc32"
 	"net"
 	"time"
 
+	"github.com/tiechui1994/tool/cmd/tcpover/ctx"
 	"github.com/tiechui1994/tool/cmd/tcpover/transport/common/bufio"
-	"github.com/tiechui1994/tool/cmd/tcpover/transport/ctx"
 	"github.com/tiechui1994/tool/cmd/tcpover/transport/listener/http"
+	"github.com/tiechui1994/tool/cmd/tcpover/transport/listener/mixed"
 	"github.com/tiechui1994/tool/cmd/tcpover/transport/listener/socks"
 	"github.com/tiechui1994/tool/log"
 )

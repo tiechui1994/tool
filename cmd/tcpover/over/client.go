@@ -16,9 +16,10 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/tiechui1994/tool/cmd/tcpover/ctx"
 	"github.com/tiechui1994/tool/cmd/tcpover/mux"
 	"github.com/tiechui1994/tool/cmd/tcpover/transport"
-	"github.com/tiechui1994/tool/cmd/tcpover/transport/ctx"
+	"github.com/tiechui1994/tool/cmd/tcpover/transport/outbound"
 )
 
 type Client struct {
@@ -74,7 +75,7 @@ func (c *Client) ServeAgent(name, listenAddr string) error {
 	c.manage(name)
 	log.Printf("Agent start ....")
 
-	manager, err := NewClientConnManager(func(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
+	proxy, err := outbound.NewProxy(func(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
 		// name: 直接连接, name is empty
 		//       远程代理, name not empty
 		// mode: ModeDirect | ModeForward
@@ -102,7 +103,7 @@ func (c *Client) ServeAgent(name, listenAddr string) error {
 	}
 
 	done := make(chan struct{})
-	transport.RegisterProxy(&Proxy{manager: manager})
+	transport.RegisterProxy(proxy)
 	<-done
 	return nil
 }
@@ -114,7 +115,7 @@ func (c *Client) ServeMuxAgent(name, listenAddr string) error {
 	// name: 直接连接, name is empty
 	//       远程代理, name not empty
 	// mode: ModeDirectMux | ModeForwardMux
-	manager, err := NewClientWorkerManager(func() (*mux.ClientWorker, error) {
+	proxy, err := outbound.NewMuxProxy(func() (*mux.ClientWorker, error) {
 		code := time.Now().Format("20060102150405__MuxAgent")
 		conn, err := c.webSocketConnect(context.Background(), &ConnectParam{
 			name: "",
@@ -139,7 +140,7 @@ func (c *Client) ServeMuxAgent(name, listenAddr string) error {
 	}
 
 	done := make(chan struct{})
-	transport.RegisterProxy(&MuxProxy{manager: manager})
+	transport.RegisterProxy(proxy)
 	<-done
 	return nil
 }

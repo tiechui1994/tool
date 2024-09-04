@@ -1,8 +1,8 @@
 package rules
 
 import (
+	"github.com/tiechui1994/tool/cmd/tcpover/ctx"
 	"github.com/tiechui1994/tool/cmd/tcpover/transport/common/netip"
-	"github.com/tiechui1994/tool/cmd/tcpover/transport/ctx"
 )
 
 type IPCIDR struct {

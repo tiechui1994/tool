@@ -4,9 +4,9 @@ import (
 	"io"
 	"net"
 
+	"github.com/tiechui1994/tool/cmd/tcpover/ctx"
 	"github.com/tiechui1994/tool/cmd/tcpover/transport/common/auth"
 	"github.com/tiechui1994/tool/cmd/tcpover/transport/common/bufio"
-	"github.com/tiechui1994/tool/cmd/tcpover/transport/ctx"
 	"github.com/tiechui1994/tool/cmd/tcpover/transport/inbound"
 	"github.com/tiechui1994/tool/cmd/tcpover/transport/socks5"
 )

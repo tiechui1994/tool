@@ -1,7 +1,7 @@
 package rules
 
 import (
-	"github.com/tiechui1994/tool/cmd/tcpover/transport/ctx"
+	"github.com/tiechui1994/tool/cmd/tcpover/ctx"
 	"golang.org/x/net/idna"
 	"strings"
 )

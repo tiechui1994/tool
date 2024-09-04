@@ -4,7 +4,7 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/tiechui1994/tool/cmd/tcpover/transport/ctx"
+	"github.com/tiechui1994/tool/cmd/tcpover/ctx"
 )
 
 func NewHTTPS(request *http.Request, conn net.Conn) ctx.ConnContext {

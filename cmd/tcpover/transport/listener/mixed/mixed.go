@@ -3,9 +3,9 @@ package mixed
 import (
 	"net"
 
+	"github.com/tiechui1994/tool/cmd/tcpover/ctx"
 	"github.com/tiechui1994/tool/cmd/tcpover/transport/common/bufio"
 	"github.com/tiechui1994/tool/cmd/tcpover/transport/common/cache"
-	"github.com/tiechui1994/tool/cmd/tcpover/transport/ctx"
 	"github.com/tiechui1994/tool/cmd/tcpover/transport/listener/http"
 	"github.com/tiechui1994/tool/cmd/tcpover/transport/listener/socks"
 	"github.com/tiechui1994/tool/cmd/tcpover/transport/socks5"

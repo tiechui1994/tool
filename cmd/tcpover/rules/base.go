@@ -2,7 +2,7 @@ package rules
 
 import (
 	"errors"
-	"github.com/tiechui1994/tool/cmd/tcpover/transport/ctx"
+	"github.com/tiechui1994/tool/cmd/tcpover/ctx"
 )
 
 var (
@@ -20,7 +20,7 @@ const (
 	RuleDomainKeyword = "DOMAIN-KEYWORD"
 	RuleDomainSuffix  = "DOMAIN-SUFFIX"
 	RuleIPCIDR        = "IPCIDR"
-	RuleMATCH         = "MATCH"
+	RuleMatch         = "MATCH"
 	RuleDstPort       = "DST-PORT"
 	RuleSrcPort       = "SRC-PORT"
 )

@@ -1,7 +1,7 @@
 package rules
 
 import (
-	"github.com/tiechui1994/tool/cmd/tcpover/transport/ctx"
+	"github.com/tiechui1994/tool/cmd/tcpover/ctx"
 )
 
 type Match struct {
@@ -13,7 +13,7 @@ func NewMatch(adapter string) *Match {
 }
 
 func (d *Match) Name() string {
-	return RuleMATCH
+	return RuleMatch
 }
 
 func (d *Match) Match(meta *ctx.Metadata) (bool, string) {
