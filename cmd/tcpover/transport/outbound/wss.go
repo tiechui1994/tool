@@ -2,14 +2,48 @@ package outbound
 
 import (
 	"context"
+	"fmt"
 	"net"
+	"regexp"
 	"sync/atomic"
+	"time"
 
 	"github.com/tiechui1994/tool/cmd/tcpover/ctx"
+	"github.com/tiechui1994/tool/cmd/tcpover/transport/wss"
 )
 
-func NewProxy(create func(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error)) (ctx.Proxy, error) {
-	manager, err := newClientConnManager(create)
+type WebSocketOption struct {
+	Remote string   `proxy:"remote"`
+	Mode   wss.Mode `proxy:"mode"`
+	Server string   `proxy:"Server"`
+}
+
+func NewProxy(option WebSocketOption) (ctx.Proxy, error) {
+	if option.Server == "" {
+		return nil, fmt.Errorf("server must be set")
+	}
+	if !regexp.MustCompile(`^(ws|wss)://`).MatchString(option.Server) {
+		return nil, fmt.Errorf("server must be startsWith wss:// or ws://")
+	}
+
+	manager, err := newClientConnManager(func(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
+		// name: 直接连接, name is empty
+		//       远程代理, name not empty
+		// mode: ModeDirect | ModeForward
+		code := time.Now().Format("20060102150405__Agent")
+		conn, err := wss.WebSocketConnect(ctx, option.Server, &wss.ConnectParam{
+			Name: option.Remote,
+			Addr: metadata.RemoteAddress(),
+			Code: code,
+			Role: "Agent",
+			Mode: option.Mode,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		return conn, nil
+	})
 	if err != nil {
 		return nil, err
 	}

@@ -73,17 +73,6 @@ func (s *socketReadWriteCloser) Write(p []byte) (n int, err error) {
 	return len(p), err
 }
 
-func (s *socketReadWriteCloser) dump(data []byte)  {
-	dup, err := os.Create(fmt.Sprintf("./dup_%v.log", time.Now().Format("150405.9999")))
-	if err != nil {
-		return
-	}
-
-	defer dup.Close()
-	dup.Write(data)
-	dup.Sync()
-}
-
 func (s *socketReadWriteCloser) Read(b []byte) (int, error) {
 	for {
 		reader, err := s.getReader()

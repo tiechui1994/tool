@@ -6,13 +6,49 @@ import (
 	"io"
 	"log"
 	"net"
+	"regexp"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/tiechui1994/tool/cmd/tcpover/ctx"
 	"github.com/tiechui1994/tool/cmd/tcpover/mux"
+	"github.com/tiechui1994/tool/cmd/tcpover/transport/wss"
 )
+
+func NewMuxProxy(option WebSocketOption) (ctx.Proxy, error) {
+	if option.Server == "" {
+		return nil, fmt.Errorf("server must be set")
+	}
+	if !regexp.MustCompile(`^(ws|wss)://`).MatchString(option.Server) {
+		return nil, fmt.Errorf("server must be startsWith wss:// or ws://")
+	}
+
+	manager, err := newClientWorkerManager(func() (*mux.ClientWorker, error) {
+		// name: 直接连接, name is empty
+		//       远程代理, name not empty
+		// mode: ModeDirectMux | ModeForwardMux
+		code := time.Now().Format("20060102150405__MuxAgent")
+		conn, err := wss.WebSocketConnect(context.Background(), option.Server, &wss.ConnectParam{
+			Name: option.Remote,
+			Addr: "mux.cool:9527",
+			Code: code,
+			Mode: option.Mode,
+			Role: "Agent",
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		return mux.NewClientWorker(conn), nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &MuxProxy{manager: manager}, nil
+}
 
 type MuxProxy struct {
 	manager *clientWorkerManager
@@ -35,15 +71,6 @@ func (p *MuxProxy) DialContext(ctx context.Context, metadata *ctx.Metadata) (net
 	}
 
 	return NewPipeConn(upInput, downOutput, metadata), nil
-}
-
-func NewMuxProxy(create func() (*mux.ClientWorker, error)) (ctx.Proxy, error)  {
-	manager, err := newClientWorkerManager(create)
-	if err != nil {
-		return nil, err
-	}
-
-	return &MuxProxy{manager: manager}, nil
 }
 
 func newClientWorkerManager(create func() (*mux.ClientWorker, error)) (*clientWorkerManager, error) {
@@ -117,7 +144,6 @@ func (c *clientWorkerManager) createClientWorker() error {
 	return nil
 }
 
-
 func NewPipeConn(reader *io.PipeReader, writer *io.PipeWriter, meta *ctx.Metadata) net.Conn {
 	return &pipeConn{
 		reader: reader,
@@ -184,4 +210,3 @@ func (p *pipeConn) SetReadDeadline(t time.Time) error {
 func (p *pipeConn) SetWriteDeadline(t time.Time) error {
 	return nil
 }
-

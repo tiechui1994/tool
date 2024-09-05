@@ -1,37 +1,30 @@
 package over
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log"
-	"math/rand"
 	"net"
-	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
-	"github.com/tiechui1994/tool/cmd/tcpover/ctx"
 	"github.com/tiechui1994/tool/cmd/tcpover/mux"
 	"github.com/tiechui1994/tool/cmd/tcpover/transport"
 	"github.com/tiechui1994/tool/cmd/tcpover/transport/outbound"
+	"github.com/tiechui1994/tool/cmd/tcpover/transport/wss"
 )
 
 type Client struct {
 	server string
-	dialer *websocket.Dialer
 
 	localConn sync.Map
 }
 
 func NewClient(server string, proxy map[string][]string) *Client {
 	if !strings.Contains(server, "://") {
-		server = "ws://" + server
+		server = "wss://" + server
 	}
 	if proxy == nil {
 		proxy = map[string][]string{}
@@ -39,20 +32,6 @@ func NewClient(server string, proxy map[string][]string) *Client {
 
 	return &Client{
 		server: server,
-		dialer: &websocket.Dialer{
-			Proxy: http.ProxyFromEnvironment,
-			NetDialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				v := addr
-				if val, ok := proxy[addr]; ok {
-					v = val[rand.Intn(len(val))]
-				}
-				log.Printf("DialContext [%v]: %v", addr, v)
-				return (&net.Dialer{}).DialContext(context.Background(), network, v)
-			},
-			HandshakeTimeout: 45 * time.Second,
-			WriteBufferSize:  SocketBufferLength,
-			ReadBufferSize:   SocketBufferLength,
-		},
 	}
 }
 
@@ -75,23 +54,13 @@ func (c *Client) ServeAgent(name, listenAddr string) error {
 	c.manage(name)
 	log.Printf("Agent start ....")
 
-	proxy, err := outbound.NewProxy(func(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
-		// name: 直接连接, name is empty
-		//       远程代理, name not empty
-		// mode: ModeDirect | ModeForward
-		code := time.Now().Format("20060102150405__Agent")
-		conn, err := c.webSocketConnect(ctx, &ConnectParam{
-			name: "",
-			addr: metadata.RemoteAddress(),
-			code: code,
-			rule: RuleAgent,
-			mode: ModeDirect,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		return NewSocketConn(conn), nil
+	// Remote: 直接连接, name is empty
+	//       远程代理, name not empty
+	// Mode: ModeDirect | ModeForward
+	proxy, err := outbound.NewProxy(outbound.WebSocketOption{
+		Server: c.server,
+		Mode:   wss.ModeDirect,
+		Remote: "",
 	})
 	if err != nil {
 		return err
@@ -112,23 +81,13 @@ func (c *Client) ServeMuxAgent(name, listenAddr string) error {
 	c.manage(name)
 	log.Printf("MuxAgent start ....")
 
-	// name: 直接连接, name is empty
+	// Remote: 直接连接, name is empty
 	//       远程代理, name not empty
-	// mode: ModeDirectMux | ModeForwardMux
-	proxy, err := outbound.NewMuxProxy(func() (*mux.ClientWorker, error) {
-		code := time.Now().Format("20060102150405__MuxAgent")
-		conn, err := c.webSocketConnect(context.Background(), &ConnectParam{
-			name: "",
-			addr: "mux.cool:9527",
-			code: code,
-			mode: ModeDirectMux,
-			rule: RuleAgent,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		return mux.NewClientWorker(NewSocketConn(conn)), nil
+	// Mode: ModeDirectMux | ModeForwardMux
+	proxy, err := outbound.NewMuxProxy(outbound.WebSocketOption{
+		Remote: "",
+		Mode:   wss.ModeDirectMux,
+		Server: c.server,
 	})
 	if err != nil {
 		return err
@@ -153,9 +112,9 @@ try:
 		times = 1
 	}
 
-	conn, err := c.webSocketConnect(context.Background(), &ConnectParam{
-		name: name,
-		rule: RuleManage,
+	conn, err := wss.RawWebSocketConnect(context.Background(), c.server, &wss.ConnectParam{
+		Name: name,
+		Role: RuleManage,
 	})
 	if err != nil {
 		log.Printf("Manage::DialContext: %v", err)
@@ -176,7 +135,7 @@ try:
 		for {
 			var cmd ControlMessage
 			_, p, err := conn.ReadMessage()
-			if isClose(err) {
+			if wss.IsClose(err) {
 				return
 			}
 			if err != nil {
@@ -214,23 +173,23 @@ func (c *Client) stdConnectServer(local io.ReadWriteCloser, remoteName, remoteAd
 	onceCloseLocal := &OnceCloser{Closer: local}
 	defer onceCloseLocal.Close()
 
-	var mode = ModeForward
+	var mode = wss.ModeForward
 	if remoteName == "" || remoteName == remoteAddr {
-		mode = ModeDirect
+		mode = wss.ModeDirect
 	}
 
-	conn, err := c.webSocketConnect(context.Background(), &ConnectParam{
-		name: remoteName,
-		addr: remoteAddr,
-		code: code,
-		rule: RuleConnector,
-		mode: mode,
+	conn, err := c.webSocketConnect(context.Background(), &wss.ConnectParam{
+		Name: remoteName,
+		Addr: remoteAddr,
+		Code: code,
+		Role: RuleConnector,
+		Mode: mode,
 	})
 	if err != nil {
 		return err
 	}
 
-	remote := NewSocketReadWriteCloser(conn)
+	remote := conn
 	onceCloseRemote := &OnceCloser{Closer: remote}
 	defer onceCloseLocal.Close()
 
@@ -255,15 +214,15 @@ func (c *Client) stdConnectServer(local io.ReadWriteCloser, remoteName, remoteAd
 }
 
 func (c *Client) connectLocalMux(code, network, addr string) error {
-	conn, err := c.webSocketConnect(context.Background(), &ConnectParam{
-		code: code,
-		rule: RuleAgent,
+	conn, err := c.webSocketConnect(context.Background(), &wss.ConnectParam{
+		Code: code,
+		Role: RuleAgent,
 	})
 	if err != nil {
 		return err
 	}
 
-	remote := NewSocketReadWriteCloser(conn)
+	remote := conn
 	onceCloseRemote := &OnceCloser{Closer: remote}
 	defer onceCloseRemote.Close()
 
@@ -293,15 +252,15 @@ func (c *Client) connectLocal(code, network, addr string) error {
 	c.localConn.Store(code, onceCloseLocal)
 	defer c.localConn.Delete(code)
 
-	conn, err := c.webSocketConnect(context.Background(), &ConnectParam{
-		code: code,
-		rule: RuleConnector,
+	conn, err := c.webSocketConnect(context.Background(), &wss.ConnectParam{
+		Code: code,
+		Role: RuleConnector,
 	})
 	if err != nil {
 		return err
 	}
 
-	remote := NewSocketReadWriteCloser(conn)
+	remote := conn
 	onceCloseRemote := &OnceCloser{Closer: remote}
 	defer onceCloseLocal.Close()
 
@@ -328,47 +287,6 @@ func (c *Client) connectLocal(code, network, addr string) error {
 	return nil
 }
 
-type ConnectParam struct {
-	name string
-	addr string
-	code string
-	rule string
-	mode string
-}
-
-func (c *Client) webSocketConnect(ctx context.Context, param *ConnectParam) (*websocket.Conn, error) {
-	query := url.Values{}
-	query.Set("name", param.name)
-	query.Set("addr", param.addr)
-	query.Set("code", param.code)
-	query.Set("rule", param.rule)
-	query.Set("mode", param.mode)
-	u := c.server + "?" + query.Encode()
-	conn, resp, err := c.dialer.DialContext(ctx, u, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != http.StatusSwitchingProtocols {
-		buf := bytes.NewBuffer(nil)
-		_ = resp.Write(buf)
-		return nil, fmt.Errorf("statusCode != 101:\n%s", buf.String())
-	}
-
-	go func() {
-		ticker := time.NewTicker(3 * time.Second)
-		defer ticker.Stop()
-
-		for range ticker.C {
-			err = conn.WriteControl(websocket.PingMessage, []byte(nil), time.Now().Add(time.Second))
-			if isClose(err) {
-				return
-			}
-			if err != nil {
-				log.Printf("Ping: %v", err)
-			}
-		}
-	}()
-
-	return conn, err
+func (c *Client) webSocketConnect(ctx context.Context, param *wss.ConnectParam) (net.Conn, error) {
+	return wss.WebSocketConnect(ctx, c.server, param)
 }

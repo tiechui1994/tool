@@ -14,6 +14,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/tiechui1994/tool/cmd/tcpover/mux"
+	"github.com/tiechui1994/tool/cmd/tcpover/transport/wss"
 )
 
 type PairGroup struct {
@@ -121,7 +122,7 @@ func (s *Server) manageConnect(name string, conn *websocket.Conn) {
 			return nil
 		}
 
-		if isClose(err) {
+		if wss.IsClose(err) {
 			log.Printf("closing ..... : %v", conn.Close())
 			return err
 		}
@@ -130,7 +131,7 @@ func (s *Server) manageConnect(name string, conn *websocket.Conn) {
 	})
 	for {
 		_, _, err := conn.ReadMessage()
-		if isClose(err) {
+		if wss.IsClose(err) {
 			log.Printf("closing ..... : %v", conn.Close())
 			return
 		}
@@ -141,20 +142,19 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Query().Get("name")
 	addr := r.URL.Query().Get("addr")
 	code := r.URL.Query().Get("code")
-	rule := r.URL.Query().Get("rule")
-	mode := r.URL.Query().Get("mode")
+	role := r.URL.Query().Get("rule")
+	mode := wss.Mode(r.URL.Query().Get("mode"))
 
-	log.Printf("enter connections:%v, code:%v, name:%v, rule:%v", atomic.AddInt32(&s.conn, +1), code, name, rule)
+	log.Printf("enter connections:%v, code:%v, name:%v, role:%v", atomic.AddInt32(&s.conn, +1), code, name, role)
 	defer func() {
-		log.Printf("leave connections:%v  code:%v, name:%v, rule:%v", atomic.AddInt32(&s.conn, -1), code, name, rule)
+		log.Printf("leave connections:%v  code:%v, name:%v, role:%v", atomic.AddInt32(&s.conn, -1), code, name, role)
 	}()
 
 	regex := regexp.MustCompile(`^([a-zA-Z0-9.]+):(\d+)$`)
 
 	// 情况1: 直接连接
-	if (rule == RuleConnector || rule == RuleAgent) && (mode == ModeDirect || mode == ModeDirectMux) &&
-		regex.MatchString(addr) {
-		if mode == ModeDirectMux {
+	if (role == RuleConnector || role == RuleAgent) && mode.IsDirect() && regex.MatchString(addr) {
+		if mode.IsMux() {
 			s.muxConnect(r, w)
 		} else {
 			s.directConnect(addr, r, w)
@@ -163,7 +163,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 情况2: 主动连接方, 需要通过被动方
-	if (rule == RuleConnector || rule == RuleAgent) && name != "" {
+	if (role == RuleConnector || role == RuleAgent) && name != "" {
 		manage, ok := s.manageConn.Load(name)
 		if !ok {
 			log.Printf("agent [%v] not running", name)
@@ -175,7 +175,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"Code":    code,
 			"Addr":    addr,
 			"Network": "tcp",
-			"Mux":     mode == ModeForwardMux || mode == ModeDirectMux,
+			"Mux":     mode.IsMux(),
 		}
 		_ = manage.(*websocket.Conn).WriteJSON(ControlMessage{
 			Command: CommandLink,
@@ -191,7 +191,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 情况3: 管理员通道
-	if rule == RuleManage {
+	if role == RuleManage {
 		s.manageConnect(name, conn)
 		return
 	}
