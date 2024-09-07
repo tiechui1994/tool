@@ -16,7 +16,7 @@ import (
 	"github.com/tiechui1994/tool/cmd/tcpover/transport/wss"
 )
 
-func NewMuxProxy(option WebSocketOption) (ctx.Proxy, error) {
+func NewWlessMux(option WebSocketOption) (ctx.Proxy, error) {
 	if option.Server == "" {
 		return nil, fmt.Errorf("server must be set")
 	}
@@ -42,23 +42,30 @@ func NewMuxProxy(option WebSocketOption) (ctx.Proxy, error) {
 
 		return mux.NewClientWorker(conn), nil
 	})
-
 	if err != nil {
 		return nil, err
 	}
 
-	return &MuxProxy{manager: manager}, nil
+	if option.Direct == DirectRecvOnly || option.Direct == DirectSendRecv {
+		responder := PassiveResponder{server: option.Server}
+		responder.manage(option.Remote)
+	}
+
+	return &WlessMux{
+		base: &base{
+			name:      option.Name,
+			proxyType: ctx.WlessMux,
+		},
+		manager: manager,
+	}, nil
 }
 
-type MuxProxy struct {
+type WlessMux struct {
+	*base
 	manager *clientWorkerManager
 }
 
-func (p *MuxProxy) Name() string {
-	return "MuxTCPOver"
-}
-
-func (p *MuxProxy) DialContext(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
+func (p *WlessMux) DialContext(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
 	upInput, upOutput := io.Pipe()
 	downInput, downOutput := io.Pipe()
 	destination := mux.Destination{

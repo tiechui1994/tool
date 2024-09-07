@@ -2,6 +2,9 @@ package main
 
 import (
 	"flag"
+	"github.com/tiechui1994/tool/cmd/tcpover/config"
+	"github.com/tiechui1994/tool/cmd/tcpover/ctx"
+	"github.com/tiechui1994/tool/cmd/tcpover/transport/wss"
 	"log"
 	"net/http"
 
@@ -11,7 +14,7 @@ import (
 var debug bool
 
 func init() {
-	log.SetFlags(log.Lshortfile|log.Ltime)
+	log.SetFlags(log.Lshortfile | log.Ltime)
 }
 
 func main() {
@@ -41,7 +44,7 @@ func main() {
 		log.Fatalln("agent must set server endpoint and addr")
 	}
 
-	if *runAsAgent && (*serverEndpoint == "" || *name == "" ) {
+	if *runAsAgent && (*serverEndpoint == "" || *name == "") {
 		log.Fatalln("agent must set server endpoint and name")
 	}
 
@@ -63,14 +66,36 @@ func main() {
 
 	if *runAsAgent {
 		c := over.NewClient(*serverEndpoint, nil)
+		var proxies []map[string]interface{}
+
 		if *mux {
-			if err := c.ServeMuxAgent(*name, *listenAddr); err != nil {
-				log.Fatalln(err)
-			}
+			proxies = append(proxies, map[string]interface{}{
+				"type":   ctx.WlessMux,
+				"name":   "proxy2",
+				"local":  *name,
+				"remote": "",
+				"direct": "sendonly",
+				"server": *serverEndpoint,
+				"mode":   wss.ModeDirectMux,
+			})
 		} else {
-			if err := c.ServeAgent(*name, *listenAddr); err != nil {
-				log.Fatalln(err)
-			}
+			proxies = append(proxies, map[string]interface{}{
+				"type":   ctx.Wless,
+				"name":   "proxy1",
+				"local":  *name,
+				"remote": "",
+				"direct": "sendonly",
+				"server": *serverEndpoint,
+				"mode":   wss.ModeDirect,
+			})
+		}
+
+		err := c.Serve(config.RawConfig{
+			Listen:  *listenAddr,
+			Proxies: proxies,
+		})
+		if err != nil {
+			log.Fatalln(err)
 		}
 		return
 	}

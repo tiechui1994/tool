@@ -1,8 +1,7 @@
 package config
 
 type RawConfig struct {
-	Port    int
+	Listen  string
 	Proxies []map[string]interface{}
 	Rules   []string
 }
-

@@ -1,8 +1,6 @@
 package over
 
 const (
-	SocketBufferLength = 16384
-
 	RuleManage    = "manage"
 	RuleAgent     = "Agent"
 	RuleConnector = "Connector"
@@ -13,8 +11,3 @@ const (
 var (
 	Debug bool
 )
-
-type ControlMessage struct {
-	Command uint32
-	Data    map[string]interface{}
-}

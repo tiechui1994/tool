@@ -20,6 +20,10 @@ const (
 	ModeForwardMux Mode = "forwardMux"
 )
 
+const (
+	SocketBufferLength = 16384
+)
+
 type Mode string
 
 func (m Mode) IsDirect() bool {
@@ -51,8 +55,8 @@ var (
 			return (&net.Dialer{}).DialContext(context.Background(), network, v)
 		},
 		HandshakeTimeout: 45 * time.Second,
-		WriteBufferSize:  16384,
-		ReadBufferSize:   16384,
+		WriteBufferSize:  SocketBufferLength,
+		ReadBufferSize:   SocketBufferLength,
 	}
 )
 

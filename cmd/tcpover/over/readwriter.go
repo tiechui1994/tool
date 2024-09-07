@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/tiechui1994/tool/cmd/tcpover/transport/wss"
 )
 
 type OnceCloser struct {
@@ -170,7 +171,7 @@ func (s *randomReadWriteCloser) Write(p []byte) (n int, err error) {
 func (s *randomReadWriteCloser) Read(p []byte) (n int, err error) {
 	time.Sleep(time.Duration(random.Int31n(100)) * time.Millisecond)
 
-	data := make([]byte, SocketBufferLength)
+	data := make([]byte, wss.SocketBufferLength)
 	_, _ = rand.Read(data)
 
 	n = random.Intn(len(p))

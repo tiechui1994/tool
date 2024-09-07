@@ -58,14 +58,14 @@ func (s *Server) copy(local, remote io.ReadWriteCloser, deferCallback func()) {
 		defer wg.Done()
 
 		defer onceCloseRemote.Close()
-		_, _ = io.CopyBuffer(remote, local, make([]byte, SocketBufferLength))
+		_, _ = io.CopyBuffer(remote, local, make([]byte, wss.SocketBufferLength))
 	}()
 
 	go func() {
 		defer wg.Done()
 
 		defer onceCloseLocal.Close()
-		_, _ = io.CopyBuffer(local, remote, make([]byte, SocketBufferLength))
+		_, _ = io.CopyBuffer(local, remote, make([]byte, wss.SocketBufferLength))
 	}()
 
 	wg.Wait()
@@ -220,4 +220,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.groupMux.Unlock()
 		<-pair.done
 	}
+}
+
+type ControlMessage struct {
+	Command uint32
+	Data    map[string]interface{}
 }
