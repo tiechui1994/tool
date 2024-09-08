@@ -7,6 +7,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"regexp"
 	"sync"
 	"sync/atomic"
@@ -139,6 +141,18 @@ func (s *Server) manageConnect(name string, conn *websocket.Conn) {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Upgrade") != "websocket" {
+		var u *url.URL
+		if regexp.MustCompile(`^/https?://`).MatchString(r.RequestURI) {
+			u, _ = url.Parse(r.RequestURI[1:])
+		} else {
+			u, _ = url.Parse("https://ghproxy.com")
+		}
+		log.Printf("url: %v", u)
+		s.ProxyHandler(u, w, r)
+		return
+	}
+
 	name := r.URL.Query().Get("name")
 	addr := r.URL.Query().Get("addr")
 	code := r.URL.Query().Get("code")
@@ -220,6 +234,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.groupMux.Unlock()
 		<-pair.done
 	}
+}
+
+func (s *Server) ProxyHandler(target *url.URL, w http.ResponseWriter, r *http.Request) {
+	(&httputil.ReverseProxy{
+		Director: func(req *http.Request) {
+			req.URL = target
+			req.Host = target.Host
+			req.RequestURI = target.RequestURI()
+			req.Header.Set("Host", target.Host)
+		},
+	}).ServeHTTP(w, r)
 }
 
 type ControlMessage struct {
