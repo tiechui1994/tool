@@ -153,7 +153,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	regex := regexp.MustCompile(`^([a-zA-Z0-9.]+):(\d+)$`)
 
 	// 情况1: 直接连接
-	if (role == RuleConnector || role == RuleAgent) && mode.IsDirect() && regex.MatchString(addr) {
+	if (role == wss.RoleAgent || role == wss.RoleConnector) && mode.IsDirect() && regex.MatchString(addr) {
 		if mode.IsMux() {
 			s.muxConnect(r, w)
 		} else {
@@ -163,7 +163,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 情况2: 主动连接方, 需要通过被动方
-	if (role == RuleConnector || role == RuleAgent) && name != "" {
+	if (role == wss.RoleAgent || role == wss.RoleConnector) && name != "" {
 		manage, ok := s.manageConn.Load(name)
 		if !ok {
 			log.Printf("agent [%v] not running", name)
@@ -191,7 +191,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 情况3: 管理员通道
-	if role == RuleManage {
+	if role == wss.RoleManager {
 		s.manageConnect(name, conn)
 		return
 	}
@@ -226,3 +226,7 @@ type ControlMessage struct {
 	Command uint32
 	Data    map[string]interface{}
 }
+
+const (
+	CommandLink = 0x01
+)

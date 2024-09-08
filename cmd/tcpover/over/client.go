@@ -14,6 +14,10 @@ import (
 	"github.com/tiechui1994/tool/cmd/tcpover/transport/wss"
 )
 
+var (
+	Debug bool
+)
+
 type Client struct {
 	server string
 }
@@ -80,7 +84,7 @@ func (c *Client) stdConnectServer(local io.ReadWriteCloser, remoteName, remoteAd
 		Name: remoteName,
 		Addr: remoteAddr,
 		Code: code,
-		Role: RuleConnector,
+		Role: wss.RoleConnector,
 		Mode: mode,
 	})
 	if err != nil {

@@ -34,7 +34,7 @@ func NewWlessMux(option WebSocketOption) (ctx.Proxy, error) {
 			Addr: "mux.cool:9527",
 			Code: code,
 			Mode: option.Mode,
-			Role: "Agent",
+			Role: wss.RoleAgent,
 		})
 		if err != nil {
 			return nil, err

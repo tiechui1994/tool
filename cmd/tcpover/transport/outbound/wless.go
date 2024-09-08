@@ -9,7 +9,6 @@ import (
 	"net"
 	"regexp"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/tiechui1994/tool/cmd/tcpover/ctx"
@@ -50,7 +49,7 @@ func NewWless(option WebSocketOption) (ctx.Proxy, error) {
 			Name: option.Remote,
 			Addr: metadata.RemoteAddress(),
 			Code: code,
-			Role: "Agent",
+			Role: wss.RoleAgent,
 			Mode: option.Mode,
 		})
 		if err != nil {
@@ -70,7 +69,7 @@ func NewWless(option WebSocketOption) (ctx.Proxy, error) {
 
 	return &Wless{
 		base: &base{
-			name:  option.Name,
+			name:      option.Name,
 			proxyType: ctx.Wless,
 		},
 		manager: manager,
@@ -79,7 +78,7 @@ func NewWless(option WebSocketOption) (ctx.Proxy, error) {
 
 type Wless struct {
 	*base
-	manager   *clientConnManager
+	manager *clientConnManager
 }
 
 func (p *Wless) DialContext(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
@@ -87,8 +86,7 @@ func (p *Wless) DialContext(ctx context.Context, metadata *ctx.Metadata) (net.Co
 }
 
 type clientConnManager struct {
-	connCount uint32
-	create    func(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error)
+	create func(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error)
 }
 
 func newClientConnManager(create func(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error)) (*clientConnManager, error) {
@@ -101,7 +99,6 @@ func (c *clientConnManager) Dispatch(ctx context.Context, metadata *ctx.Metadata
 	if err != nil {
 		return nil, err
 	}
-	atomic.AddUint32(&c.connCount, 1)
 
 	return conn, nil
 }
@@ -129,7 +126,7 @@ try:
 
 	conn, err := wss.RawWebSocketConnect(context.Background(), c.server, &wss.ConnectParam{
 		Name: name,
-		Role: "manager",
+		Role: wss.RoleManager,
 	})
 	if err != nil {
 		log.Printf("Manage::DialContext: %v", err)

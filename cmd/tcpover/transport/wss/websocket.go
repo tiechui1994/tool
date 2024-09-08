@@ -21,6 +21,12 @@ const (
 )
 
 const (
+	RoleManager   = "manager"
+	RoleAgent     = "Agent"
+	RoleConnector = "Connector"
+)
+
+const (
 	SocketBufferLength = 16384
 )
 

@@ -74,7 +74,7 @@ func main() {
 				"name":   "proxy2",
 				"local":  *name,
 				"remote": "",
-				"direct": "sendonly",
+				"direct": "send",
 				"server": *serverEndpoint,
 				"mode":   wss.ModeDirectMux,
 			})
@@ -84,7 +84,7 @@ func main() {
 				"name":   "proxy1",
 				"local":  *name,
 				"remote": "",
-				"direct": "sendonly",
+				"direct": "send",
 				"server": *serverEndpoint,
 				"mode":   wss.ModeDirect,
 			})
