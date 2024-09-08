@@ -9,6 +9,7 @@ import (
 	"net"
 	"regexp"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/tiechui1994/tool/cmd/tcpover/ctx"
@@ -29,6 +30,7 @@ type WebSocketOption struct {
 	Mode   wss.Mode `proxy:"mode"`
 	Server string   `proxy:"server"`
 	Direct string   `proxy:"direct"`
+	Mux    bool     `proxy:"mux"`
 }
 
 func NewWless(option WebSocketOption) (ctx.Proxy, error) {
@@ -39,25 +41,13 @@ func NewWless(option WebSocketOption) (ctx.Proxy, error) {
 		return nil, fmt.Errorf("server must be startsWith wss:// or ws://")
 	}
 
-	manager, err := newClientConnManager(func(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
-		// name: 直接连接, name is empty
-		//       远程代理, name not empty
-		// mode: ModeDirect | ModeForward
-		code := time.Now().Format("20060102150405__Agent")
-		fmt.Println(metadata.RemoteAddress())
-		conn, err := wss.WebSocketConnect(ctx, option.Server, &wss.ConnectParam{
-			Name: option.Remote,
-			Addr: metadata.RemoteAddress(),
-			Code: code,
-			Role: wss.RoleAgent,
-			Mode: option.Mode,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		return conn, nil
-	})
+	var manager dispatcher
+	var err error
+	if option.Mux {
+		manager, err = newMuxConnManager(option)
+	} else {
+		manager, err = newDirectConnManager(option)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -76,41 +66,180 @@ func NewWless(option WebSocketOption) (ctx.Proxy, error) {
 	}, nil
 }
 
+type dispatcher interface {
+	DialContext(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error)
+}
+
 type Wless struct {
 	*base
-	manager *clientConnManager
+	manager dispatcher
 }
 
 func (p *Wless) DialContext(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
-	return p.manager.Dispatch(ctx, metadata)
+	return p.manager.DialContext(ctx, metadata)
 }
 
-type clientConnManager struct {
-	create func(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error)
+type directConnManager struct {
+	createConn func(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error)
 }
 
-func newClientConnManager(create func(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error)) (*clientConnManager, error) {
-	c := &clientConnManager{create: create}
-	return c, nil
+func newDirectConnManager(option WebSocketOption) (*directConnManager, error) {
+	return &directConnManager{
+		createConn: func(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
+			var mode wss.Mode
+			if option.Mode.IsDirect() {
+				mode = wss.ModeDirect
+			} else if option.Mode.IsForward() {
+				mode = wss.ModeForward
+			} else {
+				mode = wss.ModeDirect
+			}
+			// name: 直接连接, name is empty
+			//       远程代理, name not empty
+			// mode: ModeDirect | ModeForward
+			code := time.Now().Format("20060102150405__Agent")
+			conn, err := wss.WebSocketConnect(ctx, option.Server, &wss.ConnectParam{
+				Name: option.Remote,
+				Addr: metadata.RemoteAddress(),
+				Code: code,
+				Mode: mode,
+				Role: wss.RoleAgent,
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			return conn, nil
+		},
+	}, nil
 }
 
-func (c *clientConnManager) Dispatch(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
-	conn, err := c.create(ctx, metadata)
+func (c *directConnManager) DialContext(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
+	log.Println(metadata.SourceAddress(), "=>", metadata.RemoteAddress())
+	return c.createConn(ctx, metadata)
+}
+
+type muxConnManager struct {
+	connCount    uint32
+	workersCount uint32
+
+	lock       sync.Mutex
+	workers    sync.Map
+	createConn func() (*mux.ClientWorker, error)
+}
+
+func newMuxConnManager(option WebSocketOption) (*muxConnManager, error) {
+	c := &muxConnManager{createConn: func() (*mux.ClientWorker, error) {
+		var mode wss.Mode
+		if option.Mode.IsDirect() {
+			mode = wss.ModeDirectMux
+		} else if option.Mode.IsForward() {
+			mode = wss.ModeForwardMux
+		} else {
+			mode = wss.ModeDirectMux
+		}
+		// name: 直接连接, name is empty
+		//       远程代理, name not empty
+		// mode: ModeDirectMux | ModeForwardMux
+		code := time.Now().Format("20060102150405__MuxAgent")
+		conn, err := wss.WebSocketConnect(context.Background(), option.Server, &wss.ConnectParam{
+			Name: option.Remote,
+			Addr: "mux.cool:9527",
+			Code: code,
+			Mode: mode,
+			Role: wss.RoleAgent,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		return mux.NewClientWorker(conn), nil
+	}}
+
+	err := c.create()
+	return c, err
+}
+
+func (c *muxConnManager) DialContext(ctx context.Context, metadata *ctx.Metadata) (net.Conn, error) {
+	log.Println(metadata.SourceAddress(), "=>", metadata.RemoteAddress(), "mux")
+	upInput, upOutput := io.Pipe()
+	downInput, downOutput := io.Pipe()
+	destination := mux.Destination{
+		Network: mux.TargetNetworkTCP,
+		Address: metadata.RemoteAddress(),
+	}
+	err := c.dispatch(destination, NewPipeConn(downInput, upOutput, metadata))
 	if err != nil {
 		return nil, err
 	}
 
-	return conn, nil
+	return NewPipeConn(upInput, downOutput, metadata), nil
 }
 
-const (
-	CommandLink = 0x01
-)
+func (c *muxConnManager) dispatch(destination mux.Destination, conn io.ReadWriteCloser) error {
+	var dispatch bool
+	var tryCount int
+again:
+	if tryCount > 1 {
+		log.Printf("retry to manay, please try again later")
+		return fmt.Errorf("retry to manay, please try again later")
+	}
+	c.workers.Range(func(key, value interface{}) bool {
+		worker := value.(*mux.ClientWorker)
+		if worker.Closed() {
+			log.Printf("worker %v close", key)
+			c.workers.Delete(key)
+			return true
+		}
+
+		if worker.Dispatch(destination, conn) {
+			dispatch = true
+			return false
+		}
+
+		return true
+	})
+
+	if !dispatch {
+		err := c.create()
+		if err != nil {
+			log.Printf("createClientWorker: %v", err)
+			return err
+		}
+		tryCount += 1
+		goto again
+	}
+
+	atomic.AddUint32(&c.connCount, 1)
+	if float64(atomic.LoadUint32(&c.connCount))/float64(atomic.LoadUint32(&c.workersCount)) > 7.5 {
+		go c.create()
+	}
+
+	return nil
+}
+
+func (c *muxConnManager) create() error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	worker, err := c.createConn()
+	if err != nil {
+		return err
+	}
+
+	c.workers.Store(time.Now(), worker)
+	atomic.AddUint32(&c.workersCount, 1)
+	return nil
+}
 
 type ControlMessage struct {
 	Command uint32
 	Data    map[string]interface{}
 }
+
+const (
+	CommandLink = 0x01
+)
 
 type PassiveResponder struct {
 	server string
@@ -184,7 +313,7 @@ try:
 func (c *PassiveResponder) connectLocalMux(code, network, addr string) error {
 	conn, err := wss.WebSocketConnect(context.Background(), c.server, &wss.ConnectParam{
 		Code: code,
-		Role: "Agent",
+		Role: wss.RoleAgent,
 	})
 	if err != nil {
 		return err
@@ -215,7 +344,7 @@ func (c *PassiveResponder) connectLocal(code, network, addr string) error {
 
 	conn, err := wss.WebSocketConnect(context.Background(), c.server, &wss.ConnectParam{
 		Code: code,
-		Role: "Agent",
+		Role: wss.RoleAgent,
 	})
 	if err != nil {
 		return err
@@ -258,4 +387,71 @@ func (c *OnceCloser) Close() (err error) {
 		err = c.Closer.Close()
 	})
 	return err
+}
+
+func NewPipeConn(reader *io.PipeReader, writer *io.PipeWriter, meta *ctx.Metadata) net.Conn {
+	return &pipeConn{
+		reader: reader,
+		writer: writer,
+		local:  &addr{network: meta.NetWork, addr: meta.SourceAddress()},
+		remote: &addr{network: meta.NetWork, addr: meta.RemoteAddress()},
+	}
+}
+
+type addr struct {
+	network string
+	addr    string
+}
+
+func (a *addr) Network() string {
+	return a.network
+}
+
+func (a *addr) String() string {
+	return a.addr
+}
+
+type pipeConn struct {
+	reader *io.PipeReader
+	writer *io.PipeWriter
+	local  net.Addr
+	remote net.Addr
+}
+
+func (p *pipeConn) Close() error {
+	err := p.reader.Close()
+	if err != nil {
+		return err
+	}
+
+	err = p.writer.Close()
+	return err
+}
+
+func (p *pipeConn) Read(b []byte) (n int, err error) {
+	return p.reader.Read(b)
+}
+
+func (p *pipeConn) Write(b []byte) (n int, err error) {
+	return p.writer.Write(b)
+}
+
+func (p *pipeConn) LocalAddr() net.Addr {
+	return p.local
+}
+
+func (p *pipeConn) RemoteAddr() net.Addr {
+	return p.remote
+}
+
+func (p *pipeConn) SetDeadline(t time.Time) error {
+	return nil
+}
+
+func (p *pipeConn) SetReadDeadline(t time.Time) error {
+	return nil
+}
+
+func (p *pipeConn) SetWriteDeadline(t time.Time) error {
+	return nil
 }

@@ -15,6 +15,5 @@ type ProxyType = string
 
 const (
 	Wless    ProxyType = "Wless"
-	WlessMux ProxyType = "WlessMux"
 	Direct   ProxyType = "Direct"
 )

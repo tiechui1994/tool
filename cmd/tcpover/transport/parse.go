@@ -18,13 +18,6 @@ func ParseProxy(mapping map[string]interface{}) (ctx.Proxy, error) {
 		err   error
 	)
 	switch proxyType {
-	case ctx.WlessMux:
-		muxOption := &outbound.WebSocketOption{}
-		err = decoder.Decode(mapping, muxOption)
-		if err != nil {
-			break
-		}
-		proxy, err = outbound.NewWlessMux(*muxOption)
 	case ctx.Wless:
 		muxOption := &outbound.WebSocketOption{}
 		err = decoder.Decode(mapping, muxOption)

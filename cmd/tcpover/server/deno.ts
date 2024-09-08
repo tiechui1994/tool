@@ -102,7 +102,6 @@ class WebSocketStream {
                 }
             },
             write(chunk, controller) {
-                console.log("size", chunk.byteLength)
                 socket.send(chunk);
             },
             close() {
@@ -144,7 +143,7 @@ class MuxSocketStream {
         const buffer = new Buffer()
 
         for await (let chunk of this.socket.readable) {
-            console.log("read from websocket", chunk.byteLength)
+            console.log("= read from websocket", chunk.byteLength)
             if (!needParse) {
                 if (remainLen > chunk.byteLength) {
                     remainLen -= chunk.byteLength
@@ -164,10 +163,10 @@ class MuxSocketStream {
                 if (remainChunk && remainChunk.byteLength > 0) {
                     const newChunk = new Uint8Array(chunk.byteLength + remainChunk.length)
                     let index = 0
-                    for (let i=0; i<remainChunk.length; i++) {
+                    for (let i = 0; i < remainChunk.length; i++) {
                         newChunk[index++] = remainChunk[i]
                     }
-                    for (let i=0; i<chunk.byteLength; i++) {
+                    for (let i = 0; i < chunk.byteLength; i++) {
                         newChunk[index++] = chunk[i]
                     }
                     chunk = newChunk
@@ -200,7 +199,7 @@ class MuxSocketStream {
                         this.sessions.set(common.id, conn)
                         await conn.readable.pipeTo(new WritableStream({
                             write(raw, controller) {
-                                console.log("read from conn", raw.byteLength, common.id)
+                                console.log("== read from conn", raw.byteLength, common.id)
                                 const N = raw.byteLength
                                 let index = 0
                                 while (index < N) {
@@ -211,7 +210,7 @@ class MuxSocketStream {
                                     common.buf.write(header, header.length)
                                     common.buf.write(length, length.length)
                                     common.buf.write(raw.slice(index, index + size), size)
-                                    console.log("write to socket header, length", common.buf.length())
+                                    console.log("== write to socket, length", common.buf.length())
                                     common.socket.send(common.buf.bytes())
                                     index = index + size
                                 }
@@ -304,6 +303,8 @@ app.get("/api/ssh", async (c) => {
     const rule = c.req.query("rule") || ""
     const mode = c.req.query("mode") || ""
 
+    console.log(`name: ${name}, code: ${code}, rule: ${rule}, mode: ${mode}`)
+
     const regex = /^([a-zA-Z0-9.]+):(\d+)$/
     if ([ruleConnector, ruleAgent].includes(rule) && [modeDirect, modeDirectMux].includes(mode) && regex.test(addr)) {
         const tokens = regex.exec(addr) || []
@@ -311,31 +312,28 @@ app.get("/api/ssh", async (c) => {
         const port = parseInt(tokens[2])
         console.log(`${addr} hostname: ${hostname}, port:${port}`)
         const {response, socket} = Deno.upgradeWebSocket(c.req.raw)
-        socket.onerror = (e: any) => {
-            console.log("socket onerror", e.message);
-        }
-        socket.onclose = () => {
-            console.log("socket closed");
-        }
-        socket.onopen = () => {
+        if (mode == modeDirectMux) {
             new MuxSocketStream(new WebSocketStream(new EmendWebsocket(socket, `${rule}_${code}_${addr}`)))
+        } else {
+            const local = new WebSocketStream(new EmendWebsocket(socket, `${rule}_${code}_${addr}`))
+            socket.onopen = () => {
 
-            // Deno.connect({
-            //     port: port,
-            //     hostname: hostname,
-            // }).then((remote) => {
-            //
-            //
-            //     local.readable.pipeTo(remote.writable).catch((e) => {
-            //         console.log("socket exception", e.message)
-            //     })
-            //     remote.readable.pipeTo(local.writable).catch((e) => {
-            //         console.log("socket exception", e.message)
-            //     })
-            // }).catch((e) => {
-            //     local.socket.close()
-            //     console.log("socket exception", e.message)
-            // })
+
+                Deno.connect({
+                    port: port,
+                    hostname: hostname,
+                }).then((remote) => {
+                    local.readable.pipeTo(remote.writable).catch((e) => {
+                        console.log("socket exception", e.message)
+                    })
+                    remote.readable.pipeTo(local.writable).catch((e) => {
+                        console.log("socket exception", e.message)
+                    })
+                }).catch((e) => {
+                    local.socket.close()
+                    console.log("socket exception", e.message)
+                })
+            }
         }
         return response
     }
@@ -348,7 +346,6 @@ app.get("/api/ssh", async (c) => {
             return new Response("agent not running.");
         }
     }
-    console.log(`name: ${name}, code: ${code}, rule: ${rule}`)
 
     const {response, socket} = Deno.upgradeWebSocket(c.req.raw)
     if (rule === ruleManage) {

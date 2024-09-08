@@ -68,27 +68,16 @@ func main() {
 		c := over.NewClient(*serverEndpoint, nil)
 		var proxies []map[string]interface{}
 
-		if *mux {
-			proxies = append(proxies, map[string]interface{}{
-				"type":   ctx.WlessMux,
-				"name":   "proxy2",
-				"local":  *name,
-				"remote": "",
-				"direct": "send",
-				"server": *serverEndpoint,
-				"mode":   wss.ModeDirectMux,
-			})
-		} else {
-			proxies = append(proxies, map[string]interface{}{
-				"type":   ctx.Wless,
-				"name":   "proxy1",
-				"local":  *name,
-				"remote": "",
-				"direct": "send",
-				"server": *serverEndpoint,
-				"mode":   wss.ModeDirect,
-			})
-		}
+		proxies = append(proxies, map[string]interface{}{
+			"type":   ctx.Wless,
+			"name":   "proxy1",
+			"local":  *name,
+			"remote": "",
+			"direct": "send",
+			"server": *serverEndpoint,
+			"mode":   wss.ModeDirect,
+			"mux":    *mux,
+		})
 
 		err := c.Serve(config.RawConfig{
 			Listen:  *listenAddr,
