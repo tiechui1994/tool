@@ -410,6 +410,10 @@ export default {
             const u = "https://tcpover.glitch.me" + path.substring("/proxy".length)
             console.log("request url:", u)
             return await proxy(request, u)
+        } else if (path.startsWith("/vercel")) {
+            const u = "https://api.quinn.eu.org" + path.substring("/vercel".length)
+            console.log("request url:", u)
+            return await proxy(request, u)
         }
 
         const upgradeHeader = request.headers.get('Upgrade');
