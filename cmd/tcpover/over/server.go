@@ -146,7 +146,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if regexp.MustCompile(`^/https?://`).MatchString(r.RequestURI) {
 			u, _ = url.Parse(r.RequestURI[1:])
 		} else {
-			u, _ = url.Parse("https://ghproxy.com")
+			u, _ = url.Parse("https://api.quinn.eu.org")
 		}
 		log.Printf("url: %v", u)
 		s.ProxyHandler(u, w, r)
