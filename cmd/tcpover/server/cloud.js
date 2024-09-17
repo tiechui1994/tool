@@ -415,7 +415,11 @@ export default {
             const u = "https://api.quinn.eu.org" + path.substring("/vercel".length)
             console.log("request url:", u)
             return await proxy(request, u)
-        } else if (path.startsWith("/https://") || path.startsWith("/http://")) {
+        } else if (path.startsWith("/lade")) {
+            const u = "https://web-tiechui1994.ladeapp.com" + path.substring("/lade".length)
+            console.log("request url:", u)
+            return await proxy(request, u)
+        }else if (path.startsWith("/https://") || path.startsWith("/http://")) {
             const u = path.substring(1)
             console.log("request url:", u)
             return await proxy(request, u)

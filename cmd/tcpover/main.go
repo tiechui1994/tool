@@ -49,6 +49,7 @@ func main() {
 	}
 
 	if *runAsServer {
+		log.Printf("server [%v] start ...", *listenAddr)
 		s := over.NewServer()
 		if err := http.ListenAndServe(*listenAddr, s); err != nil {
 			log.Fatalln(err)
