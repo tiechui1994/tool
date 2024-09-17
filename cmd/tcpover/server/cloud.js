@@ -149,7 +149,8 @@ class MuxSocketStream {
         const sessions = this.sessions
 
         const writableStream = new WritableStream({
-            start(controller) {},
+            start(controller) {
+            },
             async write(chunk, controller) {
                 if (remainChunk && remainChunk.byteLength > 0) {
                     const newChunk = new Uint8Array(chunk.length + remainChunk.length)
@@ -412,6 +413,10 @@ export default {
             return await proxy(request, u)
         } else if (path.startsWith("/vercel")) {
             const u = "https://api.quinn.eu.org" + path.substring("/vercel".length)
+            console.log("request url:", u)
+            return await proxy(request, u)
+        } else if (path.startsWith("/https://") || path.startsWith("/http://")) {
+            const u = path.substring(1)
             console.log("request url:", u)
             return await proxy(request, u)
         }
