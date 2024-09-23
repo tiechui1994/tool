@@ -57,6 +57,7 @@ func (c *Client) Serve(config config.RawConfig) error {
 			return err
 		}
 
+
 		transport.RegisterProxy(proxy)
 	}
 

@@ -2,7 +2,6 @@ package buf
 
 import (
 	"io"
-	"log"
 )
 
 func copyBuffer(dst Writer, src Reader) (err error) {
@@ -29,9 +28,6 @@ func copyBuffer(dst Writer, src Reader) (err error) {
 // Copy dumps all payload from reader to writer or stops when an error occurs. It returns nil when EOF.
 func Copy(reader Reader, writer Writer) (err error) {
 	err = copyBuffer(writer, reader)
-	if err != nil {
-		log.Printf("Copy:: %+v", err)
-	}
 	if err != nil && err != io.EOF {
 		return err
 	}

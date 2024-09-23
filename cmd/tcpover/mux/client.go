@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/tiechui1994/tool/cmd/tcpover/mux/buf"
@@ -18,6 +19,7 @@ type ClientWorker struct {
 	sessionManager *SessionManager
 	remote         io.ReadWriteCloser
 	limit          ClientStrategy
+	once           sync.Once
 	done           chan struct{}
 }
 
@@ -64,6 +66,12 @@ func (m *ClientWorker) Closed() bool {
 	default:
 		return false
 	}
+}
+
+func (m *ClientWorker) close()  {
+	m.once.Do(func() {
+		close(m.done)
+	})
 }
 
 // forward conn by local
@@ -119,7 +127,7 @@ func (m *ClientWorker) monitor() {
 		case <-timer.C:
 			size := m.sessionManager.Size()
 			if size == 0 && m.sessionManager.CloseIfNoSession() {
-				close(m.done)
+				m.close()
 			}
 		}
 	}
@@ -128,7 +136,7 @@ func (m *ClientWorker) monitor() {
 // read data from remote
 func (m *ClientWorker) pullRemoteOutput() {
 	defer func() {
-		close(m.done)
+		m.close()
 	}()
 
 	reader := buf.NewStdReader(m.remote)

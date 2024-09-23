@@ -31,5 +31,5 @@ func ParseProxy(mapping map[string]interface{}) (ctx.Proxy, error) {
 		return nil, fmt.Errorf("unsupport proxy type: %s", proxyType)
 	}
 
-	return proxy, nil
+	return proxy, err
 }
