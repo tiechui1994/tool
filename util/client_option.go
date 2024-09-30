@@ -23,8 +23,14 @@ type cookieFunc interface {
 type clientConfig struct {
 	proxy func(*http.Request) (*url.URL, error)
 
-	once sync.Once // set once dns
-	dns  []string
+	once       sync.Once // set once dns
+	dns        []string
+	dnsTimeout time.Duration
+
+	dialerTimeout   time.Duration
+	dialerKeepAlive time.Duration
+	connTimeout     time.Duration
+	connLongTimeout time.Duration
 
 	cookieJar http.CookieJar
 	cookieFun cookieFunc
@@ -119,6 +125,38 @@ func WithClientDNS(dns []string) ClientOption {
 	})
 }
 
+func WithDNSTimeout(timeout time.Duration) ClientOption {
+	return newFuncClientOption(func(config *clientConfig) {
+		if timeout < time.Second {
+			timeout = time.Second
+		}
+		config.dnsTimeout = timeout
+	})
+}
+
+func WithDialerTimeout(timeout time.Duration) ClientOption {
+	return newFuncClientOption(func(config *clientConfig) {
+		if timeout < time.Second {
+			timeout = time.Second
+		}
+		config.dialerTimeout = timeout
+	})
+}
+
+func WithConnTimeout(timeout, longTimeout time.Duration) ClientOption {
+	return newFuncClientOption(func(config *clientConfig) {
+		if timeout < time.Second {
+			timeout = time.Second
+		}
+		if timeout > longTimeout {
+			longTimeout = timeout
+		}
+
+		config.connTimeout = timeout
+		config.connLongTimeout = longTimeout
+	})
+}
+
 func WithClientCookieJar(name string) ClientOption {
 	return newFuncClientOption(func(config *clientConfig) {
 		if config.cookieFun != nil {
@@ -196,6 +234,12 @@ func NewClient(opts ...ClientOption) *EmbedClient {
 		dir:   globalClient.config.dir,
 		dns:   globalClient.config.dns,
 		proxy: globalClient.config.proxy,
+
+		dialerTimeout:   globalClient.config.dialerTimeout,
+		dialerKeepAlive: globalClient.config.dialerKeepAlive,
+		dnsTimeout:      globalClient.config.dnsTimeout,
+		connTimeout:     globalClient.config.connTimeout,
+		connLongTimeout: globalClient.config.connLongTimeout,
 	}
 
 	for _, opt := range opts {
@@ -210,7 +254,7 @@ func (c *EmbedClient) init() {
 			PreferGo: true, // 表示使用 Go 的 DNS
 			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 				d := net.Dialer{
-					Timeout: time.Millisecond * time.Duration(10000),
+					Timeout: c.config.dnsTimeout,
 				}
 				dns := c.config.dns[int(rand.Int31n(int32(len(c.config.dns))))]
 				conn, err := d.DialContext(ctx, network, dns)
@@ -223,11 +267,11 @@ func (c *EmbedClient) init() {
 				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 					d := net.Dialer{
 						Resolver:  resolver,
-						Timeout:   15 * time.Second,
-						KeepAlive: 5 * time.Minute,
+						Timeout:   c.config.dialerTimeout,
+						KeepAlive: c.config.dialerKeepAlive,
 					}
 				retry:
-					conn, err := d.Dial(network, addr)
+					conn, err := d.DialContext(ctx, network, addr)
 					if err != nil {
 						if val, ok := err.(*net.OpError); ok &&
 							strings.Contains(val.Err.Error(), "no suitable address found") {
@@ -236,7 +280,7 @@ func (c *EmbedClient) init() {
 
 						return nil, err
 					}
-					return newTimeoutConn(conn, 15*time.Second, 30*time.Second), nil
+					return newTimeoutConn(conn, c.config.connTimeout, c.config.connLongTimeout), nil
 				},
 				DisableKeepAlives: true,
 				TLSClientConfig: &tls.Config{

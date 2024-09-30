@@ -54,7 +54,7 @@ type Jar struct {
 }
 
 var (
-	agent  string
+	agent string
 )
 
 var globalClient *EmbedClient
@@ -69,6 +69,11 @@ func init() {
 		"112.124.47.27:53", "114.215.126.16:53",
 		"208.67.222.222:53", "208.67.220.220:53",
 	}
+	config.dnsTimeout = 10* time.Second
+	config.dialerTimeout = 15*time.Second
+	config.dialerKeepAlive = 5 * time.Minute
+	config.connTimeout = 15*time.Second
+	config.connLongTimeout = 30*time.Second
 
 	home := os.Getenv("HOME")
 	if home == "" {
@@ -86,6 +91,18 @@ func RegisterDNS(dns []string) {
 
 func RegisterProxy(proxy func(*http.Request) (*url.URL, error)) {
 	WithClientProxy(proxy).apply(globalClient.config)
+}
+
+func RegisterDNSTimeout(timeout time.Duration)  {
+	WithDNSTimeout(timeout).apply(globalClient.config)
+}
+
+func RegisterDialerTimeout(timeout time.Duration)  {
+	WithDialerTimeout(timeout).apply(globalClient.config)
+}
+
+func RegisterConnTimeout(timeout, longTimeout time.Duration)  {
+	WithConnTimeout(timeout, longTimeout).apply(globalClient.config)
 }
 
 func RegisterCookieJar(name string) {

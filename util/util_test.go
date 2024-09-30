@@ -1,6 +1,9 @@
 package util
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func init() {
 	RegisterDNS([]string{
@@ -15,5 +18,8 @@ func TestGET(t *testing.T) {
 }
 
 func TestLogRequest(t *testing.T) {
-	GET("https://www.natfrp.com/cgi/tunnel/auth")
+	RegisterDNSTimeout(time.Second)
+	RegisterConnTimeout(time.Second, 2*time.Second)
+	_, err := GET("https://www.baidu.com")
+	t.Log(err)
 }

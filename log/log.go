@@ -9,8 +9,8 @@ import (
 )
 
 var (
-	logCh  = make(chan interface{})
-	source = NewObservable(logCh)
+	logCh  = make(chan interface{}, 512)
+	source = newObservable(logCh)
 	level  = INFO
 )
 

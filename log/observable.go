@@ -55,7 +55,7 @@ func (o *Observable) UnSubscribe(sub Subscription) {
 	subscriber.Close()
 }
 
-func NewObservable(any Iterable) *Observable {
+func newObservable(any Iterable) *Observable {
 	observable := &Observable{
 		iterable: any,
 		listener: map[Subscription]*Subscriber{},
