@@ -22,9 +22,14 @@ const (
 	ZoneShanghai = "Asia/Shanghai"
 )
 
-func getClient(token *oauth2.Token) *http.Client {
+func getClient(token *Token) *http.Client {
 	config := &oauth2.Config{}
-	return config.Client(context.Background(), token)
+	return config.Client(context.Background(), &oauth2.Token{
+		AccessToken: token.AccessToken,
+		RefreshToken: token.RefreshToken,
+		TokenType: token.TokenType,
+		Expiry: token.Expiry,
+	})
 }
 
 type EventDateTime struct {
@@ -47,6 +52,13 @@ type Event struct {
 	Recurrence Recurrence
 	Body       json.RawMessage
 	Request    Request
+}
+
+type Token struct {
+	AccessToken string `json:"access_token"`
+	TokenType string `json:"token_type,omitempty"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	Expiry time.Time `json:"expiry,omitempty"`
 }
 
 type EventOption interface {
@@ -130,7 +142,7 @@ func WithForever(c Cron, interval ...int) Recurrence {
 	}).apply()
 }
 
-func DeleteEvents(token oauth2.Token, start, end string) error {
+func DeleteEvents(token Token, start, end string) error {
 	service, err := calendar.NewService(context.Background(),
 		option.WithHTTPClient(getClient(&token)))
 	if err != nil {
@@ -166,7 +178,7 @@ func DeleteEvents(token oauth2.Token, start, end string) error {
 	return err
 }
 
-func DeleteEvent(token oauth2.Token, eventID string) error {
+func DeleteEvent(token Token, eventID string) error {
 	service, err := calendar.NewService(context.Background(),
 		option.WithHTTPClient(getClient(&token)))
 	if err != nil {
@@ -200,7 +212,7 @@ func DeleteEvent(token oauth2.Token, eventID string) error {
 	return delEvent(token, eventIdList)
 }
 
-func delEvent(token oauth2.Token, eventIdList []string) error {
+func delEvent(token Token, eventIdList []string) error {
 	service, err := calendar.NewService(context.Background(),
 		option.WithHTTPClient(getClient(&token)))
 	if err != nil {
@@ -243,7 +255,7 @@ func delEvent(token oauth2.Token, eventIdList []string) error {
 	return nil
 }
 
-func InsertEvent(event Event, token oauth2.Token) (err error) {
+func InsertEvent(event Event, token Token) (err error) {
 	if event.TimeAt == nil {
 		return fmt.Errorf("attr TimeAt must be set")
 	}
