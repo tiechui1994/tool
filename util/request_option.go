@@ -12,6 +12,7 @@ import (
 
 type httpOptions struct {
 	test          bool
+	testPeriod    int64
 	debug         bool
 	header        map[string]string
 	body          io.Reader
@@ -84,8 +85,10 @@ func WithBody(body interface{}) Option {
 	})
 }
 
-func WithTest() Option {
+func WithTest(periodMS ...int64) Option {
 	return newFuncDialOption(func(options *httpOptions) {
+		periodMS = append(periodMS, -1)
+		options.testPeriod = periodMS[0]
 		options.test = true
 	})
 }

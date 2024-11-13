@@ -20,6 +20,7 @@ import (
 )
 
 type testDataStu struct {
+	Date   int64
 	Raw    json.RawMessage
 	Header http.Header
 }
@@ -148,7 +149,9 @@ try:
 
 	if options.test {
 		if v := c.testRequest(request); v != nil {
-			return v.Raw, v.Header, nil
+			if options.testPeriod < 0 || time.Now().Unix() - v.Date < options.testPeriod * 1000 {
+				return v.Raw, v.Header, nil
+			}
 		}
 	}
 
@@ -220,7 +223,7 @@ try:
 	}
 
 	if options.test {
-		c.testResponse(request, testDataStu{raw, response.Header})
+		c.testResponse(request, testDataStu{time.Now().Unix(), raw, response.Header})
 	}
 
 	return raw, response.Header, err

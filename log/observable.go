@@ -5,14 +5,14 @@ import (
 	"sync"
 )
 
-type Observable struct {
+type observable struct {
 	iterable Iterable
 	listener map[Subscription]*Subscriber
 	mux      sync.Mutex
 	done     bool
 }
 
-func (o *Observable) process() {
+func (o *observable) process() {
 	for item := range o.iterable {
 		o.mux.Lock()
 		for _, sub := range o.listener {
@@ -23,7 +23,7 @@ func (o *Observable) process() {
 	o.close()
 }
 
-func (o *Observable) close() {
+func (o *observable) close() {
 	o.mux.Lock()
 	defer o.mux.Unlock()
 
@@ -33,7 +33,7 @@ func (o *Observable) close() {
 	}
 }
 
-func (o *Observable) Subscribe() (Subscription, error) {
+func (o *observable) Subscribe() (Subscription, error) {
 	o.mux.Lock()
 	defer o.mux.Unlock()
 	if o.done {
@@ -44,7 +44,7 @@ func (o *Observable) Subscribe() (Subscription, error) {
 	return subscriber.Out(), nil
 }
 
-func (o *Observable) UnSubscribe(sub Subscription) {
+func (o *observable) UnSubscribe(sub Subscription) {
 	o.mux.Lock()
 	defer o.mux.Unlock()
 	subscriber, exist := o.listener[sub]
@@ -55,8 +55,8 @@ func (o *Observable) UnSubscribe(sub Subscription) {
 	subscriber.Close()
 }
 
-func newObservable(any Iterable) *Observable {
-	observable := &Observable{
+func newObservable(any Iterable) *observable {
+	observable := &observable{
 		iterable: any,
 		listener: map[Subscription]*Subscriber{},
 	}
