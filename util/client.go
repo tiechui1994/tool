@@ -3,7 +3,6 @@ package util
 import (
 	"compress/flate"
 	"compress/gzip"
-	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -120,7 +119,7 @@ try:
 		uRL.Host = options.randomHost(uRL.Host)
 		u = uRL.String()
 	}
-	request, err := http.NewRequestWithContext(context.Background(), method, u, options.body)
+	request, err := http.NewRequestWithContext(options.ctx, method, u, options.body)
 	if err != nil {
 		return nil, nil, err
 	}
