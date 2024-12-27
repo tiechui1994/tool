@@ -24,6 +24,7 @@ import (
 	"github.com/dustinxie/ecc"
 	"github.com/tiechui1994/tool/log"
 	"github.com/tiechui1994/tool/util"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -582,7 +583,7 @@ func Download(file File, parallel int, dir string, token Token) error {
 	}
 
 	log.Infoln("download file=%q size=%v sha1=%v ", file.Name, file.Size, file.Hash)
-	var group util.Group
+	var group singleflight.Group
 	var wg sync.WaitGroup
 	count := 0
 	log.Infoln("download file=%q parallel=%v batch %v", file.Name, parallel, batch)

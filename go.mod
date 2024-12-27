@@ -7,5 +7,6 @@ require (
 	github.com/sirupsen/logrus v1.9.0
 	github.com/tidwall/gjson v1.14.4
 	golang.org/x/oauth2 v0.7.0
+	golang.org/x/sync v0.1.0
 	google.golang.org/api v0.121.0
 )

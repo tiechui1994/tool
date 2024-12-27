@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"net/textproto"
 	"net/url"
 	"strings"
 	"sync"
@@ -45,7 +46,6 @@ type simpleCookieJar struct {
 }
 
 func (s *simpleCookieJar) Cookies(u *url.URL) []*http.Cookie {
-	fmt.Println("Cookies", u.String())
 	return s.privateJar.Cookies(u)
 }
 
@@ -154,6 +154,56 @@ func WithConnTimeout(timeout, longTimeout time.Duration) ClientOption {
 
 		config.connTimeout = timeout
 		config.connLongTimeout = longTimeout
+	})
+}
+
+func WithClientInitCookieJar(name string, endpoint, cookie string) ClientOption {
+	return newFuncClientOption(func(config *clientConfig) {
+		if config.cookieFun != nil {
+			panic("cookieFun")
+		}
+
+		u, err := url.Parse(endpoint)
+		if err != nil {
+			panic("invalid cookie url," + err.Error())
+		}
+
+		var cookies []*http.Cookie
+		parts := strings.Split(textproto.TrimString(cookie), ";")
+		for _, part := range parts {
+			if part == "" {
+				continue
+			}
+			kv := strings.Split(textproto.TrimString(part), "=")
+			if len(kv) == 2 {
+				cookies = append(cookies, &http.Cookie{
+					Name:  kv[0],
+					Value: kv[1],
+					Raw:   part,
+				})
+			}
+		}
+
+		config.sync = make(chan struct{})
+		cj := &simpleCookieJar{name: name}
+		cj.afterCookieSave = func() {
+			config.sync <- struct{}{}
+		}
+		cj.privateJar, _ = cookiejar.New(nil)
+		cj.privateJar.SetCookies(u, cookies)
+		config.cookieJar = cj
+
+		go func() {
+			timer := time.NewTicker(5 * time.Second)
+			for {
+				select {
+				case <-timer.C:
+					serialize(cj.privateJar, name)
+				case <-config.sync:
+					serialize(cj.privateJar, name)
+				}
+			}
+		}()
 	})
 }
 
