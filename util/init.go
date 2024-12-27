@@ -22,22 +22,6 @@ var agents = []string{
 	"Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:79.0) Gecko/20100101 Firefox/79.0",
 }
 
-type entry struct {
-	Name       string    `json:"name"`
-	Value      string    `json:"value"`
-	Domain     string    `json:"domain"`
-	Path       string    `json:"path"`
-	SameSite   string    `json:"samesite"`
-	Secure     bool      `json:"secure"`
-	HttpOnly   bool      `json:"httponly"`
-	Persistent bool      `json:"persistent"`
-	HostOnly   bool      `json:"host_only"`
-	Expires    time.Time `json:"expires"`
-	Creation   time.Time `json:"creation"`
-	LastAccess time.Time `json:"lastaccess"`
-	SeqNum     uint64    `json:"seqnum"`
-}
-
 type Jar struct {
 	PsList cookiejar.PublicSuffixList `json:"pslist"`
 
