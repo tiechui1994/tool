@@ -192,6 +192,7 @@ func main() {
 			fmt.Println("download failed", v.FileName, err)
 			os.Exit(1)
 		}
+		fmt.Println(down[0].DownloadUrl)
 		_ = Download(down[0], 8, *dir)
 	}
 }

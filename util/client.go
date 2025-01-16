@@ -1,6 +1,7 @@
 package util
 
 import (
+	"bytes"
 	"compress/flate"
 	"compress/gzip"
 	"encoding/hex"
@@ -65,6 +66,21 @@ func File(u, method string, opts ...Option) (io io.Reader, err error) {
 	return globalClient.File(u, method, opts...)
 }
 
+func drainBody(b io.ReadCloser) (r1, r2 io.ReadCloser, err error) {
+	if b == nil || b == http.NoBody {
+		// No copying needed. Preserve the magic sentinel meaning of NoBody.
+		return http.NoBody, http.NoBody, nil
+	}
+	var buf bytes.Buffer
+	if _, err = buf.ReadFrom(b); err != nil {
+		return nil, b, err
+	}
+	if err = b.Close(); err != nil {
+		return nil, b, err
+	}
+	return io.NopCloser(&buf), io.NopCloser(bytes.NewReader(buf.Bytes())), nil
+}
+
 func (c *EmbedClient) debugRequest(req *http.Request, now time.Time) {
 	uv := req.URL
 	method := req.Method
@@ -112,14 +128,35 @@ func (c *EmbedClient) Request(method, u string, opts ...Option) (json.RawMessage
 		opt.apply(options)
 	}
 
+	// dump body reader
+	var err error
+	var body = io.NopCloser(options.body)
+	var dump io.ReadCloser
+	if options.retry > 0 && (method == http.MethodPut || method == http.MethodPost) {
+		body, dump, err = drainBody(body)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
 	try := 0
 try:
-	if try > 0 && options.randomHost != nil {
-		uRL, _ := url.Parse(u)
-		uRL.Host = options.randomHost(uRL.Host)
-		u = uRL.String()
+	if try > 0 {
+		if options.randomHost != nil {
+			uRL, _ := url.Parse(u)
+			uRL.Host = options.randomHost(uRL.Host)
+			u = uRL.String()
+		}
+
+		// dump dump reader
+		if method == http.MethodPut || method == http.MethodPost {
+			body, dump, err = drainBody(dump)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
 	}
-	request, err := http.NewRequestWithContext(options.ctx, method, u, options.body)
+	request, err := http.NewRequestWithContext(options.ctx, method, u, body)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -148,7 +185,7 @@ try:
 
 	if options.test {
 		if v := c.testRequest(request); v != nil {
-			if options.testPeriod < 0 || time.Now().Unix() - v.Date < options.testPeriod * 1000 {
+			if options.testPeriod < 0 || time.Now().Unix()-v.Date < options.testPeriod*1000 {
 				return v.Raw, v.Header, nil
 			}
 		}
