@@ -14,7 +14,7 @@ func init() {
 }
 
 func TestGET(t *testing.T) {
-	GET("https://www.tiechui1994.tk", WithRetry(2))
+	POST("https://api.quinn.eu.xx", WithRetry(2))
 }
 
 func TestLogRequest(t *testing.T) {

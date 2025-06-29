@@ -1,6 +1,7 @@
 package log
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -14,7 +15,7 @@ var (
 )
 
 func init() {
-	logrus.SetOutput(os.Stdout)
+	logrus.SetOutput(NewTimeoutWriter(time.Second))
 	logrus.SetLevel(InfoLevel)
 }
 
@@ -32,7 +33,6 @@ func Infoln(format string, args ...interface{})  {
 	sprint(InfoLevel, fmt.Sprintf(format, args...))
 	logrus.Infof(format, args...)
 }
-
 
 func Warnln(format string, args ...interface{})  {
 	sprint(WarnLevel, fmt.Sprintf(format, args...))
@@ -78,6 +78,37 @@ func Subscribe() Subscriber {
 func UnSubscribe(sub Subscriber) {
 	if hook != nil {
 		hook.RemoveSubscriber(sub.uuid())
+	}
+}
+
+
+type stdTimeoutWriter struct {
+	timeout time.Duration
+}
+
+func NewTimeoutWriter(timeout time.Duration) io.Writer  {
+	return &stdTimeoutWriter{timeout: timeout}
+}
+
+func (w *stdTimeoutWriter) Write(p []byte) (int, error)  {
+	ctx, cancel := context.WithTimeout(context.Background(), w.timeout)
+	defer cancel()
+
+	done := make(chan struct{n int; err error})
+	go func() {
+		var  result struct {
+			n   int
+			err error
+		}
+		result.n, result.err = os.Stdout.Write(p)
+		done <- result
+	}()
+
+	select {
+	case <-ctx.Done():
+		return 0, fmt.Errorf("write timeout")
+	case val := <-done:
+		return val.n, val.err
 	}
 }
 

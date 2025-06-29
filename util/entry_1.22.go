@@ -1,4 +1,5 @@
-//+build !go1.23,!go1.24,!go1.25
+//+build !go1.23
+//go:build !go1.23
 
 package util
 

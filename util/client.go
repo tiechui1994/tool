@@ -66,7 +66,7 @@ func File(u, method string, opts ...Option) (io io.Reader, err error) {
 	return globalClient.File(u, method, opts...)
 }
 
-func drainBody(b io.ReadCloser) (r1, r2 io.ReadCloser, err error) {
+func drainBody(b io.Reader) (r1, r2 io.Reader, err error) {
 	if b == nil || b == http.NoBody {
 		// No copying needed. Preserve the magic sentinel meaning of NoBody.
 		return http.NoBody, http.NoBody, nil
@@ -75,10 +75,7 @@ func drainBody(b io.ReadCloser) (r1, r2 io.ReadCloser, err error) {
 	if _, err = buf.ReadFrom(b); err != nil {
 		return nil, b, err
 	}
-	if err = b.Close(); err != nil {
-		return nil, b, err
-	}
-	return io.NopCloser(&buf), io.NopCloser(bytes.NewReader(buf.Bytes())), nil
+	return &buf, bytes.NewReader(buf.Bytes()), nil
 }
 
 func (c *EmbedClient) debugRequest(req *http.Request, now time.Time) {
@@ -130,8 +127,8 @@ func (c *EmbedClient) Request(method, u string, opts ...Option) (json.RawMessage
 
 	// dump body reader
 	var err error
-	var body = io.NopCloser(options.body)
-	var dump io.ReadCloser
+	var body = options.body
+	var dump io.Reader
 	if options.retry > 0 && (method == http.MethodPut || method == http.MethodPost) {
 		body, dump, err = drainBody(body)
 		if err != nil {
