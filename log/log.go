@@ -4,99 +4,80 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
 
 var (
-	logCh  = make(chan interface{}, 512)
-	source = newObservable(logCh)
-	level  = INFO
+	hook =  NewSubscriberHook()
 )
 
 func init() {
 	logrus.SetOutput(os.Stdout)
-	logrus.SetLevel(logrus.DebugLevel)
+	logrus.SetLevel(InfoLevel)
 }
 
-type Event struct {
-	LogLevel LogLevel
-	Payload  string
+func Traceln(format string, args ...interface{})  {
+	sprint(TraceLevel, fmt.Sprintf(format, args...))
+	logrus.Tracef(format, args...)
 }
 
-func (e *Event) Type() string {
-	return e.LogLevel.String()
+func Debugln(format string, args ...interface{})  {
+	sprint(DebugLevel, fmt.Sprintf(format, args...))
+	logrus.Debugf(format, args...)
+}
+
+func Infoln(format string, args ...interface{})  {
+	sprint(InfoLevel, fmt.Sprintf(format, args...))
+	logrus.Infof(format, args...)
+}
+
+
+func Warnln(format string, args ...interface{})  {
+	sprint(WarnLevel, fmt.Sprintf(format, args...))
+	logrus.Warnf(format, args...)
+}
+
+func Errorln(format string, args ...interface{})  {
+	sprint(ErrorLevel, fmt.Sprintf(format, args...))
+	logrus.Errorf(format, args...)
+}
+
+func Fatalln(format string, args ...interface{})  {
+	sprint(FatalLevel, fmt.Sprintf(format, args...))
+	logrus.Fatalf(format, args...)
+}
+
+func sprint(level Level, message string)  {
+	hook.Fire(&logrus.Entry{
+		Level: level,
+		Message: message,
+	})
 }
 
 func SetOutput(out io.Writer)  {
 	logrus.SetOutput(out)
 }
 
-func Infoln(format string, v ...interface{}) {
-	event := newLog(INFO, format, v...)
-	logCh <- event
-	print(event)
+func GetLevel() logrus.Level {
+	return logrus.GetLevel()
 }
 
-func Warnln(format string, v ...interface{}) {
-	event := newLog(WARNING, format, v...)
-	logCh <- event
-	print(event)
+func SetLevel(newLevel logrus.Level) {
+	logrus.SetLevel(newLevel)
 }
 
-func Errorln(format string, v ...interface{}) {
-	event := newLog(ERROR, format, v...)
-	logCh <- event
-	print(event)
-}
-
-func Debugln(format string, v ...interface{}) {
-	event := newLog(DEBUG, format, v...)
-	logCh <- event
-	print(event)
-}
-
-func Fatalln(format string, v ...interface{}) {
-	logrus.Fatalf(format, v...)
-}
-
-func Level() LogLevel {
-	return level
-}
-
-func SetLevel(newLevel LogLevel) {
-	level = newLevel
-}
-
-func Subscribe() Subscription {
-	sub, _ := source.Subscribe()
+func Subscribe() Subscriber {
+	id := time.Now().Format(time.RFC3339Nano)
+	sub := NewBaseSubscriber(id)
+	hook.AddSubscriber(sub)
 	return sub
 }
 
-func UnSubscribe(sub Subscription) {
-	source.UnSubscribe(sub)
-}
-
-func print(data *Event) {
-	if data.LogLevel < level {
-		return
-	}
-
-	switch data.LogLevel {
-	case INFO:
-		logrus.Infoln(data.Payload)
-	case WARNING:
-		logrus.Warnln(data.Payload)
-	case ERROR:
-		logrus.Errorln(data.Payload)
-	case DEBUG:
-		logrus.Debugln(data.Payload)
+func UnSubscribe(sub Subscriber) {
+	if hook != nil {
+		hook.RemoveSubscriber(sub.uuid())
 	}
 }
 
-func newLog(logLevel LogLevel, format string, v ...interface{}) *Event {
-	return &Event{
-		LogLevel: logLevel,
-		Payload:  fmt.Sprintf(format, v...),
-	}
-}
