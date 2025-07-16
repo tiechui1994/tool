@@ -24,7 +24,7 @@ import (
 	"github.com/dustinxie/ecc"
 	"github.com/tiechui1994/tool/log"
 	"github.com/tiechui1994/tool/util"
-	"golang.org/x/sync/singleflight"
+	"github.com/tiechui1994/tool/aliyun/singleflight"
 )
 
 const (
