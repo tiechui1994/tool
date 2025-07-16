@@ -15,11 +15,32 @@ import (
 )
 
 var agents = []string{
-	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.93 Safari/537.36",
-	"Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/534.57.2 (KHTML, like Gecko) Version/5.1.7 Safari/534.57.2",
+	// edge
+	"Mozilla/5.0 (X11; Ubuntu 20.04 LTS; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.2903.112",
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0 OneOutlook/1.2024.1028.400",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 11_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6497.170 Safari/537.36 Edg/130.0.2675.82",
 
-	"Mozilla/5.0 (Windows NT 6.1; WOW64; rv:34.0) Gecko/20100101 Firefox/34.0",
-	"Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:79.0) Gecko/20100101 Firefox/79.0",
+	// chrome
+	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/535.11 (KHTML, like Gecko) Ubuntu/24.04.1 Chrome/131.0.6778.200 Safari/537.36",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 15_1_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.205 Safari/537.36",
+	"Mozilla/5.0 (Linux; Android 12; SM-T867V Build/SP1A.210812.016) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.260 Safari/537.36",
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+
+	// firefox
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_2; rv:139.363.934) Gecko/20100101 Firefox/139.363.934",
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:139.0) Gecko/20100101 Firefox/139.0 OpenWave/93.4.3744.31",
+	"Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:139.0) adbeat.com/policy Gecko/20100101 Firefox/139.0",
+
+	// safari
+	"Mozilla/5.0 (Macintosh; ARM Mac OS X 15_4_0) AppleWebKit/621.1.15.11.10 (KHTML, like Gecko) Version/18.4 Safari/621.1.15.11",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Safari/605.1.40",
+	"Mozilla/5.0 (iPhone; CPU iPhone OS 15_6_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/604.1",
+	"Mozilla/5.0 (iPhone; CPU iPhone OS 18_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Mobile/15E148 Safari/605.1.15 PrivaBrowser-iOS/3.20/normal",
+
+	// android
+	"Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36",
+	"Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+	"Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36,gzip(gfe)",
 }
 
 type Jar struct {
@@ -53,11 +74,11 @@ func init() {
 		"112.124.47.27:53", "114.215.126.16:53",
 		"208.67.222.222:53", "208.67.220.220:53",
 	}
-	config.dnsTimeout = 10* time.Second
-	config.dialerTimeout = 15*time.Second
+	config.dnsTimeout = 10 * time.Second
+	config.dialerTimeout = 15 * time.Second
 	config.dialerKeepAlive = 5 * time.Minute
-	config.connTimeout = 15*time.Second
-	config.connLongTimeout = 30*time.Second
+	config.connTimeout = 15 * time.Second
+	config.connLongTimeout = 30 * time.Second
 
 	home := os.Getenv("HOME")
 	if home == "" {
@@ -77,15 +98,15 @@ func RegisterProxy(proxy func(*http.Request) (*url.URL, error)) {
 	WithClientProxy(proxy).apply(globalClient.config)
 }
 
-func RegisterDNSTimeout(timeout time.Duration)  {
+func RegisterDNSTimeout(timeout time.Duration) {
 	WithDNSTimeout(timeout).apply(globalClient.config)
 }
 
-func RegisterDialerTimeout(timeout time.Duration)  {
+func RegisterDialerTimeout(timeout time.Duration) {
 	WithDialerTimeout(timeout).apply(globalClient.config)
 }
 
-func RegisterConnTimeout(timeout, longTimeout time.Duration)  {
+func RegisterConnTimeout(timeout, longTimeout time.Duration) {
 	WithConnTimeout(timeout, longTimeout).apply(globalClient.config)
 }
 
@@ -95,6 +116,10 @@ func RegisterCookieJar(name string) {
 
 func RegisterCookieFun(name string) {
 	WithClientCookieFun(name).apply(globalClient.config)
+}
+
+func RegisterInitCookie(name, cookie, endpoint string) {
+	WithInitClientCookie(name, cookie, endpoint).apply(globalClient.config)
 }
 
 func Dir() string {
@@ -119,6 +144,16 @@ func UserAgent(args ...int) string {
 	}
 
 	return agent
+}
+
+func hashUserAgent(u string) string {
+	urL, err := url.Parse(u)
+	if err == nil {
+		u = urL.Hostname()
+	}
+
+	rnd := Fnv(u) % uint64(len(agents))
+	return agents[int(rnd)]
 }
 
 func WriteFile(filepath string, data interface{}) error {

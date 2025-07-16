@@ -19,7 +19,7 @@ type DriverQuark struct {
 }
 
 func NewQuark(cookie string) (*DriverQuark, error) {
-	client := util.NewClient(util.WithClientInitCookieJar("Quark", "https://drive.quark.cn", cookie))
+	client := util.NewClient(util.WithInitClientCookie("Quark", cookie, "https://drive.quark.cn"))
 	q := &DriverQuark{
 		client:  client,
 		pr:      "ucpro",

@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-type testDataStu struct {
+type cachedData struct {
 	Date   int64
 	Raw    json.RawMessage
 	Header http.Header
@@ -78,43 +78,47 @@ func drainBody(b io.Reader) (r1, r2 io.Reader, err error) {
 	return &buf, bytes.NewReader(buf.Bytes()), nil
 }
 
-func (c *EmbedClient) debugRequest(req *http.Request, now time.Time) {
+func (c *EmbedClient) dumpRequest(req *http.Request, now time.Time) {
 	uv := req.URL
 	method := req.Method
 
 	prefix := uv.Path[strings.LastIndex(uv.Path, "/")+1:]
 	key := fmt.Sprintf("%v_%v_%v_REQ.txt", prefix, strings.ToUpper(method), now.Format("150405999"))
-	bytes, _ := httputil.DumpRequestOut(req, true)
-	_ = ioutil.WriteFile(filepath.Join(c.config.dir, key), bytes, 0644)
+	raw, _ := httputil.DumpRequestOut(req, true)
+	_ = ioutil.WriteFile(filepath.Join(c.config.dir, key), raw, 0644)
 }
 
-func (c *EmbedClient) debugResponse(req *http.Request, resp *http.Response, now time.Time) {
+func (c *EmbedClient) dumpResponse(req *http.Request, resp *http.Response, now time.Time) {
 	uv := req.URL
 	method := req.Method
 
 	prefix := uv.Path[strings.LastIndex(uv.Path, "/")+1:]
 	key := fmt.Sprintf("%v_%v_%v_RESP.txt", prefix, strings.ToUpper(method), now.Format("150405999"))
-	bytes, _ := httputil.DumpResponse(resp, true)
-	_ = ioutil.WriteFile(filepath.Join(c.config.dir, key), bytes, 0644)
+	raw, _ := httputil.DumpResponse(resp, true)
+	_ = ioutil.WriteFile(filepath.Join(c.config.dir, key), raw, 0644)
 }
 
-func (c *EmbedClient) testRequest(req *http.Request) *testDataStu {
+func (c *EmbedClient) cacheRequest(req *http.Request) *cachedData {
 	key := hex.EncodeToString(MD5(req.Method + "_" + req.URL.String()))
 	testCacheFile := filepath.Join(c.config.dir, key)
 	if _, err := os.Stat(testCacheFile); err == nil || !os.IsNotExist(err) {
-		var stu testDataStu
-		if err = ReadFile(testCacheFile, &stu); err == nil {
-			return &stu
+		var data cachedData
+		if err = ReadFile(testCacheFile, &data); err == nil {
+			return &data
 		}
 	}
 
 	return nil
 }
 
-func (c *EmbedClient) testResponse(req *http.Request, data testDataStu) {
+func (c *EmbedClient) cacheResponse(req *http.Request, data cachedData) {
 	key := hex.EncodeToString(MD5(req.Method + "_" + req.URL.String()))
 	testCacheFile := filepath.Join(c.config.dir, key)
 	_ = WriteFile(testCacheFile, data)
+}
+
+func hasBody(method string) bool {
+	return method == http.MethodPut || method == http.MethodPost
 }
 
 func (c *EmbedClient) Request(method, u string, opts ...Option) (json.RawMessage, http.Header, error) {
@@ -129,7 +133,7 @@ func (c *EmbedClient) Request(method, u string, opts ...Option) (json.RawMessage
 	var err error
 	var body = options.body
 	var dump io.Reader
-	if options.retry > 0 && (method == http.MethodPut || method == http.MethodPost) {
+	if options.retry > 0 && hasBody(method) {
 		body, dump, err = drainBody(body)
 		if err != nil {
 			return nil, nil, err
@@ -146,7 +150,7 @@ try:
 		}
 
 		// dump dump reader
-		if method == http.MethodPut || method == http.MethodPost {
+		if hasBody(method) {
 			body, dump, err = drainBody(dump)
 			if err != nil {
 				return nil, nil, err
@@ -162,13 +166,13 @@ try:
 		request.Header.Set(k, v)
 	}
 	if request.Header.Get("User-Agent") == "" {
-		request.Header.Set("User-Agent", UserAgent())
+		request.Header.Set("User-Agent", hashUserAgent(u))
 	}
 	if val := request.Header.Get("Content-Length"); val != "" {
 		request.ContentLength, _ = strconv.ParseInt(val, 10, 64)
 	}
 	if c.config.cookieFun != nil {
-		c.config.cookieFun.LoadCookie(request)
+		c.config.cookieFun.Cookies(request)
 	}
 
 	if options.proxy != nil {
@@ -180,17 +184,17 @@ try:
 		}()
 	}
 
-	if options.test {
-		if v := c.testRequest(request); v != nil {
-			if options.testPeriod < 0 || time.Now().Unix()-v.Date < options.testPeriod*1000 {
+	if options.cached {
+		if v := c.cacheRequest(request); v != nil {
+			if options.cachedPeriod < 0 || time.Now().Unix()-v.Date < options.cachedPeriod*1000 {
 				return v.Raw, v.Header, nil
 			}
 		}
 	}
 
 	now := time.Now()
-	if options.debug {
-		c.debugRequest(request, now)
+	if options.dump {
+		c.dumpRequest(request, now)
 	}
 
 	response, err := c.Do(request)
@@ -207,8 +211,8 @@ try:
 		options.beforeRequest(request)
 	}
 
-	if options.debug {
-		c.debugResponse(request, response, now)
+	if options.dump {
+		c.dumpResponse(request, response, now)
 	}
 
 	var reader io.Reader
@@ -224,8 +228,8 @@ try:
 	default:
 		reader = response.Body
 	}
-	raw, err := ioutil.ReadAll(reader)
 
+	raw, err := ioutil.ReadAll(reader)
 	if err != nil && try < options.retry {
 		try += 1
 		time.Sleep(time.Second * time.Duration(try))
@@ -252,11 +256,11 @@ try:
 	}
 
 	if c.config.cookieFun != nil {
-		c.config.cookieFun.SaveCookie(request.URL, response)
+		c.config.cookieFun.SetCookies(request.URL, response)
 	}
 
-	if options.test {
-		c.testResponse(request, testDataStu{time.Now().Unix(), raw, response.Header})
+	if options.cached {
+		c.cacheResponse(request, cachedData{time.Now().Unix(), raw, response.Header})
 	}
 
 	return raw, response.Header, err
@@ -296,7 +300,7 @@ try:
 	for k, v := range options.header {
 		request.Header.Set(k, v)
 	}
-	request.Header.Set("user-agent", UserAgent())
+	request.Header.Set("User-Agent", hashUserAgent(u))
 
 	response, err := c.Do(request)
 	if err != nil && try < options.retry {

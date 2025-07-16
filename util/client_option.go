@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/cookiejar"
-	"net/textproto"
 	"net/url"
 	"strings"
 	"sync"
@@ -17,8 +16,8 @@ import (
 )
 
 type cookieFunc interface {
-	LoadCookie(req *http.Request)
-	SaveCookie(url *url.URL, resp *http.Response)
+	Cookies(req *http.Request)
+	SetCookies(url *url.URL, resp *http.Response)
 }
 
 type clientConfig struct {
@@ -62,13 +61,7 @@ type simpleCookieFun struct {
 	afterCookieSave func()
 }
 
-var cookieNameSanitizer = strings.NewReplacer("\n", "-", "\r", "-")
-
-func sanitizeCookieName(n string) string {
-	return cookieNameSanitizer.Replace(n)
-}
-
-func (s *simpleCookieFun) LoadCookie(req *http.Request) {
+func (s *simpleCookieFun) Cookies(req *http.Request) {
 	values := make([]string, 0)
 	for _, cookie := range s.privateJar.Cookies(req.URL) {
 		s := fmt.Sprintf("%s=%s", sanitizeCookieName(cookie.Name), cookie.Value)
@@ -77,13 +70,19 @@ func (s *simpleCookieFun) LoadCookie(req *http.Request) {
 	req.Header.Set("Cookie", strings.Join(values, "; "))
 }
 
-func (s *simpleCookieFun) SaveCookie(url *url.URL, resp *http.Response) {
+func (s *simpleCookieFun) SetCookies(url *url.URL, resp *http.Response) {
 	if rc := resp.Cookies(); len(rc) > 0 {
 		s.privateJar.SetCookies(url, rc)
 		if s.afterCookieSave != nil {
 			s.afterCookieSave()
 		}
 	}
+}
+
+var cookieNameSanitizer = strings.NewReplacer("\n", "-", "\r", "-")
+
+func sanitizeCookieName(n string) string {
+	return cookieNameSanitizer.Replace(n)
 }
 
 type ClientOption interface {
@@ -157,60 +156,10 @@ func WithConnTimeout(timeout, longTimeout time.Duration) ClientOption {
 	})
 }
 
-func WithClientInitCookieJar(name string, endpoint, cookie string) ClientOption {
-	return newFuncClientOption(func(config *clientConfig) {
-		if config.cookieFun != nil {
-			panic("cookieFun")
-		}
-
-		u, err := url.Parse(endpoint)
-		if err != nil {
-			panic("invalid cookie url," + err.Error())
-		}
-
-		var cookies []*http.Cookie
-		parts := strings.Split(textproto.TrimString(cookie), ";")
-		for _, part := range parts {
-			if part == "" {
-				continue
-			}
-			kv := strings.Split(textproto.TrimString(part), "=")
-			if len(kv) == 2 {
-				cookies = append(cookies, &http.Cookie{
-					Name:  kv[0],
-					Value: kv[1],
-					Raw:   part,
-				})
-			}
-		}
-
-		config.sync = make(chan struct{})
-		cj := &simpleCookieJar{name: name}
-		cj.afterCookieSave = func() {
-			config.sync <- struct{}{}
-		}
-		cj.privateJar, _ = cookiejar.New(nil)
-		cj.privateJar.SetCookies(u, cookies)
-		config.cookieJar = cj
-
-		go func() {
-			timer := time.NewTicker(5 * time.Second)
-			for {
-				select {
-				case <-timer.C:
-					serialize(cj.privateJar, name)
-				case <-config.sync:
-					serialize(cj.privateJar, name)
-				}
-			}
-		}()
-	})
-}
-
 func WithClientCookieJar(name string) ClientOption {
 	return newFuncClientOption(func(config *clientConfig) {
 		if config.cookieFun != nil {
-			panic("cookieFun")
+			panic("cookieFun exist, not support cookie jar")
 		}
 
 		config.sync = make(chan struct{})
@@ -243,7 +192,7 @@ func WithClientCookieJar(name string) ClientOption {
 func WithClientCookieFun(name string) ClientOption {
 	return newFuncClientOption(func(config *clientConfig) {
 		if config.cookieJar != nil {
-			panic("cookieJar")
+			panic("cookieJar exist, not support cookie fun")
 		}
 
 		config.sync = make(chan struct{})
@@ -256,6 +205,66 @@ func WithClientCookieFun(name string) ClientOption {
 		}
 		cf.afterCookieSave = func() {
 			config.sync <- struct{}{}
+		}
+		config.cookieFun = cf
+
+		go func() {
+			timer := time.NewTicker(5 * time.Second)
+			for {
+				select {
+				case <-timer.C:
+					serialize(cf.privateJar, name)
+				case <-config.sync:
+					serialize(cf.privateJar, name)
+				}
+			}
+		}()
+	})
+}
+
+func WithInitClientCookie(name, cookie, endpoint string) ClientOption {
+	return newFuncClientOption(func(config *clientConfig) {
+		if config.cookieJar != nil {
+			panic("cookieJar exist, not support cookie fun")
+		}
+
+		uv, err := url.Parse(endpoint)
+		if err != nil {
+			panic("invalid endpoint: " + endpoint + " " + err.Error())
+		}
+
+		var cookies []*http.Cookie
+		tokens := strings.Split(cookie, ";")
+		for _, token := range tokens {
+			token = strings.TrimSpace(token)
+			kv := strings.SplitN(token, "=", 2)
+			if len(kv) == 2 && len(strings.TrimSpace(kv[0])) > 0 && len(strings.TrimSpace(kv[1])) > 0 {
+				cookies = append(cookies, &http.Cookie{
+					Name:     strings.TrimSpace(kv[0]),
+					Value:    strings.TrimSpace(kv[1]),
+					Path:     "/",
+					HttpOnly: true,
+					Secure:   true,
+				})
+			}
+		}
+
+		if config.cookieFun != nil {
+			cf := config.cookieFun.(*simpleCookieFun)
+			cf.privateJar.SetCookies(uv, cookies)
+			return
+		}
+
+		jar, _ := cookiejar.New(nil)
+		jar.SetCookies(uv, cookies)
+
+		config.sync = make(chan struct{})
+		cf := &simpleCookieFun{
+			name:       name,
+			privateJar: jar,
+			afterCookieSave: func() {
+				config.sync <- struct{}{}
+			},
 		}
 		config.cookieFun = cf
 

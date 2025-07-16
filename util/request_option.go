@@ -11,9 +11,9 @@ import (
 )
 
 type httpOptions struct {
-	test          bool
-	testPeriod    int64
-	debug         bool
+	cached        bool
+	cachedPeriod  int64
+	dump          bool
 	header        map[string]string
 	body          io.Reader
 	retry         int
@@ -44,11 +44,6 @@ func defaultOptions() *httpOptions {
 		header: make(map[string]string),
 	}
 }
-
-// Empty
-type emptyHttpOption struct{}
-
-func (emptyHttpOption) apply(*httpOptions) {}
 
 // Func
 type funcHttpOption struct {
@@ -85,11 +80,22 @@ func WithBody(body interface{}) Option {
 	})
 }
 
+// Deprecated: this method is currently unused. It is use new replace
+//
+// WithCacheDebug()
 func WithTest(periodMS ...int64) Option {
 	return newFuncDialOption(func(options *httpOptions) {
 		periodMS = append(periodMS, -1)
-		options.testPeriod = periodMS[0]
-		options.test = true
+		options.cachedPeriod = periodMS[0]
+		options.cached = true
+	})
+}
+
+func WithCacheDebug(periodMS ...int64) Option {
+	return newFuncDialOption(func(options *httpOptions) {
+		periodMS = append(periodMS, -1)
+		options.cachedPeriod = periodMS[0]
+		options.cached = true
 	})
 }
 
@@ -105,9 +111,18 @@ func WithContext(ctx context.Context) Option {
 	})
 }
 
+// Deprecated: this method is currently unused. It is use new replace
+//
+// WithDump()
 func WithDebug() Option {
 	return newFuncDialOption(func(o *httpOptions) {
-		o.debug = true
+		o.dump = true
+	})
+}
+
+func WithDump() Option {
+	return newFuncDialOption(func(o *httpOptions) {
+		o.dump = true
 	})
 }
 

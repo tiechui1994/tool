@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
+	"hash/fnv"
 )
 
 func Hash(key, msg string) string {
@@ -23,4 +24,10 @@ func MD5(msg string) []byte {
 	sha := md5.New()
 	sha.Write([]byte(msg))
 	return sha.Sum(nil)
+}
+
+func Fnv(msg string) uint64 {
+	sha := fnv.New64a()
+	sha.Write([]byte(msg))
+	return sha.Sum64()
 }
