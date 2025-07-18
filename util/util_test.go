@@ -1,6 +1,7 @@
 package util
 
 import (
+	"net/http"
 	"testing"
 	"time"
 )
@@ -22,4 +23,34 @@ func TestLogRequest(t *testing.T) {
 	RegisterConnTimeout(time.Second, 2*time.Second)
 	_, err := GET("https://www.baidu.com")
 	t.Log(err)
+}
+
+func TestCookie(t *testing.T) {
+	RegisterCookieFun("cookie")
+	var token string
+	withAfterResponse := WithAfterResponse(func(w *http.Response) {
+		t := w.Header.Get("x-csrf-token")
+		if t != "" {
+			token = t
+		}
+	})
+	withBeforeRequest := WithBeforeRequest(func(r *http.Request) {
+		if token != "" {
+			r.Header.Set("x-csrf-token", token)
+		}
+	})
+
+	_, err := GET("https://stream.streamlit.app", withBeforeRequest, withAfterResponse)
+	t.Log(err)
+	_, err = GET("https://stream.streamlit.app/api/v2/app/status", WithHeader(map[string]string{
+		"origin": "https://stream.streamlit.app",
+	}), withBeforeRequest, withAfterResponse)
+	t.Log(err)
+
+	raw, err := POST("https://stream.streamlit.app/api/v2/app/resume", WithHeader(map[string]string{
+		"x-streamlit-machine-id": "11fc256f-c40b-467c-8754-a946bc4c6b2b",
+		"origin":                 "https://stream.streamlit.app",
+	}), withBeforeRequest, withAfterResponse)
+	t.Log(err)
+	t.Log(string(raw))
 }

@@ -130,6 +130,10 @@ func GetCookie(url *url.URL, name string) *http.Cookie {
 	return globalClient.GetCookie(url, name)
 }
 
+func SetCookie(url *url.URL, name, value string) {
+	globalClient.SetCookie(url, name, value)
+}
+
 func UserAgent(args ...int) string {
 	if agent != "" {
 		return agent

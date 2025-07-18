@@ -171,9 +171,6 @@ try:
 	if val := request.Header.Get("Content-Length"); val != "" {
 		request.ContentLength, _ = strconv.ParseInt(val, 10, 64)
 	}
-	if c.config.cookieFun != nil {
-		c.config.cookieFun.Cookies(request)
-	}
 
 	if options.proxy != nil {
 		transport := c.Transport.(*http.Transport)
@@ -197,6 +194,10 @@ try:
 		c.dumpRequest(request, now)
 	}
 
+	if options.beforeRequest != nil {
+		options.beforeRequest(request)
+	}
+
 	response, err := c.Do(request)
 	if err != nil && try < options.retry {
 		try += 1
@@ -207,12 +208,12 @@ try:
 		return nil, nil, err
 	}
 
-	if options.beforeRequest != nil {
-		options.beforeRequest(request)
-	}
-
 	if options.dump {
 		c.dumpResponse(request, response, now)
+	}
+
+	if options.afterResponse != nil {
+		options.afterResponse(response)
 	}
 
 	var reader io.Reader
@@ -239,10 +240,6 @@ try:
 		return nil, nil, err
 	}
 
-	if options.afterResponse != nil {
-		options.afterResponse(response)
-	}
-
 	if response.StatusCode >= 400 {
 		if try < options.retry {
 			try += 1
@@ -253,10 +250,6 @@ try:
 			return raw, response.Header, CodeError{method, u, response.StatusCode, ""}
 		}
 		return raw, response.Header, CodeError{method, u, response.StatusCode, string(raw)}
-	}
-
-	if c.config.cookieFun != nil {
-		c.config.cookieFun.SetCookies(request.URL, response)
 	}
 
 	if options.cached {
