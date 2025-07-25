@@ -1,48 +1,16 @@
 package util
 
 import (
-	"log"
+	"fmt"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
 	"strings"
 )
 
-func sanitizeCookieValue(v string) string {
-	v = sanitizeOrWarn("Cookie.Value", validCookieValueByte, v)
-	if len(v) == 0 {
-		return v
-	}
-	//note: fix some website bugs.
-	//if strings.ContainsAny(v, " ,") {
-	//	return `"` + v + `"`
-	//}
-	v = strings.ReplaceAll(v, " ,", ",")
-	return v
-}
-func validCookieValueByte(b byte) bool {
-	return 0x20 <= b && b < 0x7f && b != '"' && b != ';' && b != '\\'
-}
-func sanitizeOrWarn(fieldName string, valid func(byte) bool, v string) string {
-	ok := true
-	for i := 0; i < len(v); i++ {
-		if valid(v[i]) {
-			continue
-		}
-		log.Printf("net/http: invalid byte %q in %s; dropping invalid bytes", v[i], fieldName)
-		ok = false
-		break
-	}
-	if ok {
-		return v
-	}
-	buf := make([]byte, 0, len(v))
-	for i := 0; i < len(v); i++ {
-		if b := v[i]; valid(b) {
-			buf = append(buf, b)
-		}
-	}
-	return string(buf)
+type CustomerCookie interface {
+	Cookies(req *http.Request)
+	SetCookies(u *url.URL, resp *http.Response)
 }
 
 var cookieNameSanitizer = strings.NewReplacer("\n", "-", "\r", "-")
@@ -74,18 +42,20 @@ type simpleCookieFun struct {
 	afterCookieSave func()
 }
 
-func (s *simpleCookieFun) Cookies(url *url.URL) []*http.Cookie {
-	cookies := s.privateJar.Cookies(url)
-	for i, val := range cookies {
-		val.Value = sanitizeCookieValue(val.Value)
-		cookies[i] = val
+func (s *simpleCookieFun) Cookies(req *http.Request) {
+	values := make([]string, 0)
+	for _, cookie := range s.privateJar.Cookies(req.URL) {
+		s := fmt.Sprintf("%s=%s", sanitizeCookieName(cookie.Name), cookie.Value)
+		values = append(values, s)
 	}
-	return cookies
+	req.Header.Set("Cookie", strings.Join(values, "; "))
 }
 
-func (s *simpleCookieFun) SetCookies(url *url.URL, cookies []*http.Cookie) {
-	s.privateJar.SetCookies(url, cookies)
-	if s.afterCookieSave != nil {
-		s.afterCookieSave()
+func (s *simpleCookieFun) SetCookies(u *url.URL, resp *http.Response) {
+	if rc := resp.Cookies(); len(rc) > 0 {
+		s.privateJar.SetCookies(u, rc)
+		if s.afterCookieSave != nil {
+			s.afterCookieSave()
+		}
 	}
 }

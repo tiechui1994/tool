@@ -27,7 +27,7 @@ type clientConfig struct {
 	connLongTimeout time.Duration
 
 	cookieJar http.CookieJar
-	cookieFun http.CookieJar
+	cookieFun CustomerCookie
 	dir       string        // file jar dir
 	sync      chan struct{} // sync file jar
 }
@@ -317,7 +317,10 @@ func (c *EmbedClient) init() {
 		if c.config.cookieJar != nil {
 			client.Jar = c.config.cookieJar
 		} else if c.config.cookieFun != nil {
-			client.Jar = c.config.cookieFun
+			client.Transport = &customerTransport{
+				Transport:      client.Transport,
+				CustomerCookie: c.config.cookieFun,
+			}
 		}
 
 		c.Client = client
@@ -388,4 +391,26 @@ func (c *EmbedClient) SetCookie(u *url.URL, name, value string) {
 			Secure:   true,
 		},
 	})
+}
+
+type customerTransport struct {
+	Transport      http.RoundTripper
+	CustomerCookie CustomerCookie
+}
+
+func (c *customerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if c.CustomerCookie != nil {
+		c.CustomerCookie.Cookies(r)
+	}
+
+	resp, err := c.Transport.RoundTrip(r)
+	if err != nil {
+		return nil, err
+	}
+
+	if c.CustomerCookie != nil && resp != nil {
+		c.CustomerCookie.SetCookies(r.URL, resp)
+	}
+
+	return resp, nil
 }

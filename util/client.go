@@ -189,13 +189,13 @@ try:
 		}
 	}
 
-	now := time.Now()
-	if options.dump {
-		c.dumpRequest(request, now)
-	}
-
 	if options.beforeRequest != nil {
 		options.beforeRequest(request)
+	}
+
+	var now = time.Now()
+	if options.dump {
+		c.dumpRequest(request, now)
 	}
 
 	response, err := c.Do(request)
@@ -230,7 +230,7 @@ try:
 		reader = response.Body
 	}
 
-	raw, err := ioutil.ReadAll(reader)
+	raw, err := io.ReadAll(reader)
 	if err != nil && try < options.retry {
 		try += 1
 		time.Sleep(time.Second * time.Duration(try))
@@ -240,20 +240,15 @@ try:
 		return nil, nil, err
 	}
 
+	if options.cached {
+		c.cacheResponse(request, cachedData{time.Now().Unix(), raw, response.Header})
+	}
+
 	if response.StatusCode >= 400 {
-		if try < options.retry {
-			try += 1
-			time.Sleep(time.Second * time.Duration(try))
-			goto try
-		}
 		if strings.Contains(response.Header.Get("content-type"), "text/html") {
 			return raw, response.Header, CodeError{method, u, response.StatusCode, ""}
 		}
 		return raw, response.Header, CodeError{method, u, response.StatusCode, string(raw)}
-	}
-
-	if options.cached {
-		c.cacheResponse(request, cachedData{time.Now().Unix(), raw, response.Header})
 	}
 
 	return raw, response.Header, err

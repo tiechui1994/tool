@@ -1,6 +1,6 @@
 module github.com/tiechui1994/tool
 
-go 1.14
+go 1.16
 
 require (
 	github.com/dustinxie/ecc v0.0.0-20210511000915-959544187564
