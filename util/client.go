@@ -118,7 +118,7 @@ func (c *EmbedClient) cacheResponse(req *http.Request, data cachedData) {
 }
 
 func hasBody(method string) bool {
-	return method == http.MethodPut || method == http.MethodPost
+	return method == http.MethodPut || method == http.MethodPost || method == http.MethodDelete || method == http.MethodPatch
 }
 
 func (c *EmbedClient) Request(method, u string, opts ...Option) (json.RawMessage, http.Header, error) {
