@@ -130,8 +130,16 @@ func GetCookie(url *url.URL, name string) *http.Cookie {
 	return globalClient.GetCookie(url, name)
 }
 
+func GetCookies(url *url.URL) []*http.Cookie {
+	return globalClient.GetCookies(url)
+}
+
 func SetCookie(url *url.URL, name, value string) {
 	globalClient.SetCookie(url, name, value)
+}
+
+func ClearCookie(url *url.URL) error {
+	return globalClient.Clear(url)
 }
 
 func UserAgent(args ...int) string {

@@ -393,6 +393,22 @@ func (c *EmbedClient) SetCookie(u *url.URL, name, value string) {
 	})
 }
 
+func (c *EmbedClient) Clear(u *url.URL) error {
+	if c.config.cookieFun == nil && c.config.cookieJar == nil {
+		return nil
+	}
+
+	if c.config.cookieFun != nil {
+		cookieFun := c.config.cookieFun.(*simpleCookieFun)
+		return cookieFun.clear(u)
+	} else if c.config.cookieJar != nil {
+		cookieJar := c.config.cookieJar.(*simpleCookieJar)
+		return cookieJar.clear(u)
+	} else {
+		panic("no cookieJar")
+	}
+}
+
 type customerTransport struct {
 	Transport      http.RoundTripper
 	CustomerCookie CustomerCookie

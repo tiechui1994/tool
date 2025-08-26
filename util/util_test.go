@@ -2,6 +2,7 @@ package util
 
 import (
 	"net/http"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -53,4 +54,15 @@ func TestCookie(t *testing.T) {
 	}), withBeforeRequest, withAfterResponse)
 	t.Log(err)
 	t.Log(string(raw))
+}
+
+func TestCookieClean(t *testing.T) {
+	RegisterCookieJar("ai")
+
+	u, _ := url.Parse("https://aihub-run.gitcode.com/api/txt")
+	t.Log(GetCookies(u))
+
+	ClearCookie(u)
+	time.Sleep(time.Second)
+	t.Log(GetCookies(u))
 }
