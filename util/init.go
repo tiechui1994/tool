@@ -138,8 +138,8 @@ func SetCookie(url *url.URL, name, value string) {
 	globalClient.SetCookie(url, name, value)
 }
 
-func ClearCookie(url *url.URL) error {
-	return globalClient.Clear(url)
+func CleanCookie(url *url.URL) error {
+	return globalClient.CleanCookie(url)
 }
 
 func UserAgent(args ...int) string {

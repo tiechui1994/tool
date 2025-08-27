@@ -28,34 +28,19 @@ type simpleCookieJar struct {
 	afterCookieSave func()
 }
 
-func (s *simpleCookieJar) Cookies(u *url.URL) []*http.Cookie {
-	return s.privateJar.Cookies(u)
-}
-
-func (s *simpleCookieJar) SetCookies(u *url.URL, cookies []*http.Cookie) {
-	s.privateJar.SetCookies(u, cookies)
-	if s.afterCookieSave != nil {
-		s.afterCookieSave()
+func (s *simpleCookieJar) Cookies(req *http.Request) {
+	for _, cookie := range s.privateJar.Cookies(req.URL) {
+		req.AddCookie(cookie)
 	}
 }
 
-func (s *simpleCookieJar) clear(u *url.URL) error {
-	host, err := canonicalHost(u.Host)
-	if err != nil {
-		return err
+func (s *simpleCookieJar) SetCookies(u *url.URL, resp *http.Response) {
+	if rc := resp.Cookies(); len(rc) > 0 {
+		s.privateJar.SetCookies(u, rc)
+		if s.afterCookieSave != nil {
+			s.afterCookieSave()
+		}
 	}
-
-	jar := (*Jar)(unsafe.Pointer(s.privateJar))
-	key := jarKey(host, jar.PsList)
-	jar.Mu.Lock()
-	delete(jar.Entries, key)
-	jar.Mu.Unlock()
-
-	if s.afterCookieSave != nil {
-		s.afterCookieSave()
-	}
-
-	return nil
 }
 
 type simpleCookieFun struct {
@@ -82,20 +67,33 @@ func (s *simpleCookieFun) SetCookies(u *url.URL, resp *http.Response) {
 	}
 }
 
-func (s *simpleCookieFun) clear(u *url.URL) error {
+func clean(u *url.URL, cc CustomerCookie) error {
 	host, err := canonicalHost(u.Host)
 	if err != nil {
 		return err
 	}
 
-	jar := (*Jar)(unsafe.Pointer(s.privateJar))
-	key := jarKey(host, jar.PsList)
-	jar.Mu.Lock()
-	delete(jar.Entries, key)
-	jar.Mu.Unlock()
+	switch s := cc.(type) {
+	case *simpleCookieJar:
+		jar := (*Jar)(unsafe.Pointer(s.privateJar))
+		key := jarKey(host, jar.PsList)
+		jar.Mu.Lock()
+		jar.Entries[key] = map[string]entry{}
+		jar.Mu.Unlock()
 
-	if s.afterCookieSave != nil {
-		s.afterCookieSave()
+		if s.afterCookieSave != nil {
+			s.afterCookieSave()
+		}
+	case *simpleCookieFun:
+		jar := (*Jar)(unsafe.Pointer(s.privateJar))
+		key := jarKey(host, jar.PsList)
+		jar.Mu.Lock()
+		jar.Entries[key] = map[string]entry{}
+		jar.Mu.Unlock()
+
+		if s.afterCookieSave != nil {
+			s.afterCookieSave()
+		}
 	}
 
 	return nil

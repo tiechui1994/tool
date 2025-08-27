@@ -26,7 +26,7 @@ type clientConfig struct {
 	connTimeout     time.Duration
 	connLongTimeout time.Duration
 
-	cookieJar http.CookieJar
+	cookieJar CustomerCookie
 	cookieFun CustomerCookie
 	dir       string        // file jar dir
 	sync      chan struct{} // sync file jar
@@ -314,13 +314,9 @@ func (c *EmbedClient) init() {
 			},
 		}
 
-		if c.config.cookieJar != nil {
-			client.Jar = c.config.cookieJar
-		} else if c.config.cookieFun != nil {
-			client.Transport = &customerTransport{
-				Transport:      client.Transport,
-				CustomerCookie: c.config.cookieFun,
-			}
+		client.Transport = &customerTransport{
+			Transport: client.Transport,
+			config:    c.config,
 		}
 
 		c.Client = client
@@ -393,30 +389,35 @@ func (c *EmbedClient) SetCookie(u *url.URL, name, value string) {
 	})
 }
 
-func (c *EmbedClient) Clear(u *url.URL) error {
+func (c *EmbedClient) CleanCookie(u *url.URL) error {
 	if c.config.cookieFun == nil && c.config.cookieJar == nil {
 		return nil
 	}
 
 	if c.config.cookieFun != nil {
-		cookieFun := c.config.cookieFun.(*simpleCookieFun)
-		return cookieFun.clear(u)
+		return clean(u, c.config.cookieFun)
 	} else if c.config.cookieJar != nil {
-		cookieJar := c.config.cookieJar.(*simpleCookieJar)
-		return cookieJar.clear(u)
+		return clean(u, c.config.cookieJar)
 	} else {
 		panic("no cookieJar")
 	}
 }
 
 type customerTransport struct {
-	Transport      http.RoundTripper
-	CustomerCookie CustomerCookie
+	Transport http.RoundTripper
+	config    *clientConfig
 }
 
 func (c *customerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	if c.CustomerCookie != nil {
-		c.CustomerCookie.Cookies(r)
+	var cookie CustomerCookie
+	if c.config.cookieFun != nil {
+		cookie = c.config.cookieFun
+	} else if c.config.cookieJar != nil {
+		cookie = c.config.cookieJar
+	}
+
+	if cookie != nil {
+		cookie.Cookies(r)
 	}
 
 	resp, err := c.Transport.RoundTrip(r)
@@ -424,8 +425,8 @@ func (c *customerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 
-	if c.CustomerCookie != nil && resp != nil {
-		c.CustomerCookie.SetCookies(r.URL, resp)
+	if cookie != nil && resp != nil {
+		cookie.SetCookies(r.URL, resp)
 	}
 
 	return resp, nil

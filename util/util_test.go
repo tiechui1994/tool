@@ -56,13 +56,35 @@ func TestCookie(t *testing.T) {
 	t.Log(string(raw))
 }
 
-func TestCookieClean(t *testing.T) {
-	RegisterCookieJar("ai")
+func TestClearCookie(t *testing.T) {
+	go func() {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
+			http.SetCookie(writer, &http.Cookie{
+				Name:  "SESSION",
+				Value: time.Now().Format("2006-01-02T15:04:05.99999999"),
+			})
+		})
+		server := http.Server{
+			Addr:    ":8080",
+			Handler: mux,
+		}
+		server.ListenAndServe()
+	}()
 
-	u, _ := url.Parse("https://aihub-run.gitcode.com/api/txt")
-	t.Log(GetCookies(u))
+	time.Sleep(500 * time.Millisecond)
+	_, _ = GET("http://127.0.0.1:8080/")
 
-	ClearCookie(u)
+	RegisterCookieJar("local")
+
+	_, _ = GET("http://127.0.0.1:8080/")
+
+	u, _ := url.Parse("http://127.0.0.1:8080/")
+	t.Log("GetCookies 1:", GetCookies(u))
+	t.Logf("CleanCookie: %v", CleanCookie(u))
 	time.Sleep(time.Second)
-	t.Log(GetCookies(u))
+	t.Log("GetCookies 1:", GetCookies(u))
+
+	_, _ = GET("http://127.0.0.1:8080/")
+	t.Log("GetCookies 3:", GetCookies(u))
 }
