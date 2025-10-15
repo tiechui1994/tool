@@ -245,6 +245,11 @@ try:
 	}
 
 	if response.StatusCode >= 400 {
+		if try < options.retry {
+			try += 1
+			time.Sleep(time.Second * time.Duration(try))
+			goto try
+		}
 		if strings.Contains(response.Header.Get("content-type"), "text/html") {
 			return raw, response.Header, CodeError{method, u, response.StatusCode, ""}
 		}
@@ -300,7 +305,7 @@ try:
 		return nil, err
 	}
 
-	if response.StatusCode != 200 {
+	if response.StatusCode >= 400 {
 		return io, CodeError{method, u, response.StatusCode, ""}
 	}
 

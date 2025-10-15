@@ -11,53 +11,61 @@ import (
 )
 
 var (
-	hook =  NewSubscriberHook()
+	hook = NewSubscriberHook()
 )
 
 func init() {
 	logrus.SetOutput(NewTimeoutWriter(time.Second))
 	logrus.SetLevel(InfoLevel)
+	logrus.SetFormatter(&logrus.TextFormatter{
+		DisableTimestamp: true,
+		DisableQuote:     true,
+	})
 }
 
-func Traceln(format string, args ...interface{})  {
+func Traceln(format string, args ...interface{}) {
 	sprint(TraceLevel, fmt.Sprintf(format, args...))
 	logrus.Tracef(format, args...)
 }
 
-func Debugln(format string, args ...interface{})  {
+func Debugln(format string, args ...interface{}) {
 	sprint(DebugLevel, fmt.Sprintf(format, args...))
 	logrus.Debugf(format, args...)
 }
 
-func Infoln(format string, args ...interface{})  {
+func Infoln(format string, args ...interface{}) {
 	sprint(InfoLevel, fmt.Sprintf(format, args...))
 	logrus.Infof(format, args...)
 }
 
-func Warnln(format string, args ...interface{})  {
+func Warnln(format string, args ...interface{}) {
 	sprint(WarnLevel, fmt.Sprintf(format, args...))
 	logrus.Warnf(format, args...)
 }
 
-func Errorln(format string, args ...interface{})  {
+func Errorln(format string, args ...interface{}) {
 	sprint(ErrorLevel, fmt.Sprintf(format, args...))
 	logrus.Errorf(format, args...)
 }
 
-func Fatalln(format string, args ...interface{})  {
+func Fatalln(format string, args ...interface{}) {
 	sprint(FatalLevel, fmt.Sprintf(format, args...))
 	logrus.Fatalf(format, args...)
 }
 
-func sprint(level Level, message string)  {
+func sprint(level Level, message string) {
 	hook.Fire(&logrus.Entry{
-		Level: level,
+		Level:   level,
 		Message: message,
 	})
 }
 
-func SetOutput(out io.Writer)  {
+func SetOutput(out io.Writer) {
 	logrus.SetOutput(out)
+}
+
+func SetFormatter(f logrus.Formatter) {
+	logrus.SetFormatter(f)
 }
 
 func GetLevel() logrus.Level {
@@ -81,22 +89,24 @@ func UnSubscribe(sub Subscriber) {
 	}
 }
 
-
 type stdTimeoutWriter struct {
 	timeout time.Duration
 }
 
-func NewTimeoutWriter(timeout time.Duration) io.Writer  {
+func NewTimeoutWriter(timeout time.Duration) io.Writer {
 	return &stdTimeoutWriter{timeout: timeout}
 }
 
-func (w *stdTimeoutWriter) Write(p []byte) (int, error)  {
+func (w *stdTimeoutWriter) Write(p []byte) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), w.timeout)
 	defer cancel()
 
-	done := make(chan struct{n int; err error})
+	done := make(chan struct {
+		n   int
+		err error
+	})
 	go func() {
-		var  result struct {
+		var result struct {
 			n   int
 			err error
 		}
@@ -111,4 +121,3 @@ func (w *stdTimeoutWriter) Write(p []byte) (int, error)  {
 		return val.n, val.err
 	}
 }
-
