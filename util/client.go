@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -85,7 +84,7 @@ func (c *EmbedClient) dumpRequest(req *http.Request, now time.Time) {
 	prefix := uv.Path[strings.LastIndex(uv.Path, "/")+1:]
 	key := fmt.Sprintf("%v_%v_%v_REQ.txt", prefix, strings.ToUpper(method), now.Format("150405999"))
 	raw, _ := httputil.DumpRequestOut(req, true)
-	_ = ioutil.WriteFile(filepath.Join(c.config.dir, key), raw, 0644)
+	_ = os.WriteFile(filepath.Join(c.config.dir, key), raw, 0644)
 }
 
 func (c *EmbedClient) dumpResponse(req *http.Request, resp *http.Response, now time.Time) {
@@ -95,7 +94,7 @@ func (c *EmbedClient) dumpResponse(req *http.Request, resp *http.Response, now t
 	prefix := uv.Path[strings.LastIndex(uv.Path, "/")+1:]
 	key := fmt.Sprintf("%v_%v_%v_RESP.txt", prefix, strings.ToUpper(method), now.Format("150405999"))
 	raw, _ := httputil.DumpResponse(resp, true)
-	_ = ioutil.WriteFile(filepath.Join(c.config.dir, key), raw, 0644)
+	_ = os.WriteFile(filepath.Join(c.config.dir, key), raw, 0644)
 }
 
 func (c *EmbedClient) cacheRequest(req *http.Request) *cachedData {
@@ -215,6 +214,7 @@ try:
 	if options.afterResponse != nil {
 		options.afterResponse(response)
 	}
+	defer response.Body.Close()
 
 	var reader io.Reader
 	encoding := response.Header.Get("Content-Encoding")
