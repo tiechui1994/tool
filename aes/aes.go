@@ -5,6 +5,8 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"errors"
+	"fmt"
 	"io"
 )
 
@@ -124,6 +126,12 @@ func (e *Aes) Encrypt(raw []byte) ([]byte, error) {
 		dst = enc
 	}
 
+	defer func() {
+		if e := recover(); e != nil {
+			err = fmt.Errorf("%v", e)
+		}
+	}()
+
 	// block大小和初始向量大小一定要一致
 	switch e.Mode {
 	case MODECBC:
@@ -151,7 +159,7 @@ func (e *Aes) Decrypt(raw []byte) ([]byte, error) {
 
 	blockSize := block.BlockSize()
 	if len(raw) < blockSize {
-		panic("ciphertext too short")
+		return nil, errors.New("ciphertext too short")
 	}
 
 	var iv []byte
@@ -168,8 +176,14 @@ func (e *Aes) Decrypt(raw []byte) ([]byte, error) {
 
 	// CBC mode always works in whole blocks.
 	if len(raw)%blockSize != 0 {
-		panic("ciphertext is not a multiple of the block size")
+		return nil, errors.New("ciphertext is not a multiple of the block size")
 	}
+
+	defer func() {
+		if e := recover(); e != nil {
+			err = fmt.Errorf("%v", e)
+		}
+	}()
 
 	switch e.Mode {
 	case MODECBC:

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -22,6 +23,7 @@ type httpOptions struct {
 	afterResponse func(w *http.Response)
 	randomHost    func(string) string
 	proxy         func(*http.Request) (*url.URL, error)
+	proxyDail     func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 func (opt *httpOptions) Clone() *httpOptions {
@@ -147,5 +149,11 @@ func WithRandomHost(f func(string) string) Option {
 func WithProxy(f func(*http.Request) (*url.URL, error)) Option {
 	return newFuncDialOption(func(opt *httpOptions) {
 		opt.proxy = f
+	})
+}
+
+func WithProxyDail(f func(ctx context.Context, network, addr string) (net.Conn, error)) Option {
+	return newFuncDialOption(func(ho *httpOptions) {
+		ho.proxyDail = f
 	})
 }

@@ -171,13 +171,33 @@ try:
 		request.ContentLength, _ = strconv.ParseInt(val, 10, 64)
 	}
 
+	client := c.Client
 	if options.proxy != nil {
-		transport := c.Transport.(*http.Transport)
-		proxy := transport.Proxy
-		transport.Proxy = options.proxy
-		defer func() {
-			transport.Proxy = proxy
-		}()
+		switch transport := client.Transport.(type) {
+		case *http.Transport:
+			clone := transport.Clone()
+			clone.Proxy = options.proxy
+			client = &http.Client{Transport: clone}
+		case *customerTransport:
+			clone := transport.Transport.(*http.Transport).Clone()
+			clone.Proxy = options.proxy
+			transport.Transport = clone
+			client = &http.Client{Transport: transport}
+		}
+	} else if options.proxyDail != nil {
+		switch transport := client.Transport.(type) {
+		case *http.Transport:
+			clone := transport.Clone()
+			clone.Proxy = nil
+			clone.DialContext = options.proxyDail
+			client = &http.Client{Transport: clone}
+		case *customerTransport:
+			clone := transport.Transport.(*http.Transport).Clone()
+			clone.Proxy = nil
+			clone.DialContext = options.proxyDail
+			transport.Transport = clone
+			client = &http.Client{Transport: transport}
+		}
 	}
 
 	if options.cached {
@@ -197,7 +217,7 @@ try:
 		c.dumpRequest(request, now)
 	}
 
-	response, err := c.Do(request)
+	response, err := client.Do(request)
 	if err != nil && try < options.retry {
 		try += 1
 		time.Sleep(time.Second * time.Duration(try))
