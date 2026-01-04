@@ -287,17 +287,17 @@ func (c *EmbedClient) init() {
 						Timeout:   c.config.dialerTimeout,
 						KeepAlive: c.config.dialerKeepAlive,
 					}
-				retry:
-					conn, err := d.DialContext(ctx, network, addr)
-					if err != nil {
-						if val, ok := err.(*net.OpError); ok &&
-							strings.Contains(val.Err.Error(), "no suitable address found") {
-							goto retry
+					for {
+						conn, err := d.DialContext(ctx, network, addr)
+						if err != nil {
+							if val, ok := err.(*net.OpError); ok &&
+								strings.Contains(val.Err.Error(), "no suitable address found") {
+								continue
+							}
+							return nil, err
 						}
-
-						return nil, err
+						return newTimeoutConn(conn, c.config.connTimeout, c.config.connLongTimeout), nil
 					}
-					return newTimeoutConn(conn, c.config.connTimeout, c.config.connLongTimeout), nil
 				},
 				DisableKeepAlives: true,
 				TLSClientConfig: &tls.Config{

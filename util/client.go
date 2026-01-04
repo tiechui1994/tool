@@ -35,10 +35,9 @@ func (err CodeError) Error() string {
 	if err.Message == "" {
 		return fmt.Sprintf("%v %q : status: %v", err.Method, err.URL,
 			http.StatusText(err.Code))
-	} else {
-		return fmt.Sprintf("%v %q : (status:%v, message:%v)", err.Method, err.URL,
-			http.StatusText(err.Code), err.Message)
 	}
+	return fmt.Sprintf("%v %q : (status:%v, message:%v)", err.Method, err.URL,
+		http.StatusText(err.Code), err.Message)
 }
 
 func Request(method, u string, opts ...Option) (json.RawMessage, http.Header, error) {
@@ -100,7 +99,7 @@ func (c *EmbedClient) dumpResponse(req *http.Request, resp *http.Response, now t
 func (c *EmbedClient) cacheRequest(req *http.Request) *cachedData {
 	key := hex.EncodeToString(MD5(req.Method + "_" + req.URL.String()))
 	testCacheFile := filepath.Join(c.config.dir, key)
-	if _, err := os.Stat(testCacheFile); err == nil || !os.IsNotExist(err) {
+	if _, err := os.Stat(testCacheFile); err == nil {
 		var data cachedData
 		if err = ReadFile(testCacheFile, &data); err == nil {
 			return &data
@@ -140,143 +139,162 @@ func (c *EmbedClient) Request(method, u string, opts ...Option) (json.RawMessage
 	}
 
 	try := 0
-try:
-	if try > 0 {
-		if options.randomHost != nil {
-			uRL, _ := url.Parse(u)
-			uRL.Host = options.randomHost(uRL.Host)
-			u = uRL.String()
-		}
+	for try <= options.retry {
+		if try > 0 {
+			if options.randomHost != nil {
+				uRL, _ := url.Parse(u)
+				uRL.Host = options.randomHost(uRL.Host)
+				u = uRL.String()
+			}
 
-		// dump dump reader
-		if hasBody(method) {
-			body, dump, err = drainBody(dump)
-			if err != nil {
-				return nil, nil, err
+			// dump dump reader
+			if hasBody(method) {
+				body, dump, err = drainBody(dump)
+				if err != nil {
+					return nil, nil, err
+				}
 			}
 		}
-	}
-	request, err := http.NewRequestWithContext(options.ctx, method, u, body)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	for k, v := range options.header {
-		request.Header.Set(k, v)
-	}
-	if request.Header.Get("User-Agent") == "" {
-		request.Header.Set("User-Agent", hashUserAgent(u))
-	}
-	if val := request.Header.Get("Content-Length"); val != "" {
-		request.ContentLength, _ = strconv.ParseInt(val, 10, 64)
-	}
-
-	client := c.Client
-	if options.proxy != nil {
-		switch transport := client.Transport.(type) {
-		case *http.Transport:
-			clone := transport.Clone()
-			clone.Proxy = options.proxy
-			client = &http.Client{Transport: clone}
-		case *customerTransport:
-			clone := transport.Transport.(*http.Transport).Clone()
-			clone.Proxy = options.proxy
-			transport.Transport = clone
-			client = &http.Client{Transport: transport}
-		}
-	} else if options.proxyDail != nil {
-		switch transport := client.Transport.(type) {
-		case *http.Transport:
-			clone := transport.Clone()
-			clone.Proxy = nil
-			clone.DialContext = options.proxyDail
-			client = &http.Client{Transport: clone}
-		case *customerTransport:
-			clone := transport.Transport.(*http.Transport).Clone()
-			clone.Proxy = nil
-			clone.DialContext = options.proxyDail
-			transport.Transport = clone
-			client = &http.Client{Transport: transport}
-		}
-	}
-
-	if options.cached {
-		if v := c.cacheRequest(request); v != nil {
-			if options.cachedPeriod < 0 || time.Now().Unix()-v.Date < options.cachedPeriod*1000 {
-				return v.Raw, v.Header, nil
-			}
-		}
-	}
-
-	if options.beforeRequest != nil {
-		options.beforeRequest(request)
-	}
-
-	var now = time.Now()
-	if options.dump {
-		c.dumpRequest(request, now)
-	}
-
-	response, err := client.Do(request)
-	if err != nil && try < options.retry {
-		try += 1
-		time.Sleep(time.Second * time.Duration(try))
-		goto try
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if options.dump {
-		c.dumpResponse(request, response, now)
-	}
-
-	if options.afterResponse != nil {
-		options.afterResponse(response)
-	}
-	defer response.Body.Close()
-
-	var reader io.Reader
-	encoding := response.Header.Get("Content-Encoding")
-	switch strings.ToLower(encoding) {
-	case "gzip":
-		reader, err = gzip.NewReader(response.Body)
+		request, err := http.NewRequestWithContext(options.ctx, method, u, body)
 		if err != nil {
 			return nil, nil, err
 		}
-	case "deflate":
-		reader = flate.NewReader(reader)
-	default:
-		reader = response.Body
-	}
 
-	raw, err := io.ReadAll(reader)
-	if err != nil && try < options.retry {
-		try += 1
-		time.Sleep(time.Second * time.Duration(try))
-		goto try
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if options.cached {
-		c.cacheResponse(request, cachedData{time.Now().Unix(), raw, response.Header})
-	}
-
-	if response.StatusCode >= 400 {
-		if try < options.retry {
-			try += 1
-			time.Sleep(time.Second * time.Duration(try))
-			goto try
+		for k, v := range options.header {
+			request.Header.Set(k, v)
 		}
-		if strings.Contains(response.Header.Get("content-type"), "text/html") {
-			return raw, response.Header, CodeError{method, u, response.StatusCode, ""}
+		if request.Header.Get("User-Agent") == "" {
+			request.Header.Set("User-Agent", hashUserAgent(u))
 		}
-		return raw, response.Header, CodeError{method, u, response.StatusCode, string(raw)}
+		if val := request.Header.Get("Content-Length"); val != "" {
+			request.ContentLength, _ = strconv.ParseInt(val, 10, 64)
+		}
+
+		client := c.Client
+		if options.proxy != nil {
+			switch transport := client.Transport.(type) {
+			case *http.Transport:
+				clone := transport.Clone()
+				clone.Proxy = options.proxy
+				client = &http.Client{Transport: clone}
+			case *customerTransport:
+				clone := transport.Transport.(*http.Transport).Clone()
+				clone.Proxy = options.proxy
+				transport.Transport = clone
+				client = &http.Client{Transport: transport}
+			}
+		} else if options.proxyDail != nil {
+			switch transport := client.Transport.(type) {
+			case *http.Transport:
+				clone := transport.Clone()
+				clone.Proxy = nil
+				clone.DialContext = options.proxyDail
+				client = &http.Client{Transport: clone}
+			case *customerTransport:
+				clone := transport.Transport.(*http.Transport).Clone()
+				clone.Proxy = nil
+				clone.DialContext = options.proxyDail
+				transport.Transport = clone
+				client = &http.Client{Transport: transport}
+			}
+		}
+
+		if options.cached {
+			if v := c.cacheRequest(request); v != nil {
+				if options.cachedPeriod < 0 || time.Now().Unix()-v.Date < options.cachedPeriod*1000 {
+					return v.Raw, v.Header, nil
+				}
+			}
+		}
+
+		if options.beforeRequest != nil {
+			options.beforeRequest(request)
+		}
+
+		var now = time.Now()
+		if options.dump {
+			c.dumpRequest(request, now)
+		}
+
+		response, err := client.Do(request)
+		if err != nil {
+			if try < options.retry {
+				try++
+				time.Sleep(time.Second * time.Duration(try))
+				continue
+			}
+			return nil, nil, err
+		}
+
+		if options.dump {
+			c.dumpResponse(request, response, now)
+		}
+
+		if options.afterResponse != nil {
+			options.afterResponse(response)
+		}
+
+		raw, headers, err := func() (json.RawMessage, http.Header, error) {
+			defer response.Body.Close()
+
+			var reader io.Reader
+			var gzipReader *gzip.Reader
+			var flatReader io.ReadCloser
+			encoding := response.Header.Get("Content-Encoding")
+			switch strings.ToLower(encoding) {
+			case "gzip":
+				var err error
+				gzipReader, err = gzip.NewReader(response.Body)
+				if err != nil {
+					return nil, nil, err
+				}
+				defer gzipReader.Close()
+				reader = gzipReader
+			case "deflate":
+				flatReader = flate.NewReader(response.Body)
+				defer flatReader.Close()
+				reader = flatReader
+			default:
+				reader = response.Body
+			}
+
+			raw, err := io.ReadAll(reader)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			return raw, response.Header, nil
+		}()
+
+		if err != nil {
+			if try < options.retry {
+				try++
+				time.Sleep(time.Second * time.Duration(try))
+				continue
+			}
+			return nil, nil, err
+		}
+
+		if options.cached {
+			c.cacheResponse(request, cachedData{time.Now().Unix(), raw, headers})
+		}
+
+		if response.StatusCode >= 400 {
+			if try < options.retry {
+				try++
+				time.Sleep(time.Second * time.Duration(try))
+				continue
+			}
+			if strings.Contains(response.Header.Get("content-type"), "text/html") {
+				return raw, headers, CodeError{method, u, response.StatusCode, ""}
+			}
+			return raw, headers, CodeError{method, u, response.StatusCode, string(raw)}
+		}
+
+		return raw, headers, nil
 	}
 
-	return raw, response.Header, err
+	return nil, nil, fmt.Errorf("max retries exceeded")
 }
 
 func (c *EmbedClient) POST(u string, opts ...Option) (raw json.RawMessage, err error) {
@@ -308,26 +326,33 @@ func (c *EmbedClient) File(u, method string, opts ...Option) (io io.Reader, err 
 	}
 
 	try := 0
-try:
-	request, _ := http.NewRequestWithContext(options.ctx, method, u, options.body)
-	for k, v := range options.header {
-		request.Header.Set(k, v)
-	}
-	request.Header.Set("User-Agent", hashUserAgent(u))
+	for try <= options.retry {
+		request, err := http.NewRequestWithContext(options.ctx, method, u, options.body)
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range options.header {
+			request.Header.Set(k, v)
+		}
+		request.Header.Set("User-Agent", hashUserAgent(u))
 
-	response, err := c.Do(request)
-	if err != nil && try < options.retry {
-		try += 1
-		time.Sleep(time.Second * time.Duration(try))
-		goto try
-	}
-	if err != nil {
-		return nil, err
+		response, err := c.Do(request)
+		if err != nil {
+			if try < options.retry {
+				try++
+				time.Sleep(time.Second * time.Duration(try))
+				continue
+			}
+			return nil, err
+		}
+
+		if response.StatusCode >= 400 {
+			response.Body.Close()
+			return nil, CodeError{method, u, response.StatusCode, ""}
+		}
+
+		return response.Body, nil
 	}
 
-	if response.StatusCode >= 400 {
-		return io, CodeError{method, u, response.StatusCode, ""}
-	}
-
-	return response.Body, err
+	return nil, fmt.Errorf("max retries exceeded")
 }

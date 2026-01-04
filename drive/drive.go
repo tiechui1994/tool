@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"strings"
@@ -33,12 +32,12 @@ var config struct {
 }
 
 func init() {
-	config.AccessToken = "ya29.a0ARrdaM-EWM4QCzV6prTezvE7DI2Ty4khhPu69LcvLzwGCgRgMmiV49LLWITP2DDO1dygi7adKCEPf_m4HBLQ5hodsqupft-cKKmBhuRZmJ3HBWsGZscwJTTRlaSAX8u1TEEeTckzn2avxrEwqcy2saI_fEKx"
-	config.RefreshToken = "1//04tyFUCO2L6AICgYIARAAGAQSNwF-L9IrYYhoxfhvegjU1B3iZ8PipxJdlpZ6FO3sX2ZpEFxoGclCHAf7oF2Kl3OpLUYWCFQUnr0"
+	// Load token from file if exists, otherwise use empty tokens
+	// Tokens should be obtained through OAuth flow, not hardcoded
 	config.Expired = time.Now().Add(3000 * time.Second)
 
 	if _, err := os.Stat("/tmp/token"); err == nil {
-		data, _ := ioutil.ReadFile("/tmp/token")
+		data, _ := os.ReadFile("/tmp/token")
 		json.Unmarshal(data, &config)
 	}
 
@@ -94,7 +93,7 @@ func ExchangeAuthCode(code string) error {
 	body.TokenUri = config.tokenuri
 	u := google + "/oauthplayground/exchangeAuthCode"
 
-	raw, err := util.POST(u,  util.WithBody(body))
+	raw, err := util.POST(u, util.WithBody(body))
 	if err != nil {
 		log.Errorln("ExchangeAuthCode:", err)
 		return err
@@ -166,7 +165,7 @@ func RefreshAccessToken() error {
 	log.Infoln("Expired:%v", config.Expired.Local())
 
 	data, _ := json.Marshal(config)
-	ioutil.WriteFile("/tmp/token", data, 0666)
+	os.WriteFile("/tmp/token", data, 0666)
 	return nil
 }
 
@@ -184,10 +183,11 @@ func Token(code string) error {
 	}
 
 	go func() {
-		tciker := time.NewTicker(3000 * time.Second)
+		ticker := time.NewTicker(3000 * time.Second)
+		defer ticker.Stop()
 		for {
 			select {
-			case <-tciker.C:
+			case <-ticker.C:
 				RefreshAccessToken()
 			}
 		}
@@ -302,39 +302,40 @@ operate:
 			fmt.Println(buf.String())
 		},
 		1: func() {
-		again:
-			var idx int
-			fmt.Printf("Please Select Download File:")
-			fmt.Scanf("%d", &idx)
-			if idx < 0 || idx >= len(files) {
+			for {
+				var idx int
+				fmt.Printf("Please Select Download File:")
+				fmt.Scanf("%d", &idx)
+				if idx >= 0 && idx < len(files) {
+					Download("./"+files[idx].Name, files[idx])
+					return
+				}
 				fmt.Println("please select download file. eg: 0")
-				goto again
 			}
-			Download("./"+files[idx].Name, files[idx])
 		},
 		2: func() {
 			os.Exit(0)
 		},
 	}
 
-retry:
-	var idx int
-	buf.Reset()
-	// op
-	err = op.Execute(&buf, ops)
-	if err != nil {
-		os.Exit(1)
-	}
-	fmt.Println(buf.String())
-	fmt.Printf("Please Select Opertion:")
-	fmt.Scanf("%d", &idx)
-	if idx < 0 || idx >= len(ops) {
-		fmt.Println("input fortmat error. eg: 0")
-		goto retry
-	}
+	for {
+		var idx int
+		buf.Reset()
+		// op
+		err = op.Execute(&buf, ops)
+		if err != nil {
+			os.Exit(1)
+		}
+		fmt.Println(buf.String())
+		fmt.Printf("Please Select Opertion:")
+		fmt.Scanf("%d", &idx)
+		if idx < 0 || idx >= len(ops) {
+			fmt.Println("input fortmat error. eg: 0")
+			continue
+		}
 
-	// operate
-	funcs[idx]()
-	goto retry
+		// operate
+		funcs[idx]()
+	}
 }
 

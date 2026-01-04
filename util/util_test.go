@@ -16,7 +16,7 @@ func init() {
 }
 
 func TestGET(t *testing.T) {
-	t.Log(POST("https://api.quinn.eu.xx", WithRetry(2)))
+	t.Log(POST("https://api.quinn.eu.com", WithRetry(2)))
 }
 
 func TestLogRequest(t *testing.T) {
