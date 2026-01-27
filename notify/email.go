@@ -5,7 +5,7 @@ import "github.com/tiechui1994/tool/util"
 var (
 	defaultURL     string
 	defaultSubject string
-	defaultFrom    EmailInfo
+	defaultFrom    string
 )
 
 func DefaultURL(u string) {
@@ -14,7 +14,7 @@ func DefaultURL(u string) {
 func DefaultSubject(subject string) {
 	defaultSubject = subject
 }
-func DefaultFrom(from EmailInfo) {
+func DefaultFrom(from string) {
 	defaultFrom = from
 }
 
@@ -25,11 +25,6 @@ const (
 	TypeHtml  EmailType = "text/html"
 )
 
-type EmailInfo struct {
-	Email string `json:"email"`
-	Name  string `json:"name,omitempty"`
-}
-
 type EmailContent struct {
 	Type  EmailType `json:"type"`
 	Value string    `json:"value"`
@@ -38,9 +33,8 @@ type EmailContent struct {
 type emailOption struct {
 	url     string
 	subject string
-	cc      []*EmailInfo
-	to      []*EmailInfo
-	from    *EmailInfo
+	to      []string
+	from    string
 	content []*EmailContent
 }
 
@@ -72,21 +66,15 @@ func WithSubject(subject string) Option {
 	})
 }
 
-func WithFrom(from EmailInfo) Option {
+func WithFrom(from string) Option {
 	return newFunc(func(opt *emailOption) {
-		opt.from = &from
+		opt.from = from
 	})
 }
 
-func WithCC(cc EmailInfo) Option {
+func WithTo(to string) Option {
 	return newFunc(func(opt *emailOption) {
-		opt.cc = append(opt.cc, &cc)
-	})
-}
-
-func WithTo(to EmailInfo) Option {
-	return newFunc(func(opt *emailOption) {
-		opt.to = append(opt.to, &to)
+		opt.to = append(opt.to, to)
 	})
 }
 
@@ -102,7 +90,7 @@ func WithContent(_type EmailType, content string) Option {
 func SendEmail(opts ...Option) error {
 	option := &emailOption{
 		url:     defaultURL,
-		from:    &defaultFrom,
+		from:    defaultFrom,
 		subject: defaultSubject,
 	}
 
@@ -112,7 +100,6 @@ func SendEmail(opts ...Option) error {
 
 	body := map[string]interface{}{
 		"to":      option.to,
-		"cc":      option.cc,
 		"from":    option.from,
 		"subject": option.subject,
 		"content": option.content,
