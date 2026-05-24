@@ -60,6 +60,14 @@ func DELETE(u string, opts ...Option) (raw json.RawMessage, err error) {
 	return globalClient.DELETE(u, opts...)
 }
 
+func PATCH(u string, opts ...Option) (raw json.RawMessage, err error) {
+	return globalClient.PATCH(u, opts...)
+}
+
+func HEAD(u string, opts ...Option) (raw json.RawMessage, err error) {
+	return globalClient.HEAD(u, opts...)
+}
+
 func File(u, method string, opts ...Option) (io io.Reader, err error) {
 	return globalClient.File(u, method, opts...)
 }
@@ -314,6 +322,16 @@ func (c *EmbedClient) GET(u string, opts ...Option) (raw json.RawMessage, err er
 
 func (c *EmbedClient) DELETE(u string, opts ...Option) (raw json.RawMessage, err error) {
 	raw, _, err = c.Request(http.MethodDelete, u, opts...)
+	return raw, err
+}
+
+func (c *EmbedClient) PATCH(u string, opts ...Option) (raw json.RawMessage, err error) {
+	raw, _, err = c.Request(http.MethodPatch, u, opts...)
+	return raw, err
+}
+
+func (c *EmbedClient) HEAD(u string, opts ...Option) (raw json.RawMessage, err error) {
+	raw, _, err = c.Request(http.MethodHead, u, opts...)
 	return raw, err
 }
 
