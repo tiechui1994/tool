@@ -16,7 +16,9 @@ func init() {
 }
 
 func TestGET(t *testing.T) {
-	t.Log(POST("https://api.quinn.eu.com", WithRetry(2)))
+	t.Log(POST("https://static.broadlink.eu.org", WithRetry(2), WithDump(), WithProxy(func(r *http.Request) (*url.URL, error) {
+		return url.Parse("https://84.239.14.158:9002")
+	})))
 }
 
 func TestLogRequest(t *testing.T) {

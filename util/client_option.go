@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 	"unsafe"
+
+	"golang.org/x/net/http2"
 )
 
 type clientConfig struct {
@@ -119,7 +121,7 @@ func WithClientCookieJar(name string) ClientOption {
 		} else {
 			privateJar, _ = cookiejar.New(nil)
 		}
-		config.sync = make(chan struct{})
+		config.sync = make(chan struct{}, 1)
 		config.cookieJar = &simpleCookieJar{
 			name:       name,
 			privateJar: privateJar,
@@ -159,7 +161,7 @@ func WithClientCookieFun(name string) ClientOption {
 			privateJar, _ = cookiejar.New(nil)
 		}
 
-		config.sync = make(chan struct{})
+		config.sync = make(chan struct{}, 1)
 		config.cookieFun = &simpleCookieFun{
 			name:       name,
 			privateJar: privateJar,
@@ -211,13 +213,16 @@ func WithInitClientCookie(name, cookie, endpoint string) ClientOption {
 		if config.cookieFun != nil {
 			cf := config.cookieFun.(*simpleCookieFun)
 			cf.privateJar.SetCookies(uv, cookies)
+			if cf.afterCookieSave != nil {
+				cf.afterCookieSave()
+			}
 			return
 		}
 
 		jar, _ := cookiejar.New(nil)
 		jar.SetCookies(uv, cookies)
 
-		config.sync = make(chan struct{})
+		config.sync = make(chan struct{}, 1)
 		config.cookieFun = &simpleCookieFun{
 			name:       name,
 			privateJar: jar,
@@ -225,6 +230,7 @@ func WithInitClientCookie(name, cookie, endpoint string) ClientOption {
 				config.sync <- struct{}{}
 			},
 		}
+		config.sync <- struct{}{}
 
 		go func() {
 			timer := time.NewTicker(5 * time.Second)
@@ -279,39 +285,42 @@ func (c *EmbedClient) init() {
 			},
 		}
 
-		client := &http.Client{
-			Transport: &http.Transport{
-				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-					d := net.Dialer{
-						Resolver:  resolver,
-						Timeout:   c.config.dialerTimeout,
-						KeepAlive: c.config.dialerKeepAlive,
-					}
-					for {
-						conn, err := d.DialContext(ctx, network, addr)
-						if err != nil {
-							if val, ok := err.(*net.OpError); ok &&
-								strings.Contains(val.Err.Error(), "no suitable address found") {
-								continue
-							}
-							return nil, err
+		transport := &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				d := net.Dialer{
+					Resolver:  resolver,
+					Timeout:   c.config.dialerTimeout,
+					KeepAlive: c.config.dialerKeepAlive,
+				}
+				for {
+					conn, err := d.DialContext(ctx, network, addr)
+					if err != nil {
+						if val, ok := err.(*net.OpError); ok &&
+							strings.Contains(val.Err.Error(), "no suitable address found") {
+							continue
 						}
-						return newTimeoutConn(conn, c.config.connTimeout, c.config.connLongTimeout), nil
+						return nil, err
 					}
-				},
-				DisableKeepAlives: true,
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-				MaxIdleConns:        100,
-				MaxIdleConnsPerHost: 100,
-				Proxy: func(req *http.Request) (*url.URL, error) {
-					if c.config.proxy != nil {
-						return c.config.proxy(req)
-					}
-					return http.ProxyFromEnvironment(req)
-				},
+					return newTimeoutConn(conn, c.config.connTimeout, c.config.connLongTimeout), nil
+				}
 			},
+			DisableKeepAlives: true,
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 100,
+			Proxy: func(req *http.Request) (*url.URL, error) {
+				if c.config.proxy != nil {
+					return c.config.proxy(req)
+				}
+				return http.ProxyFromEnvironment(req)
+			},
+		}
+
+		http2.ConfigureTransport(transport)
+		client := &http.Client{
+			Transport: transport,
 		}
 
 		client.Transport = &customerTransport{
