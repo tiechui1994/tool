@@ -43,6 +43,20 @@ var agents = []string{
 	"Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36,gzip(gfe)",
 }
 
+var DefaultDNS = []string{
+	"8.8.8.8:53", "8.8.4.4:53",
+	"114.114.114.114:53",
+	"223.5.5.5:53", "223.6.6.6:53",
+	"112.124.47.27:53", "114.215.126.16:53",
+	"208.67.222.222:53", "208.67.220.220:53",
+}
+
+var (
+	defaultDNsTimeout      = 10 * time.Second
+	defaultDialerTimeout   = 15 * time.Second
+	defaultDialerKeepAlive = 30 * time.Second
+)
+
 type Jar struct {
 	PsList cookiejar.PublicSuffixList `json:"pslist"`
 
@@ -67,16 +81,10 @@ var globalClient *EmbedClient
 func init() {
 	rand.Seed(time.Now().UnixNano())
 	config := new(clientConfig)
-	config.dns = []string{
-		"8.8.8.8:53", "8.8.4.4:53",
-		"114.114.114.114:53",
-		"223.5.5.5:53", "223.6.6.6:53",
-		"112.124.47.27:53", "114.215.126.16:53",
-		"208.67.222.222:53", "208.67.220.220:53",
-	}
-	config.dnsTimeout = 10 * time.Second
-	config.dialerTimeout = 15 * time.Second
-	config.dialerKeepAlive = 5 * time.Minute
+	config.dns = make([]string, 0)
+	config.dnsTimeout = defaultDNsTimeout
+	config.dialerTimeout = defaultDialerTimeout
+	config.dialerKeepAlive = defaultDialerKeepAlive
 	config.connTimeout = 15 * time.Second
 	config.connLongTimeout = 30 * time.Second
 
@@ -91,6 +99,9 @@ func init() {
 }
 
 func RegisterDNS(dns []string) {
+	if dns == nil || len(dns) == 0 {
+		dns = DefaultDNS
+	}
 	WithClientDNS(dns).apply(globalClient.config)
 }
 
@@ -99,10 +110,16 @@ func RegisterProxy(proxy func(*http.Request) (*url.URL, error)) {
 }
 
 func RegisterDNSTimeout(timeout time.Duration) {
+	if timeout <= 0 {
+		timeout = defaultDNsTimeout
+	}
 	WithDNSTimeout(timeout).apply(globalClient.config)
 }
 
 func RegisterDialerTimeout(timeout time.Duration) {
+	if timeout <= 0 {
+		timeout = defaultDialerTimeout
+	}
 	WithDialerTimeout(timeout).apply(globalClient.config)
 }
 

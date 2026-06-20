@@ -276,9 +276,7 @@ func (c *EmbedClient) init() {
 		resolver := &net.Resolver{
 			PreferGo: true, // 表示使用 Go 的 DNS
 			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-				d := net.Dialer{
-					Timeout: c.config.dnsTimeout,
-				}
+				d := net.Dialer{Timeout: c.config.dnsTimeout}
 				dns := c.config.dns[int(rand.Int31n(int32(len(c.config.dns))))]
 				conn, err := d.DialContext(ctx, network, dns)
 				return conn, err
@@ -287,22 +285,20 @@ func (c *EmbedClient) init() {
 
 		transport := &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				var resolve *net.Resolver
+				if len(c.config.dns) > 0 {
+					resolve = resolver
+				}
 				d := net.Dialer{
-					Resolver:  resolver,
+					Resolver:  resolve,
 					Timeout:   c.config.dialerTimeout,
 					KeepAlive: c.config.dialerKeepAlive,
 				}
-				for {
-					conn, err := d.DialContext(ctx, network, addr)
-					if err != nil {
-						if val, ok := err.(*net.OpError); ok &&
-							strings.Contains(val.Err.Error(), "no suitable address found") {
-							continue
-						}
-						return nil, err
-					}
-					return newTimeoutConn(conn, c.config.connTimeout, c.config.connLongTimeout), nil
+				conn, err := d.DialContext(ctx, network, addr)
+				if err != nil {
+					return nil, err
 				}
+				return newTimeoutConn(conn, c.config.connTimeout, c.config.connLongTimeout), nil
 			},
 			DisableKeepAlives: true,
 			TLSClientConfig: &tls.Config{
@@ -318,7 +314,7 @@ func (c *EmbedClient) init() {
 			},
 		}
 
-		http2.ConfigureTransport(transport)
+		_ = http2.ConfigureTransport(transport)
 		client := &http.Client{
 			Transport: transport,
 		}

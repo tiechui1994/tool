@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"compress/flate"
 	"compress/gzip"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -15,6 +18,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -226,7 +230,7 @@ func (c *EmbedClient) Request(method, u string, opts ...Option) (json.RawMessage
 
 		response, err := client.Do(request)
 		if err != nil {
-			if try < options.retry {
+			if IsRetryable(err) && try < options.retry {
 				try++
 				time.Sleep(time.Second * time.Duration(try))
 				continue
@@ -275,7 +279,7 @@ func (c *EmbedClient) Request(method, u string, opts ...Option) (json.RawMessage
 		}()
 
 		if err != nil {
-			if try < options.retry {
+			if IsRetryable(err) && try < options.retry {
 				try++
 				time.Sleep(time.Second * time.Duration(try))
 				continue
@@ -288,7 +292,7 @@ func (c *EmbedClient) Request(method, u string, opts ...Option) (json.RawMessage
 		}
 
 		if response.StatusCode >= 400 {
-			if try < options.retry {
+			if IsRetryable(CodeError{method, u, response.StatusCode, ""}) && try < options.retry {
 				try++
 				time.Sleep(time.Second * time.Duration(try))
 				continue
@@ -356,7 +360,7 @@ func (c *EmbedClient) File(u, method string, opts ...Option) (io io.Reader, err 
 
 		response, err := c.Do(request)
 		if err != nil {
-			if try < options.retry {
+			if IsRetryable(err) && try < options.retry {
 				try++
 				time.Sleep(time.Second * time.Duration(try))
 				continue
@@ -365,12 +369,60 @@ func (c *EmbedClient) File(u, method string, opts ...Option) (io io.Reader, err 
 		}
 
 		if response.StatusCode >= 400 {
+			err = CodeError{method, u, response.StatusCode, ""}
 			response.Body.Close()
-			return nil, CodeError{method, u, response.StatusCode, ""}
+			if IsRetryable(err) && try < options.retry {
+				try++
+				time.Sleep(time.Second * time.Duration(try))
+				continue
+			}
+			return nil, err
 		}
 
 		return response.Body, nil
 	}
 
 	return nil, fmt.Errorf("max retries exceeded")
+}
+
+func IsRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if val, ok := err.(CodeError); ok {
+		return val.Code == http.StatusBadGateway || val.Code == http.StatusServiceUnavailable ||
+			val.Code == http.StatusGatewayTimeout
+	}
+
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		err = urlErr.Err
+	}
+
+	var x509Err x509.UnknownAuthorityError
+	if errors.As(err, &x509Err) {
+		return false
+	}
+
+	var netError net.Error
+	if errors.As(err, &netError) {
+		if netError.Timeout() {
+			return true
+		}
+	}
+
+	// 系统调用错误
+	if errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNABORTED) ||
+		errors.Is(err, syscall.EHOSTDOWN) || errors.Is(err, syscall.EHOSTUNREACH) ||
+		errors.Is(err, syscall.ENETDOWN) || errors.Is(err, syscall.ENETRESET) || errors.Is(err, syscall.ENETUNREACH) {
+		return true
+	}
+
+	// 连接发送前关闭
+	if errors.Is(err, net.ErrClosed) {
+		return true
+	}
+
+	return false
 }
