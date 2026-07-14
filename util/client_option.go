@@ -17,6 +17,8 @@ import (
 )
 
 type clientConfig struct {
+	lock sync.Mutex
+
 	proxy func(*http.Request) (*url.URL, error)
 
 	once       sync.Once // set once dns
@@ -254,15 +256,15 @@ type EmbedClient struct {
 
 func NewClient(opts ...ClientOption) *EmbedClient {
 	options := &clientConfig{
-		dir:   globalClient.config.dir,
-		dns:   globalClient.config.dns,
-		proxy: globalClient.config.proxy,
+		dir:   globalConfig.dir,
+		dns:   globalConfig.dns,
+		proxy: globalConfig.proxy,
 
-		dialerTimeout:   globalClient.config.dialerTimeout,
-		dialerKeepAlive: globalClient.config.dialerKeepAlive,
-		dnsTimeout:      globalClient.config.dnsTimeout,
-		connTimeout:     globalClient.config.connTimeout,
-		connLongTimeout: globalClient.config.connLongTimeout,
+		dialerTimeout:   globalConfig.dialerTimeout,
+		dialerKeepAlive: globalConfig.dialerKeepAlive,
+		dnsTimeout:      globalConfig.dnsTimeout,
+		connTimeout:     globalConfig.connTimeout,
+		connLongTimeout: globalConfig.connLongTimeout,
 	}
 
 	for _, opt := range opts {

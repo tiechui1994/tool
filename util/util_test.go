@@ -1,6 +1,7 @@
 package util
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"testing"
@@ -29,7 +30,7 @@ func TestLogRequest(t *testing.T) {
 }
 
 func TestCookie(t *testing.T) {
-	RegisterCookieFun("cookie")
+	c := NewClient(WithClientCookieFun("local"))
 	var token string
 	withAfterResponse := WithAfterResponse(func(w *http.Response) {
 		t := w.Header.Get("x-csrf-token")
@@ -43,14 +44,14 @@ func TestCookie(t *testing.T) {
 		}
 	})
 
-	_, err := GET("https://stream.streamlit.app", withBeforeRequest, withAfterResponse)
+	_, err := c.GET("https://stream.streamlit.app", withBeforeRequest, withAfterResponse)
 	t.Log(err)
-	_, err = GET("https://stream.streamlit.app/api/v2/app/status", WithHeader(map[string]string{
+	_, err = c.GET("https://stream.streamlit.app/api/v2/app/status", WithHeader(map[string]string{
 		"origin": "https://stream.streamlit.app",
 	}), withBeforeRequest, withAfterResponse)
 	t.Log(err)
 
-	raw, err := POST("https://stream.streamlit.app/api/v2/app/resume", WithHeader(map[string]string{
+	raw, err := c.POST("https://stream.streamlit.app/api/v2/app/resume", WithHeader(map[string]string{
 		"x-streamlit-machine-id": "11fc256f-c40b-467c-8754-a946bc4c6b2b",
 		"origin":                 "https://stream.streamlit.app",
 	}), withBeforeRequest, withAfterResponse)
@@ -59,6 +60,7 @@ func TestCookie(t *testing.T) {
 }
 
 func TestClearCookie(t *testing.T) {
+	c := NewClient(WithClientCookieJar("local"))
 	go func() {
 		mux := http.NewServeMux()
 		mux.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
@@ -75,18 +77,23 @@ func TestClearCookie(t *testing.T) {
 	}()
 
 	time.Sleep(500 * time.Millisecond)
-	_, _ = GET("http://127.0.0.1:8080/")
+	_, _ = c.GET("http://127.0.0.1:8080/")
 
-	RegisterCookieJar("local")
-
-	_, _ = GET("http://127.0.0.1:8080/")
+	_, _ = c.GET("http://127.0.0.1:8080/")
 
 	u, _ := url.Parse("http://127.0.0.1:8080/")
-	t.Log("GetCookies 1:", GetCookies(u))
-	t.Logf("CleanCookie: %v", CleanCookie(u))
+	t.Log("GetCookies 1:", c.GetCookies(u))
+	t.Logf("CleanCookie: %v", c.CleanCookie(u))
 	time.Sleep(time.Second)
-	t.Log("GetCookies 1:", GetCookies(u))
+	t.Log("GetCookies 1:", c.GetCookies(u))
 
-	_, _ = GET("http://127.0.0.1:8080/")
-	t.Log("GetCookies 3:", GetCookies(u))
+	_, _ = c.GET("http://127.0.0.1:8080/")
+	t.Log("GetCookies 3:", c.GetCookies(u))
+}
+
+func TestContext(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+	raw, err := GET("https://cloud.quinn.eu.org", WithContext(ctx), WithTimeout(1000*time.Millisecond), WithRetry(2))
+	t.Log(err, string(raw))
 }

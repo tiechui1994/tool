@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 type httpOptions struct {
@@ -18,22 +19,13 @@ type httpOptions struct {
 	header        map[string]string
 	body          io.Reader
 	retry         int
+	timeout       time.Duration
 	ctx           context.Context
 	beforeRequest func(r *http.Request)
 	afterResponse func(w *http.Response)
 	randomHost    func(string) string
 	proxy         func(*http.Request) (*url.URL, error)
 	proxyDail     func(ctx context.Context, network, addr string) (net.Conn, error)
-}
-
-func (opt *httpOptions) Clone() *httpOptions {
-	v := new(httpOptions)
-	*v = *opt
-
-	v.ctx = context.Background()
-	v.body = nil
-	v.header = nil
-	return v
 }
 
 type Option interface {
@@ -109,6 +101,9 @@ func WithRetry(retry uint) Option {
 
 func WithContext(ctx context.Context) Option {
 	return newFuncDialOption(func(o *httpOptions) {
+		if ctx == nil {
+			ctx = context.Background()
+		}
 		o.ctx = ctx
 	})
 }
@@ -153,7 +148,13 @@ func WithProxy(f func(*http.Request) (*url.URL, error)) Option {
 }
 
 func WithProxyDail(f func(ctx context.Context, network, addr string) (net.Conn, error)) Option {
-	return newFuncDialOption(func(ho *httpOptions) {
-		ho.proxyDail = f
+	return newFuncDialOption(func(opt *httpOptions) {
+		opt.proxyDail = f
+	})
+}
+
+func WithTimeout(timeout time.Duration) Option {
+	return newFuncDialOption(func(opt *httpOptions) {
+		opt.timeout = timeout
 	})
 }

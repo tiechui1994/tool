@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/flate"
 	"compress/gzip"
+	"context"
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
@@ -108,17 +109,18 @@ func (c *EmbedClient) dumpResponse(req *http.Request, resp *http.Response, now t
 	_ = os.WriteFile(filepath.Join(c.config.dir, key), raw, 0644)
 }
 
-func (c *EmbedClient) cacheRequest(req *http.Request) *cachedData {
+func (c *EmbedClient) cacheRequest(req *http.Request, opts *httpOptions) (json.RawMessage, http.Header, error) {
 	key := hex.EncodeToString(MD5(req.Method + "_" + req.URL.String()))
 	testCacheFile := filepath.Join(c.config.dir, key)
-	if _, err := os.Stat(testCacheFile); err == nil {
-		var data cachedData
-		if err = ReadFile(testCacheFile, &data); err == nil {
-			return &data
-		}
+	var cache cachedData
+	if err := ReadFile(testCacheFile, &cache); err != nil {
+		return nil, nil, err
+	}
+	if opts.cachedPeriod < 0 || time.Now().Unix()-cache.Date < opts.cachedPeriod*1000 {
+		return cache.Raw, cache.Header, nil
 	}
 
-	return nil
+	return nil, nil, fmt.Errorf("cache expired")
 }
 
 func (c *EmbedClient) cacheResponse(req *http.Request, data cachedData) {
@@ -127,8 +129,107 @@ func (c *EmbedClient) cacheResponse(req *http.Request, data cachedData) {
 	_ = WriteFile(testCacheFile, data)
 }
 
+func (c *EmbedClient) buildRequest(u, method string, body io.Reader, opts *httpOptions) (*http.Request, error) {
+	ctx := opts.ctx
+	if opts.timeout > 0 {
+		ctx, _ = context.WithTimeout(ctx, opts.timeout)
+	}
+	request, err := http.NewRequestWithContext(ctx, method, u, body)
+	if err != nil {
+		return nil, err
+	}
+
+	for k, v := range opts.header {
+		request.Header.Set(k, v)
+	}
+	if request.Header.Get("User-Agent") == "" {
+		request.Header.Set("User-Agent", hashUserAgent(u))
+	}
+	if val := request.Header.Get("Content-Length"); val != "" {
+		request.ContentLength, _ = strconv.ParseInt(val, 10, 64)
+	}
+
+	return request, nil
+}
+
 func hasBody(method string) bool {
 	return method == http.MethodPut || method == http.MethodPost || method == http.MethodDelete || method == http.MethodPatch
+}
+
+func (c *EmbedClient) randomHost(u string, opts *httpOptions) (string, error) {
+	uL, err := url.Parse(u)
+	if err != nil {
+		return "", err
+	}
+	if opts.randomHost != nil {
+		uL.Host = opts.randomHost(uL.Host)
+	}
+	return uL.String(), nil
+}
+
+func (c *EmbedClient) client(opts *httpOptions) *http.Client {
+	client := c.Client
+	if opts.proxy != nil {
+		switch transport := client.Transport.(type) {
+		case *http.Transport:
+			clone := transport.Clone()
+			clone.Proxy = opts.proxy
+			client = &http.Client{Transport: clone}
+		case *customerTransport:
+			clone := transport.Transport.(*http.Transport).Clone()
+			clone.Proxy = opts.proxy
+			transport.Transport = clone
+			client = &http.Client{Transport: transport}
+		}
+	} else if opts.proxyDail != nil {
+		switch transport := client.Transport.(type) {
+		case *http.Transport:
+			clone := transport.Clone()
+			clone.Proxy = nil
+			clone.DialContext = opts.proxyDail
+			client = &http.Client{Transport: clone}
+		case *customerTransport:
+			clone := transport.Transport.(*http.Transport).Clone()
+			clone.Proxy = nil
+			clone.DialContext = opts.proxyDail
+			transport.Transport = clone
+			client = &http.Client{Transport: transport}
+		}
+	}
+
+	return client
+}
+
+func (c *EmbedClient) readBody(response *http.Response) (json.RawMessage, http.Header, error) {
+	defer response.Body.Close()
+
+	var reader io.Reader
+	var gzipReader *gzip.Reader
+	var flatReader io.ReadCloser
+	encoding := response.Header.Get("Content-Encoding")
+	switch strings.ToLower(encoding) {
+	case "gzip":
+		var err error
+		gzipReader, err = gzip.NewReader(response.Body)
+		if err != nil {
+			return nil, nil, err
+		}
+		defer gzipReader.Close()
+		reader = gzipReader
+	case "deflate":
+		flatReader = flate.NewReader(response.Body)
+		defer flatReader.Close()
+		reader = flatReader
+	default:
+		reader = response.Body
+	}
+
+	raw, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return raw, response.Header, nil
 }
 
 func (c *EmbedClient) Request(method, u string, opts ...Option) (json.RawMessage, http.Header, error) {
@@ -152,70 +253,28 @@ func (c *EmbedClient) Request(method, u string, opts ...Option) (json.RawMessage
 
 	try := 0
 	for try <= options.retry {
-		if try > 0 {
-			if options.randomHost != nil {
-				uRL, _ := url.Parse(u)
-				uRL.Host = options.randomHost(uRL.Host)
-				u = uRL.String()
-			}
-
-			// dump dump reader
-			if hasBody(method) {
-				body, dump, err = drainBody(dump)
-				if err != nil {
-					return nil, nil, err
-				}
-			}
-		}
-		request, err := http.NewRequestWithContext(options.ctx, method, u, body)
+		u, err = c.randomHost(u, options)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		for k, v := range options.header {
-			request.Header.Set(k, v)
-		}
-		if request.Header.Get("User-Agent") == "" {
-			request.Header.Set("User-Agent", hashUserAgent(u))
-		}
-		if val := request.Header.Get("Content-Length"); val != "" {
-			request.ContentLength, _ = strconv.ParseInt(val, 10, 64)
+		// dump dump reader
+		if try > 0 && hasBody(method) {
+			body, dump, err = drainBody(dump)
+			if err != nil {
+				return nil, nil, err
+			}
 		}
 
-		client := c.Client
-		if options.proxy != nil {
-			switch transport := client.Transport.(type) {
-			case *http.Transport:
-				clone := transport.Clone()
-				clone.Proxy = options.proxy
-				client = &http.Client{Transport: clone}
-			case *customerTransport:
-				clone := transport.Transport.(*http.Transport).Clone()
-				clone.Proxy = options.proxy
-				transport.Transport = clone
-				client = &http.Client{Transport: transport}
-			}
-		} else if options.proxyDail != nil {
-			switch transport := client.Transport.(type) {
-			case *http.Transport:
-				clone := transport.Clone()
-				clone.Proxy = nil
-				clone.DialContext = options.proxyDail
-				client = &http.Client{Transport: clone}
-			case *customerTransport:
-				clone := transport.Transport.(*http.Transport).Clone()
-				clone.Proxy = nil
-				clone.DialContext = options.proxyDail
-				transport.Transport = clone
-				client = &http.Client{Transport: transport}
-			}
+		request, err := c.buildRequest(u, method, body, options)
+		if err != nil {
+			return nil, nil, err
 		}
 
 		if options.cached {
-			if v := c.cacheRequest(request); v != nil {
-				if options.cachedPeriod < 0 || time.Now().Unix()-v.Date < options.cachedPeriod*1000 {
-					return v.Raw, v.Header, nil
-				}
+			raw, headers, err := c.cacheRequest(request, options)
+			if err == nil {
+				return raw, headers, nil
 			}
 		}
 
@@ -228,9 +287,9 @@ func (c *EmbedClient) Request(method, u string, opts ...Option) (json.RawMessage
 			c.dumpRequest(request, now)
 		}
 
-		response, err := client.Do(request)
+		response, err := c.client(options).Do(request)
 		if err != nil {
-			if IsRetryable(err) && try < options.retry {
+			if try < options.retry && IsRetryable(err) {
 				try++
 				time.Sleep(time.Second * time.Duration(try))
 				continue
@@ -246,40 +305,9 @@ func (c *EmbedClient) Request(method, u string, opts ...Option) (json.RawMessage
 			options.afterResponse(response)
 		}
 
-		raw, headers, err := func() (json.RawMessage, http.Header, error) {
-			defer response.Body.Close()
-
-			var reader io.Reader
-			var gzipReader *gzip.Reader
-			var flatReader io.ReadCloser
-			encoding := response.Header.Get("Content-Encoding")
-			switch strings.ToLower(encoding) {
-			case "gzip":
-				var err error
-				gzipReader, err = gzip.NewReader(response.Body)
-				if err != nil {
-					return nil, nil, err
-				}
-				defer gzipReader.Close()
-				reader = gzipReader
-			case "deflate":
-				flatReader = flate.NewReader(response.Body)
-				defer flatReader.Close()
-				reader = flatReader
-			default:
-				reader = response.Body
-			}
-
-			raw, err := io.ReadAll(reader)
-			if err != nil {
-				return nil, nil, err
-			}
-
-			return raw, response.Header, nil
-		}()
-
+		raw, headers, err := c.readBody(response)
 		if err != nil {
-			if IsRetryable(err) && try < options.retry {
+			if try < options.retry && IsRetryable(err) {
 				try++
 				time.Sleep(time.Second * time.Duration(try))
 				continue
@@ -288,16 +316,16 @@ func (c *EmbedClient) Request(method, u string, opts ...Option) (json.RawMessage
 		}
 
 		if options.cached {
-			c.cacheResponse(request, cachedData{time.Now().Unix(), raw, headers})
+			c.cacheResponse(request, cachedData{now.Unix(), raw, headers})
 		}
 
-		if response.StatusCode >= 400 {
-			if IsRetryable(CodeError{method, u, response.StatusCode, ""}) && try < options.retry {
+		if response.StatusCode >= http.StatusBadRequest {
+			if try < options.retry && IsRetryable(CodeError{method, u, response.StatusCode, ""}) {
 				try++
 				time.Sleep(time.Second * time.Duration(try))
 				continue
 			}
-			if strings.Contains(response.Header.Get("content-type"), "text/html") {
+			if strings.HasPrefix(headers.Get("content-type"), "text/html") {
 				return raw, headers, CodeError{method, u, response.StatusCode, ""}
 			}
 			return raw, headers, CodeError{method, u, response.StatusCode, string(raw)}
@@ -349,18 +377,14 @@ func (c *EmbedClient) File(u, method string, opts ...Option) (io io.Reader, err 
 
 	try := 0
 	for try <= options.retry {
-		request, err := http.NewRequestWithContext(options.ctx, method, u, options.body)
+		request, err := c.buildRequest(u, method, options.body, options)
 		if err != nil {
 			return nil, err
 		}
-		for k, v := range options.header {
-			request.Header.Set(k, v)
-		}
-		request.Header.Set("User-Agent", hashUserAgent(u))
 
 		response, err := c.Do(request)
 		if err != nil {
-			if IsRetryable(err) && try < options.retry {
+			if try < options.retry && IsRetryable(err) {
 				try++
 				time.Sleep(time.Second * time.Duration(try))
 				continue
@@ -368,10 +392,10 @@ func (c *EmbedClient) File(u, method string, opts ...Option) (io io.Reader, err 
 			return nil, err
 		}
 
-		if response.StatusCode >= 400 {
+		if response.StatusCode >= http.StatusBadRequest {
 			err = CodeError{method, u, response.StatusCode, ""}
 			response.Body.Close()
-			if IsRetryable(err) && try < options.retry {
+			if try < options.retry && IsRetryable(err) {
 				try++
 				time.Sleep(time.Second * time.Duration(try))
 				continue
@@ -388,6 +412,10 @@ func (c *EmbedClient) File(u, method string, opts ...Option) (io io.Reader, err 
 func IsRetryable(err error) bool {
 	if err == nil {
 		return false
+	}
+
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
 	}
 
 	if val, ok := err.(CodeError); ok {

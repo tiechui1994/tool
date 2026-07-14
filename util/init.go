@@ -73,35 +73,36 @@ type Jar struct {
 }
 
 var (
-	agent string
+	agent        string
+	globalConfig *clientConfig
+	globalClient *EmbedClient
 )
-
-var globalClient *EmbedClient
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
-	config := new(clientConfig)
-	config.dns = make([]string, 0)
-	config.dnsTimeout = defaultDNsTimeout
-	config.dialerTimeout = defaultDialerTimeout
-	config.dialerKeepAlive = defaultDialerKeepAlive
-	config.connTimeout = 15 * time.Second
-	config.connLongTimeout = 30 * time.Second
+	globalConfig = new(clientConfig)
+	globalConfig.dns = make([]string, 0)
+	globalConfig.dnsTimeout = defaultDNsTimeout
+	globalConfig.dialerTimeout = defaultDialerTimeout
+	globalConfig.dialerKeepAlive = defaultDialerKeepAlive
+	globalConfig.connTimeout = 15 * time.Second
+	globalConfig.connLongTimeout = 30 * time.Second
 
 	home := os.Getenv("HOME")
 	if home == "" {
 		home = "/tmp"
 	}
-	config.dir = filepath.Join(home, ".config/tool")
-	_ = os.MkdirAll(config.dir, 0775)
+	globalConfig.dir = filepath.Join(home, ".config/tool")
+	_ = os.MkdirAll(globalConfig.dir, 0775)
 
-	globalClient = &EmbedClient{config: config}
+	globalClient = NewClient()
 }
 
 func RegisterDNS(dns []string) {
-	if dns == nil || len(dns) == 0 {
+	if len(dns) == 0 {
 		dns = DefaultDNS
 	}
+	globalConfig.dns = dns
 	WithClientDNS(dns).apply(globalClient.config)
 }
 
@@ -113,6 +114,7 @@ func RegisterDNSTimeout(timeout time.Duration) {
 	if timeout <= 0 {
 		timeout = defaultDNsTimeout
 	}
+	globalConfig.dnsTimeout = timeout
 	WithDNSTimeout(timeout).apply(globalClient.config)
 }
 
@@ -120,10 +122,19 @@ func RegisterDialerTimeout(timeout time.Duration) {
 	if timeout <= 0 {
 		timeout = defaultDialerTimeout
 	}
+	globalConfig.dialerTimeout = timeout
 	WithDialerTimeout(timeout).apply(globalClient.config)
 }
 
 func RegisterConnTimeout(timeout, longTimeout time.Duration) {
+	if timeout <= 0 {
+		timeout = 15 * time.Second
+	}
+	if longTimeout <= 0 {
+		longTimeout = 30 * time.Second
+	}
+	globalConfig.connTimeout = timeout
+	globalConfig.connLongTimeout = longTimeout
 	WithConnTimeout(timeout, longTimeout).apply(globalClient.config)
 }
 
@@ -140,7 +151,7 @@ func RegisterInitCookie(name, cookie, endpoint string) {
 }
 
 func Dir() string {
-	return globalClient.config.dir
+	return globalConfig.dir
 }
 
 func GetCookie(url *url.URL, name string) *http.Cookie {
@@ -166,7 +177,7 @@ func UserAgent(args ...int) string {
 
 	rnd := int(time.Now().Unix()) % len(agents)
 	args = append(args, rnd)
-	if args[0] < len(agent) && args[0] >= 0 {
+	if args[0] < len(agents) && args[0] >= 0 {
 		agent = agents[args[0]]
 	} else {
 		agent = agents[rnd]
