@@ -14,11 +14,14 @@ func init() {
 		"223.5.5.5:53", "223.6.6.6:53", // 阿里云
 		"218.30.19.40:53", "218.30.19.50:53", // 西安
 	})
+	RegisterAddiotionHeader(map[string]string{
+		"x-real-key": "abcd",
+	})
 }
 
 func TestGET(t *testing.T) {
 	t.Log(POST("https://static.broadlink.eu.org", WithRetry(2), WithDump(), WithProxy(func(r *http.Request) (*url.URL, error) {
-		return url.Parse("https://84.239.14.158:9002")
+		return url.Parse("https://193.176.84.27:9002")
 	})))
 }
 

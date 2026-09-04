@@ -113,7 +113,7 @@ func (c *EmbedClient) cacheRequest(req *http.Request, opts *httpOptions) (json.R
 	key := hex.EncodeToString(MD5(req.Method + "_" + req.URL.String()))
 	testCacheFile := filepath.Join(c.config.dir, key)
 	var cache cachedData
-	if err := ReadFile(testCacheFile, &cache); err != nil {
+	if err := readFile(testCacheFile, &cache); err != nil {
 		return nil, nil, err
 	}
 	if opts.cachedPeriod < 0 || time.Now().Unix()-cache.Date < opts.cachedPeriod*1000 {
@@ -126,7 +126,7 @@ func (c *EmbedClient) cacheRequest(req *http.Request, opts *httpOptions) (json.R
 func (c *EmbedClient) cacheResponse(req *http.Request, data cachedData) {
 	key := hex.EncodeToString(MD5(req.Method + "_" + req.URL.String()))
 	testCacheFile := filepath.Join(c.config.dir, key)
-	_ = WriteFile(testCacheFile, data)
+	_ = writeFile(testCacheFile, data)
 }
 
 func (c *EmbedClient) buildRequest(u, method string, body io.Reader, opts *httpOptions) (*http.Request, error) {
@@ -134,6 +134,28 @@ func (c *EmbedClient) buildRequest(u, method string, body io.Reader, opts *httpO
 	if opts.timeout > 0 {
 		ctx, _ = context.WithTimeout(ctx, opts.timeout)
 	}
+	if opts.dump {
+		now := time.Now()
+		ctx = context.WithValue(ctx, callbackKey, &callback{
+			beforeTransport: func(req *http.Request) {
+				if opts.dump {
+					c.dumpRequest(req, now)
+				}
+			},
+			afterTransport: func(req *http.Request, resp *http.Response) {
+				if opts.dump {
+					c.dumpResponse(req, resp, now)
+				}
+			},
+		})
+	}
+	if opts.proxy != nil || opts.proxyDail != nil {
+		ctx = context.WithValue(ctx, proxyKey, &proxy{
+			proxy:     opts.proxy,
+			proxyDail: opts.proxyDail,
+		})
+	}
+
 	request, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
 		return nil, err
@@ -167,37 +189,8 @@ func (c *EmbedClient) randomHost(u string, opts *httpOptions) (string, error) {
 	return uL.String(), nil
 }
 
-func (c *EmbedClient) client(opts *httpOptions) *http.Client {
-	client := c.Client
-	if opts.proxy != nil {
-		switch transport := client.Transport.(type) {
-		case *http.Transport:
-			clone := transport.Clone()
-			clone.Proxy = opts.proxy
-			client = &http.Client{Transport: clone}
-		case *customerTransport:
-			clone := transport.Transport.(*http.Transport).Clone()
-			clone.Proxy = opts.proxy
-			transport.Transport = clone
-			client = &http.Client{Transport: transport}
-		}
-	} else if opts.proxyDail != nil {
-		switch transport := client.Transport.(type) {
-		case *http.Transport:
-			clone := transport.Clone()
-			clone.Proxy = nil
-			clone.DialContext = opts.proxyDail
-			client = &http.Client{Transport: clone}
-		case *customerTransport:
-			clone := transport.Transport.(*http.Transport).Clone()
-			clone.Proxy = nil
-			clone.DialContext = opts.proxyDail
-			transport.Transport = clone
-			client = &http.Client{Transport: transport}
-		}
-	}
-
-	return client
+func (c *EmbedClient) httpClient(opts *httpOptions) *http.Client {
+	return &http.Client{Transport: c.transport}
 }
 
 func (c *EmbedClient) readBody(response *http.Response) (json.RawMessage, http.Header, error) {
@@ -282,12 +275,7 @@ func (c *EmbedClient) Request(method, u string, opts ...Option) (json.RawMessage
 			options.beforeRequest(request)
 		}
 
-		var now = time.Now()
-		if options.dump {
-			c.dumpRequest(request, now)
-		}
-
-		response, err := c.client(options).Do(request)
+		response, err := c.httpClient(options).Do(request)
 		if err != nil {
 			if try < options.retry && IsRetryable(err) {
 				try++
@@ -295,10 +283,6 @@ func (c *EmbedClient) Request(method, u string, opts ...Option) (json.RawMessage
 				continue
 			}
 			return nil, nil, err
-		}
-
-		if options.dump {
-			c.dumpResponse(request, response, now)
 		}
 
 		if options.afterResponse != nil {
@@ -316,7 +300,7 @@ func (c *EmbedClient) Request(method, u string, opts ...Option) (json.RawMessage
 		}
 
 		if options.cached {
-			c.cacheResponse(request, cachedData{now.Unix(), raw, headers})
+			c.cacheResponse(request, cachedData{time.Now().Unix(), raw, headers})
 		}
 
 		if response.StatusCode >= http.StatusBadRequest {
@@ -382,7 +366,7 @@ func (c *EmbedClient) File(u, method string, opts ...Option) (io io.Reader, err 
 			return nil, err
 		}
 
-		response, err := c.Do(request)
+		response, err := c.httpClient(options).Do(request)
 		if err != nil {
 			if try < options.retry && IsRetryable(err) {
 				try++

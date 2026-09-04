@@ -150,6 +150,10 @@ func RegisterInitCookie(name, cookie, endpoint string) {
 	WithInitClientCookie(name, cookie, endpoint).apply(globalClient.config)
 }
 
+func RegisterAddiotionHeader(header map[string]string) {
+	WithAddiotionHeader(header).apply(globalClient.config)
+}
+
 func Dir() string {
 	return globalConfig.dir
 }
@@ -196,7 +200,7 @@ func hashUserAgent(u string) string {
 	return agents[int(rnd)]
 }
 
-func WriteFile(filepath string, data interface{}) error {
+func writeFile(filepath string, data interface{}) error {
 	fd, err := os.Create(filepath)
 	if err != nil {
 		return err
@@ -205,7 +209,7 @@ func WriteFile(filepath string, data interface{}) error {
 	return encoder.Encode(data)
 }
 
-func ReadFile(filepath string, data interface{}) error {
+func readFile(filepath string, data interface{}) error {
 	fd, err := os.Open(filepath)
 	if err != nil {
 		return err

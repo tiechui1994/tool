@@ -19,7 +19,8 @@ import (
 type clientConfig struct {
 	lock sync.Mutex
 
-	proxy func(*http.Request) (*url.URL, error)
+	proxy          func(*http.Request) (*url.URL, error)
+	additionHeader map[string]string
 
 	once       sync.Once // set once dns
 	dns        []string
@@ -248,10 +249,19 @@ func WithInitClientCookie(name, cookie, endpoint string) ClientOption {
 	})
 }
 
+func WithAddiotionHeader(header map[string]string) ClientOption {
+	if header == nil {
+		header = make(map[string]string)
+	}
+	return newFuncClientOption(func(config *clientConfig) {
+		config.additionHeader = header
+	})
+}
+
 type EmbedClient struct {
-	*http.Client
-	once   sync.Once
-	config *clientConfig
+	transport *customerTransport
+	once      sync.Once
+	config    *clientConfig
 }
 
 func NewClient(opts ...ClientOption) *EmbedClient {
@@ -287,6 +297,12 @@ func (c *EmbedClient) init() {
 
 		transport := &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				if val, ok := ctx.Value(proxyKey).(*proxy); ok && val.proxyDail != nil {
+					if val.proxyDail != nil {
+						return val.proxyDail(ctx, network, addr)
+					}
+				}
+
 				var resolve *net.Resolver
 				if len(c.config.dns) > 0 {
 					resolve = resolver
@@ -309,6 +325,12 @@ func (c *EmbedClient) init() {
 			MaxIdleConns:        100,
 			MaxIdleConnsPerHost: 100,
 			Proxy: func(req *http.Request) (*url.URL, error) {
+				if val, ok := req.Context().Value(proxyKey).(*proxy); ok && val.proxy != nil {
+					if val.proxy != nil {
+						return val.proxy(req)
+					}
+				}
+
 				if c.config.proxy != nil {
 					return c.config.proxy(req)
 				}
@@ -317,16 +339,11 @@ func (c *EmbedClient) init() {
 		}
 
 		_ = http2.ConfigureTransport(transport)
-		client := &http.Client{
-			Transport: transport,
-		}
 
-		client.Transport = &customerTransport{
-			Transport: client.Transport,
+		c.transport = &customerTransport{
+			Transport: transport,
 			config:    c.config,
 		}
-
-		c.Client = client
 	})
 }
 
@@ -410,30 +427,68 @@ func (c *EmbedClient) CleanCookie(u *url.URL) error {
 	}
 }
 
+type contextKey string
+
+const (
+	// 是否使用代理的控制 Key
+	proxyKey contextKey = "proxy"
+	// 请求级 Callback 钩子的 Key
+	callbackKey contextKey = "callback"
+)
+
 type customerTransport struct {
 	Transport http.RoundTripper
 	config    *clientConfig
 }
 
+type callback struct {
+	beforeTransport func(req *http.Request)
+	afterTransport  func(req *http.Request, resp *http.Response)
+}
+
+type proxy struct {
+	proxy     func(*http.Request) (*url.URL, error)
+	proxyDail func(ctx context.Context, network, addr string) (net.Conn, error)
+}
+
 func (c *customerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	// cookie, 全局范围
 	var cookie CustomerCookie
 	if c.config.cookieFun != nil {
 		cookie = c.config.cookieFun
 	} else if c.config.cookieJar != nil {
 		cookie = c.config.cookieJar
 	}
-
 	if cookie != nil {
 		cookie.Cookies(r)
+	}
+
+	// headers, 全局范围
+	if c.config.additionHeader != nil {
+		for k, v := range c.config.additionHeader {
+			r.Header.Set(k, v)
+		}
+	}
+
+	// 请求级别
+	var call *callback
+	if cb, ok := r.Context().Value(callbackKey).(*callback); ok {
+		call = cb
+	}
+	if call != nil && call.beforeTransport != nil {
+		call.beforeTransport(r)
 	}
 
 	resp, err := c.Transport.RoundTrip(r)
 	if err != nil {
 		return nil, err
 	}
-
 	if cookie != nil && resp != nil {
 		cookie.SetCookies(r.URL, resp)
+	}
+
+	if call != nil && call.afterTransport != nil {
+		call.afterTransport(r, resp)
 	}
 
 	return resp, nil
