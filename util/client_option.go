@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unsafe"
 
 	"golang.org/x/net/http2"
 )
@@ -33,8 +32,7 @@ type clientConfig struct {
 
 	cookieJar CustomerCookie
 	cookieFun CustomerCookie
-	dir       string        // file jar dir
-	sync      chan struct{} // sync file jar
+	dir       string // file jar dir
 }
 
 type ClientOption interface {
@@ -120,30 +118,17 @@ func WithClientCookieJar(name string) ClientOption {
 
 		var privateJar *cookiejar.Jar
 		if loadJar := unSerialize(name); loadJar != nil {
-			privateJar = (*cookiejar.Jar)(unsafe.Pointer(loadJar))
+			privateJar = loadJar
 		} else {
 			privateJar, _ = cookiejar.New(nil)
 		}
-		config.sync = make(chan struct{}, 1)
 		config.cookieJar = &simpleCookieJar{
 			name:       name,
 			privateJar: privateJar,
 			afterCookieSave: func() {
-				config.sync <- struct{}{}
+				serialize(privateJar, name)
 			},
 		}
-
-		go func() {
-			timer := time.NewTicker(5 * time.Second)
-			for {
-				select {
-				case <-timer.C:
-					serialize(privateJar, name)
-				case <-config.sync:
-					serialize(privateJar, name)
-				}
-			}
-		}()
 	})
 }
 
@@ -156,33 +141,20 @@ func WithClientCookieFun(name string) ClientOption {
 		if config.cookieFun != nil {
 			return
 		}
-
+		
 		var privateJar *cookiejar.Jar
 		if loadJar := unSerialize(name); loadJar != nil {
-			privateJar = (*cookiejar.Jar)(unsafe.Pointer(loadJar))
+			privateJar = loadJar
 		} else {
 			privateJar, _ = cookiejar.New(nil)
 		}
-
-		config.sync = make(chan struct{}, 1)
 		config.cookieFun = &simpleCookieFun{
 			name:       name,
 			privateJar: privateJar,
 			afterCookieSave: func() {
-				config.sync <- struct{}{}
+				serialize(privateJar, name)
 			},
 		}
-		go func() {
-			timer := time.NewTicker(5 * time.Second)
-			for {
-				select {
-				case <-timer.C:
-					serialize(privateJar, name)
-				case <-config.sync:
-					serialize(privateJar, name)
-				}
-			}
-		}()
 	})
 }
 
@@ -224,28 +196,15 @@ func WithInitClientCookie(name, cookie, endpoint string) ClientOption {
 
 		jar, _ := cookiejar.New(nil)
 		jar.SetCookies(uv, cookies)
-
-		config.sync = make(chan struct{}, 1)
-		config.cookieFun = &simpleCookieFun{
+		cookieFun := &simpleCookieFun{
 			name:       name,
 			privateJar: jar,
 			afterCookieSave: func() {
-				config.sync <- struct{}{}
+				serialize(jar, name)
 			},
 		}
-		config.sync <- struct{}{}
-
-		go func() {
-			timer := time.NewTicker(5 * time.Second)
-			for {
-				select {
-				case <-timer.C:
-					serialize(jar, name)
-				case <-config.sync:
-					serialize(jar, name)
-				}
-			}
-		}()
+		config.cookieFun = cookieFun
+		cookieFun.afterCookieSave()
 	})
 }
 

@@ -221,17 +221,22 @@ func readFile(filepath string, data interface{}) error {
 func serialize(jar *cookiejar.Jar, name string) {
 	oldPath := filepath.Join(Dir(), name+".backup")
 	fd, _ := os.Create(oldPath)
-	_ = json.NewEncoder(fd).Encode((*Jar)(unsafe.Pointer(jar)))
+
+	cookieJar := (*Jar)(unsafe.Pointer(jar))
+	cookieJar.Mu.Lock()
+	_ = json.NewEncoder(fd).Encode(cookieJar)
+	cookieJar.Mu.Unlock()
 	_ = fd.Sync()
 	_ = os.Rename(oldPath, filepath.Join(Dir(), name))
 }
 
-func unSerialize(name string) *Jar {
+func unSerialize(name string) *cookiejar.Jar {
 	var jar Jar
 	fd, _ := os.Open(filepath.Join(Dir(), name))
 	err := json.NewDecoder(fd).Decode(&jar)
 	if err != nil {
 		return nil
 	}
-	return &jar
+
+	return (*cookiejar.Jar)(unsafe.Pointer(&jar))
 }
