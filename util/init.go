@@ -154,6 +154,14 @@ func RegisterAddiotionHeader(header map[string]string) {
 	WithAddiotionHeader(header).apply(globalClient.config)
 }
 
+func RegisterBeforeRequest(f func(*http.Request)) {
+	WithClientBeforeRequest(f).apply(globalClient.config)
+}
+
+func RegisterAfterResponse(f func(*http.Response)) {
+	WithClientAfterResponse(f).apply(globalClient.config)
+}
+
 func Dir() string {
 	return globalConfig.dir
 }

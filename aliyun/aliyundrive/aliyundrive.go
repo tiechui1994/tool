@@ -235,7 +235,7 @@ func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, arg
 	}
 
 	if filetype == TYPE_FOLDER {
-		raw, err := util.POST(u, util.WithHeader(header), util.WithBody(body))
+		raw, err := util.POST(u, util.WithHeader(header), util.WithBody(body), util.WithRetry(3))
 		if err != nil {
 			return upload, err
 		}
@@ -276,7 +276,7 @@ func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, arg
 			"content_hash":      sha1sum,
 		}
 
-		raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
+		raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header), util.WithRetry(3))
 		if err != nil {
 			return upload, err
 		}
@@ -372,8 +372,11 @@ func uploadFilePart(uploadUrl string, file *os.File, start, length int64) error 
 	data := make([]byte, length)
 	n, _ := file.ReadAt(data, start)
 
-	_, err := util.PUT(uploadUrl, util.WithBody(data[:n]), util.WithRetry(3))
+	_, err := util.PUT(uploadUrl, util.WithBody(data[:n]), util.WithRetry(5))
 	if err != nil {
+		if val, ok := err.(util.CodeError); ok && val.Code == http.StatusConflict {
+			return nil
+		}
 		return err
 	}
 

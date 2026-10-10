@@ -33,6 +33,9 @@ type clientConfig struct {
 	cookieJar CustomerCookie
 	cookieFun CustomerCookie
 	dir       string // file jar dir
+
+	beforeRequest func(r *http.Request)
+	afterResponse func(w *http.Response)
 }
 
 type ClientOption interface {
@@ -141,7 +144,7 @@ func WithClientCookieFun(name string) ClientOption {
 		if config.cookieFun != nil {
 			return
 		}
-		
+
 		var privateJar *cookiejar.Jar
 		if loadJar := unSerialize(name); loadJar != nil {
 			privateJar = loadJar
@@ -214,6 +217,18 @@ func WithAddiotionHeader(header map[string]string) ClientOption {
 	}
 	return newFuncClientOption(func(config *clientConfig) {
 		config.additionHeader = header
+	})
+}
+
+func WithClientBeforeRequest(f func(*http.Request)) ClientOption {
+	return newFuncClientOption(func(config *clientConfig) {
+		config.beforeRequest = f
+	})
+}
+
+func WithClientAfterResponse(f func(*http.Response)) ClientOption {
+	return newFuncClientOption(func(config *clientConfig) {
+		config.afterResponse = f
 	})
 }
 
@@ -422,6 +437,11 @@ func (c *customerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 		cookie.Cookies(r)
 	}
 
+	// beforeRequest 全局的
+	if c.config.beforeRequest != nil {
+		c.config.beforeRequest(r)
+	}
+
 	// headers, 全局范围
 	if c.config.additionHeader != nil {
 		for k, v := range c.config.additionHeader {
@@ -434,10 +454,10 @@ func (c *customerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	if cb, ok := r.Context().Value(callbackKey).(*callback); ok {
 		call = cb
 	}
+
 	if call != nil && call.beforeTransport != nil {
 		call.beforeTransport(r)
 	}
-
 	resp, err := c.Transport.RoundTrip(r)
 	if err != nil {
 		return nil, err
@@ -445,9 +465,13 @@ func (c *customerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	if cookie != nil && resp != nil {
 		cookie.SetCookies(r.URL, resp)
 	}
-
 	if call != nil && call.afterTransport != nil {
 		call.afterTransport(r, resp)
+	}
+
+	// afterResponse 全局的
+	if c.config.afterResponse != nil {
+		c.config.afterResponse(resp)
 	}
 
 	return resp, nil
