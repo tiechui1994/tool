@@ -1,12 +1,8 @@
 package aliyundrive
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/md5"
-	"crypto/rand"
 	"crypto/sha1"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -21,20 +17,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dustinxie/ecc"
+	"github.com/tiechui1994/tool/aliyun/singleflight"
 	"github.com/tiechui1994/tool/log"
 	"github.com/tiechui1994/tool/util"
-	"github.com/tiechui1994/tool/aliyun/singleflight"
 )
 
 const (
-	yunpan = "https://api.aliyundrive.com"
-)
-
-var (
-	header = map[string]string{
-		"content-type": "application/json",
-	}
+	yunpan    = "https://api.aliyundrive.com"
+	origin    = "https://www.aliyundrive.com"
+	referer   = "https://www.aliyundrive.com/"
+	userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
+	xCanary   = "client=web,app=adrive,version=v6.8.3"
 )
 
 func calProof(accesstoken string, path string) string {
@@ -76,8 +69,11 @@ func Refresh(refresh string) (token Token, err error) {
 		"refresh_token": refresh,
 	}
 	header := map[string]string{
-		"accept":       "application/json",
+		"accept":       "application/json, text/plain, */*",
 		"content-type": "application/json",
+		"origin":       origin,
+		"user-agent":   userAgent,
+		"x-canary":     xCanary,
 	}
 
 	raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header))
@@ -114,72 +110,14 @@ type File struct {
 	Extension string `json:"file_extension"`
 }
 
-type State struct {
-	deviceID  string
-	signature string
-}
-
-var (
-	state *State
-	once  sync.Once
-)
-
-func initState(token Token) {
-	once.Do(func() {
-		state = &State{
-			deviceID: token.DeviceID,
-		}
-		privateKey, _ := ecdsa.GenerateKey(ecc.P256k1(), rand.Reader)
-
-		secpAppID := "5dde4e1bdf9e4966b387ba58f4b3fdc3"
-		singdata := fmt.Sprintf("%s:%s:%s:%d", secpAppID, token.DeviceID, token.UserID, 0)
-		hash := sha256.Sum256([]byte(singdata))
-		data, _ := ecc.SignBytes(privateKey, hash[:], ecc.RecID|ecc.LowerS)
-		state.signature = hex.EncodeToString(data)
-
-		publicKey := privateKey.PublicKey
-		pubKey := hex.EncodeToString(elliptic.Marshal(publicKey.Curve, publicKey.X, publicKey.Y))
-
-		u := "https://api.aliyundrive.com/users/v1/users/device/create_session"
-		body := fmt.Sprintf(`{"deviceName":"Chrome浏览器","modelName":"Linux网页版","pubKey":"%v"}`, pubKey)
-		header := map[string]string{
-			"accept":        "application/json",
-			"authorization": "Bearer " + token.AccessToken,
-			"content-type":  "application/json",
-			"X-Canary":      "client=web,app=adrive,version=v4.3.1",
-			"x-device-id":   token.DeviceID,
-			"X-Signature":   state.signature,
-		}
-		raw, err := util.POST(u, util.WithBody(body), util.WithHeader(header), util.WithRetry(3))
-		if err != nil {
-			fmt.Printf("create_session failed: %v \n", err)
-			os.Exit(1)
-		}
-		var result struct {
-			Success bool        `json:"success"`
-			Message interface{} `json:"message"`
-		}
-		err = json.Unmarshal(raw, &result)
-		if err != nil {
-			fmt.Printf("decode result failed: %v \n", err)
-			os.Exit(1)
-		}
-		if !result.Success {
-			fmt.Printf("session failed: %v \n", result.Message)
-			os.Exit(1)
-		}
-	})
-}
-
 func commonHeader(token Token) map[string]string {
-	initState(token)
 	return map[string]string{
-		"accept":        "application/json",
+		"accept":        "application/json, text/plain, */*",
 		"authorization": "Bearer " + token.AccessToken,
 		"content-type":  "application/json",
-		"X-Canary":      "client=web,app=adrive,version=v4.3.1",
-		"x-device-id":   state.deviceID,
-		"X-Signature":   state.signature,
+		"origin":        origin,
+		"user-agent":    userAgent,
+		"x-canary":      xCanary,
 	}
 }
 
@@ -276,7 +214,7 @@ const (
 )
 
 const (
-	m10 = 32 * 1024 * 1024
+	m10 = 16 * 1024 * 1024
 )
 
 func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, args map[string]interface{}, path ...string) (
@@ -290,6 +228,10 @@ func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, arg
 		"name":            name,
 		"parent_file_id":  fileid,
 		"type":            filetype,
+	}
+	if filetype == TYPE_FILE {
+		body["create_scene"] = "file_upload"
+		body["device_name"] = ""
 	}
 
 	if filetype == TYPE_FOLDER {
@@ -320,6 +262,8 @@ func CreateWithFolder(checkmode, name, filetype, fileid string, token Token, arg
 
 		body = map[string]interface{}{
 			"check_name_mode":   checkmode,
+			"create_scene":      "file_upload",
+			"device_name":       "",
 			"drive_id":          token.DriveID,
 			"name":              name,
 			"parent_file_id":    fileid,
@@ -398,7 +342,7 @@ func UploadFile(path, fileid string, token Token) (id string, err error) {
 
 	log.Infoln("upload file=%q fileid=%v prehash=%v", path, upload.FileID, prehash)
 	if upload.RapidUpload {
-		log.Infoln("upload file=%q has exist")
+		log.Infoln("upload file=%q has exist", path)
 		return upload.FileID, nil
 	}
 
@@ -600,9 +544,10 @@ func Download(file File, parallel int, dir string, token Token) error {
 			if to >= uint(du.Size) {
 				to = uint(du.Size) - 1
 			}
-			header = map[string]string{
+			header := map[string]string{
 				"connection": "keep-alive",
-				"referer":    "https://www.aliyundrive.com/",
+				"referer":    referer,
+				"user-agent": userAgent,
 				"range":      fmt.Sprintf("bytes=%v-%v", from, to),
 			}
 			raw, err := util.GET(du.Url, util.WithHeader(header))
@@ -610,7 +555,7 @@ func Download(file File, parallel int, dir string, token Token) error {
 				if strings.Contains(err.Error(), "Forbidden") && retry <= 3 {
 					retry += 1
 					val, err, _ := group.Do("url", func() (interface{}, error) {
-						log.Errorln("download file=%q batch index %v error: %v", i, err)
+						log.Errorln("download file=%q batch index %v error: %v", file.Name, idx, err)
 						return GetDownloadUrl(file, token)
 					})
 					if err == nil {
